@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Item Master</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="job-report.html">Job Report</a>
+        <a class="active" href="item-master.html">Item Master</a>
+        <a href="#">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Item Master - Manage Catalog</h1>
+        <div class="topbar-right"></div>
+      </header>
+
+      <section class="card inventory-card">
+        <h3>Add / Edit Item</h3>
+        <form id="itemForm" class="inventory-form">
+          <div class="form-row">
+            <label>SKU / Part Number<input id="itemCode" required placeholder="Unique identifier"></label>
+            <label>Item Name<input id="itemName" required placeholder="Item description"></label>
+          </div>
+          <div class="form-row">
+            <label>Category<input id="category" placeholder="e.g., Electronics, Hardware"></label>
+            <label>Unit Price<input id="unitPrice" type="number" step="0.01" placeholder="Optional"></label>
+          </div>
+          <div class="form-row">
+            <label style="flex:1">Description<textarea id="description" rows="2" placeholder="Additional details"></textarea></label>
+          </div>
+          <div class="form-row">
+            <button id="addBtn" type="submit">Add Item</button>
+            <button id="clearBtn" type="button" class="muted">Clear</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h3>Item Catalog</h3>
+        <div style="margin-bottom:12px;">
+          <input id="searchBox" type="text" placeholder="Search by code or name..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
+        </div>
+        <table id="itemTable">
+          <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit Price</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/item-master.js"></script>
+</body>
+</html>

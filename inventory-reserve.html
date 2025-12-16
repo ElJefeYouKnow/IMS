@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Reserve Inventory</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="inventory-checkin.html">Check-In</a>
+        <a href="inventory-checkout.html">Check-Out</a>
+        <a class="active" href="inventory-reserve.html">Reserve</a>
+        <a href="job-report.html">Job Report</a>
+        <a href="item-master.html">Item Master</a>
+        <a href="#">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Reserve Inventory</h1>
+        <div class="topbar-right"></div>
+      </header>
+
+      <section class="card inventory-card">
+        <form id="reserveForm" class="inventory-form">
+          <div class="form-row">
+            <label>Item Code<input id="itemCode" required placeholder="SKU, part number or barcode"></label>
+            <label>Job Name/ID<input id="jobId" required placeholder="Job number or name"></label>
+          </div>
+          <div class="form-row">
+            <label>Quantity to Reserve<input id="qty" type="number" min="1" value="1" required></label>
+            <label>Expected Return Date<input id="returnDate" type="date"></label>
+          </div>
+          <div class="form-row">
+            <label style="flex:1">Notes<textarea id="notes" rows="2" placeholder="Optional notes"></textarea></label>
+          </div>
+          <div class="form-row">
+            <button id="reserveBtn" type="submit">Reserve</button>
+            <button id="clearBtn" type="button" class="muted">Clear All</button>
+            <button id="exportBtn" type="button" class="muted">Export CSV</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h3>Active Reservations</h3>
+        <table id="reserveTable">
+          <thead><tr><th>Code</th><th>Job ID</th><th>Qty</th><th>Expected Return</th><th>Reserved On</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/reserve.js"></script>
+</body>
+</html>

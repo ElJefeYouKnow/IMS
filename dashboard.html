@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>App Dashboard</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a class="active" href="dashboard.html">Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="job-report.html">Job Report</a>
+        <a href="item-master.html">Item Master</a>
+        <a href="#">Settings</a>
+      </nav>
+      <button id="collapseBtn" class="collapse">Collapse</button>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Dashboard</h1>
+        <div class="topbar-right">
+          <div id="clock" class="clock"></div>
+        </div>
+      </header>
+
+      <section class="widgets">
+        <div class="card">
+          <h3>Available Units</h3>
+          <div id="availableUnits" class="value">-</div>
+        </div>
+        <div class="card">
+          <h3>Reserved Units</h3>
+          <div id="reservedUnits" class="value">-</div>
+        </div>
+        <div class="card">
+          <h3>Low Stock Alerts</h3>
+          <div id="lowStockCount" class="value">-</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="chart-card">
+          <h3>Weekly Activity</h3>
+          <canvas id="trafficChart" width="600" height="200"></canvas>
+        </div>
+
+        <div class="table-card">
+          <h3>Low Stock Alerts</h3>
+          <table id="lowStockTable">
+            <thead><tr><th>Code</th><th>Name</th><th>Available</th><th>Reserved</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Recent Activity</h3>
+        <table id="activityTable">
+          <thead><tr><th>Type</th><th>Code</th><th>Qty</th><th>Job</th><th>When</th></tr></thead>
+          <tbody><tr><td colspan="5" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>

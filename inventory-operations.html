@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Inventory Operations</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .mode-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      border-bottom: 2px solid #e5e7eb;
+    }
+    .mode-tabs button {
+      padding: 12px 20px;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: #6b7280;
+      transition: all 0.3s;
+    }
+    .mode-tabs button.active {
+      color: #4f46e5;
+      border-bottom-color: #4f46e5;
+    }
+    .mode-tabs button:hover {
+      color: #374151;
+    }
+    .mode-content {
+      display: none;
+    }
+    .mode-content.active {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a class="active" href="inventory-operations.html">Operations</a>
+        <a href="job-report.html">Job Report</a>
+        <a href="item-master.html">Item Master</a>
+        <a href="#">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Inventory Operations</h1>
+        <div class="topbar-right"></div>
+      </header>
+
+      <section class="card">
+        <div class="mode-tabs">
+          <button class="mode-btn active" data-mode="checkin">Check-In</button>
+          <button class="mode-btn" data-mode="checkout">Check-Out</button>
+          <button class="mode-btn" data-mode="reserve">Reserve</button>
+          <button class="mode-btn" data-mode="return">Return</button>
+        </div>
+      </section>
+
+      <!-- CHECK-IN MODE -->
+      <div id="checkin-mode" class="mode-content active">
+        <section class="card inventory-card">
+          <form id="checkinForm" class="inventory-form">
+            <div class="form-row">
+              <label>Item Code
+                <input id="checkin-itemCode" required placeholder="SKU, part number or barcode">
+                <div id="checkin-itemCodeSuggestions" class="suggestions"></div>
+              </label>
+              <label>Item Name<input id="checkin-itemName" placeholder="Auto-filled from master" readonly></label>
+            </div>
+            <div class="form-row">
+              <label>Category<input id="checkin-itemCategory" placeholder="Auto-filled from master" readonly></label>
+              <label>Unit Price<input id="checkin-itemUnitPrice" placeholder="Auto-filled from master" readonly></label>
+            </div>
+            <div class="form-row">
+              <label>Quantity<input id="checkin-qty" type="number" min="1" value="1" required></label>
+              <label>Job ID<input id="checkin-jobId" placeholder="Optional - job this inventory is for"></label>
+            </div>
+            <div class="form-row">
+              <label>Location<input id="checkin-location" placeholder="Warehouse / Shelf"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1">Notes<textarea id="checkin-notes" rows="2" placeholder="Optional notes"></textarea></label>
+            </div>
+            <div class="form-row">
+              <button id="checkinBtn" type="submit">Check In</button>
+              <button id="checkin-clearBtn" type="button" class="muted">Clear All</button>
+              <button id="checkin-exportBtn" type="button" class="muted">Export CSV</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
+          <h3>Recent Check-Ins</h3>
+          <table id="checkinTable">
+            <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Location</th><th>Job ID</th><th>When</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+
+      <!-- CHECK-OUT MODE -->
+      <div id="checkout-mode" class="mode-content">
+        <section class="card inventory-card">
+          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Materials and parts are taken from inventory to be used. Track which job this is for and any notes about the usage.</p>
+          <form id="checkoutForm" class="inventory-form">
+            <div class="form-row">
+              <label>Item Code
+                <input id="checkout-itemCode" required placeholder="SKU, part number or barcode">
+                <div id="checkout-itemCodeSuggestions" class="suggestions"></div>
+              </label>
+              <label>Item Name<input id="checkout-itemName" placeholder="Auto-filled from master" readonly></label>
+            </div>
+            <div class="form-row">
+              <label>Category<input id="checkout-itemCategory" placeholder="Auto-filled from master" readonly></label>
+              <label>Unit Price<input id="checkout-itemUnitPrice" placeholder="Auto-filled from master" readonly></label>
+            </div>
+            <div class="form-row">
+              <label>Quantity<input id="checkout-qty" type="number" min="1" value="1" required></label>
+              <label>Job ID<input id="checkout-jobId" required placeholder="Which job is this for?"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1">Notes<textarea id="checkout-notes" rows="2" placeholder="Optional notes about usage"></textarea></label>
+            </div>
+            <div class="form-row">
+              <button id="checkoutBtn" type="submit">Take from Inventory</button>
+              <button id="checkout-clearBtn" type="button" class="muted">Clear All</button>
+              <button id="checkout-exportBtn" type="button" class="muted">Export CSV</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
+          <h3>Recent Checkouts</h3>
+          <table id="checkoutTable">
+            <thead><tr><th>Code</th><th>Job ID</th><th>Qty</th><th>When</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+
+      <!-- RESERVE MODE -->
+      <div id="reserve-mode" class="mode-content">
+        <section class="card inventory-card">
+          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Allocate inventory to a specific job (removes from available stock). Set an expected return date if the inventory may come back.</p>
+          <form id="reserveForm" class="inventory-form">
+            <div class="form-row">
+              <label>Item Code
+                <input id="reserve-itemCode" required placeholder="SKU, part number or barcode">
+                <div id="reserve-itemCodeSuggestions" class="suggestions"></div>
+              </label>
+              <label>Item Name<input id="reserve-itemName" placeholder="Auto-filled from master" readonly></label>
+            </div>
+            <div class="form-row">
+              <label>Category<input id="reserve-itemCategory" placeholder="Auto-filled from master" readonly></label>
+              <label>Unit Price<input id="reserve-itemUnitPrice" placeholder="Auto-filled from master" readonly></label>
+            </div>
+            <div class="form-row">
+              <label>Quantity to Reserve<input id="reserve-qty" type="number" min="1" value="1" required></label>
+              <label>Job Name/ID<input id="reserve-jobId" required placeholder="Job number or name"></label>
+            </div>
+            <div class="form-row">
+              <label>Expected Return Date<input id="reserve-returnDate" type="date"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1">Notes<textarea id="reserve-notes" rows="2" placeholder="Optional notes"></textarea></label>
+            </div>
+            <div class="form-row">
+              <button id="reserveBtn" type="submit">Reserve</button>
+              <button id="reserve-clearBtn" type="button" class="muted">Clear All</button>
+              <button id="reserve-exportBtn" type="button" class="muted">Export CSV</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
+          <h3>Active Reservations</h3>
+          <table id="reserveTable">
+            <thead><tr><th>Code</th><th>Job ID</th><th>Qty</th><th>Expected Return</th><th>Reserved On</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+
+      <!-- RETURN MODE -->
+      <div id="return-mode" class="mode-content">
+        <section class="card inventory-card">
+          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Return inventory that was previously checked out back to general stock.</p>
+          <form id="returnForm" class="inventory-form">
+            <div class="form-row" style="align-items: center; gap: 8px;">
+              <label style="flex: 1;">Select from Recent Checkouts
+                <select id="return-fromCheckout" style="width: 100%;">
+                  <option value="">-- Manual Entry --</option>
+                </select>
+              </label>
+              <button id="return-loadCheckoutBtn" type="button" class="muted" style="margin-top: 24px;">Load</button>
+            </div>
+            <div style="border-top: 1px solid #e5e7eb; margin: 16px 0; padding-top: 16px;">
+              <p style="color: #6b7280; font-size: 12px; margin: 0 0 12px 0;">Or enter manually:</p>
+            <div class="form-row">
+              <label>Item Code
+                <input id="return-itemCode" required placeholder="SKU, part number or barcode">
+                <div id="return-itemCodeSuggestions" class="suggestions"></div>
+              </label>
+              <label>Item Name<input id="return-itemName" placeholder="Auto-filled from master" readonly></label>
+            </div>
+            <div class="form-row">
+              <label>Category<input id="return-itemCategory" placeholder="Auto-filled from master" readonly></label>
+              <label>Unit Price<input id="return-itemUnitPrice" placeholder="Auto-filled from master" readonly></label>
+            </div>
+            <div class="form-row">
+              <label>Quantity to Return<input id="return-qty" type="number" min="1" value="1" required></label>
+              <label>From Job ID<input id="return-jobId" placeholder="Which job is this returning from?"></label>
+            </div>
+            <div class="form-row">
+              <label>Return Reason<select id="return-reason" required>
+                <option value="">Select reason...</option>
+                <option value="unused">Unused</option>
+                <option value="overstock">Overstock</option>
+                <option value="damaged">Damaged</option>
+                <option value="wrong-item">Wrong Item</option>
+                <option value="other">Other</option>
+              </select></label>
+            </div>
+            <div class="form-row">
+              <label>Return Location<input id="return-location" placeholder="Warehouse / Shelf"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1">Notes<textarea id="return-notes" rows="2" placeholder="Optional notes"></textarea></label>
+            </div>
+            <div class="form-row">
+              <button id="returnBtn" type="submit">Return to Inventory</button>
+              <button id="return-clearBtn" type="button" class="muted">Clear All</button>
+              <button id="return-exportBtn" type="button" class="muted">Export CSV</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
+          <h3>Recent Returns</h3>
+          <table id="returnTable">
+            <thead><tr><th>Code</th><th>Qty</th><th>From Job</th><th>Reason</th><th>Location</th><th>When</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/operations.js"></script>
+</body>
+</html>

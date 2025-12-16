@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Inventory</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a class="active" href="inventory-list.html">Inventory</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="job-report.html">Job Report</a>
+        <a href="item-master.html">Item Master</a>
+        <a href="#">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Current Inventory</h1>
+        <div class="topbar-right"></div>
+      </header>
+
+      <section class="card">
+        <div style="margin-bottom:12px;">
+          <input id="searchBox" type="text" placeholder="Search by code or name..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
+        </div>
+        <table id="invTable">
+          <thead><tr><th>Code</th><th>Name</th><th>Total In</th><th>Total Out</th><th>Reserved</th><th>Available</th><th>Last Updated</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h3>Search Job Transactions</h3>
+        <div style="margin-bottom:12px;">
+          <input id="jobSearchBox" type="text" placeholder="Enter job ID to see all activity..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:400px;">
+        </div>
+        <table id="jobTransactionTable">
+          <thead><tr><th>Type</th><th>Code</th><th>Qty</th><th>Location</th><th>Reason</th><th>Notes</th><th>When</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h3>Job Inventory Summary</h3>
+        <div style="margin-bottom:12px;">
+          <input id="jobSummarySearch" type="text" placeholder="Search by job ID..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
+        </div>
+        <table id="jobSummaryTable">
+          <thead><tr><th>Job ID</th><th>Item Code</th><th>Checked In</th><th>Checked Out</th><th>Reserved</th><th>Net Usage</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/inventory-list.js"></script>
+</body>
+</html>

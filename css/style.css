@@ -1,0 +1,37 @@
+:root{
+  --bg:#f4f6f9;--card:#ffffff;--accent:#4f46e5;--muted:#6b7280;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:var(--bg);color:#111}
+.app{display:flex;min-height:100vh}
+.sidebar{width:220px;background:#0f172a;color:#fff;padding:20px;display:flex;flex-direction:column}
+.sidebar{position:sticky;top:0;align-self:flex-start;min-height:100vh}
+.brand{font-weight:700;font-size:1.25rem;margin-bottom:1rem}
+.sidebar nav{display:flex;flex-direction:column;gap:8px}
+.sidebar a{color:rgba(255,255,255,0.9);text-decoration:none;padding:8px;border-radius:6px}
+.sidebar a.active{background:rgba(255,255,255,0.06)}
+.collapse{margin-top:auto;padding:8px;border:none;background:#111827;color:#fff;border-radius:6px}
+.main{flex:1;padding:20px}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.widgets{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px}
+.card{background:var(--card);padding:14px;border-radius:8px;box-shadow:0 1px 2px rgba(16,24,40,0.04)}
+.card h3{margin:0;color:var(--muted);font-size:0.9rem}
+.value{font-size:1.6rem;font-weight:700;margin-top:8px}
+.panel{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.chart-card,.table-card{background:var(--card);padding:14px;border-radius:8px}
+table{width:100%;border-collapse:collapse}
+thead th{text-align:left;padding:8px;color:var(--muted);font-size:0.85rem}
+tbody td{padding:10px;border-top:1px solid #eef2f7}
+.clock{font-size:0.9rem;color:var(--muted)}
+@media(max-width:800px){.sidebar{display:none}.panel{grid-template-columns:1fr}.app{flex-direction:column}.main{padding:12px}}
+
+/* Inventory page tweaks */
+.inventory-card{margin-bottom:12px}
+.inventory-form{display:flex;flex-direction:column;gap:10px}
+.form-row{display:flex;gap:10px;position:relative}
+.suggestions{position:absolute;top:100%;left:0;background:#fff;border:1px solid #e6edf3;border-radius:6px;max-height:200px;overflow-y:auto;z-index:10;width:100%;min-width:200px;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
+.form-row label{display:flex;flex-direction:column;flex:1;font-size:0.9rem}
+.form-row input,.form-row textarea{padding:8px;border-radius:6px;border:1px solid #e6edf3}
+.inventory-form button{padding:8px 12px;border-radius:6px;border:none;background:var(--accent);color:#fff}
+.inventory-form button.muted{background:#eef2f7;color:#111;border:1px solid #e6edf3}
+@media(max-width:680px){.form-row{flex-direction:column}}
