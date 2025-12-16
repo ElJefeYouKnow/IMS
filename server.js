@@ -67,16 +67,16 @@ function calcAvailability(entries, code){
 }
 
 function calcOutstandingCheckout(entries, code, jobId){
-  // Track per-job to avoid subtracting returns from unrelated jobs
   let qtyOut=0, qtyReturn=0;
   const targetJob = (jobId || '').trim();
   entries.forEach(e=>{
     if(e.code !== code) return;
     const entryJob = (e.jobId || '').trim();
+    // Return must map to the same job; if jobId not provided, only match job-less checkouts/returns
     if(targetJob){
       if(entryJob !== targetJob) return;
     }else{
-      if(entryJob) return; // only count job-less checkouts/returns when jobId not provided
+      if(entryJob) return;
     }
     const q = Number(e.qty) || 0;
     if(e.type === 'out') qtyOut += q;
