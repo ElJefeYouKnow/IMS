@@ -16,6 +16,7 @@
         <a class="active" href="inventory-operations.html">Operations</a>
         <a href="job-report.html">Job Report</a>
         <a href="item-master.html">Item Master</a>
+        <a href="job-creator.html">Job Creator</a>
         <a href="#">Settings</a>
       </nav>
     </aside>
@@ -41,7 +42,11 @@
           </div>
           <div class="form-row">
             <label>Quantity<input id="qty" type="number" min="1" value="1" required></label>
-            <label>Job ID<input id="jobId" placeholder="Optional - job this inventory is for"></label>
+            <label>Job ID
+              <select id="jobId">
+                <option value="">General Inventory</option>
+              </select>
+            </label>
           </div>
           <div class="form-row">
             <label>Location<input id="location" placeholder="Warehouse / Shelf"></label>

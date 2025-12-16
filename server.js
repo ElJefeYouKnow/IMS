@@ -7,21 +7,32 @@ const PORT = process.env.PORT || 8000;
 const dataDir = path.join(__dirname, 'data');
 const dataFile = path.join(dataDir, 'inventory.json');
 const itemsFile = path.join(dataDir, 'items.json');
+const jobsFile = path.join(dataDir, 'jobs.json');
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname)));
+
+function newId(){
+  return 'itm_' + Math.random().toString(16).slice(2, 10) + Date.now().toString(16);
+}
 
 function ensureDataFile(){
   if(!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
   if(!fs.existsSync(dataFile)) fs.writeFileSync(dataFile, '[]', 'utf8');
   if(!fs.existsSync(itemsFile)) fs.writeFileSync(itemsFile, '[]', 'utf8');
+  if(!fs.existsSync(jobsFile)) fs.writeFileSync(jobsFile, '[]', 'utf8');
 }
 
 function readEntries(){
   ensureDataFile();
   try{
     const raw = fs.readFileSync(dataFile, 'utf8');
-    return JSON.parse(raw || '[]');
+    const entries = JSON.parse(raw || '[]');
+    // Backfill missing ids for legacy rows
+    let mutated = false;
+    entries.forEach(e=>{ if(!e.id){ e.id = newId(); mutated = true; } });
+    if(mutated) writeEntries(entries);
+    return entries;
   }catch(e){
     return [];
   }
@@ -45,6 +56,21 @@ function readItems(){
 function writeItems(items){
   ensureDataFile();
   fs.writeFileSync(itemsFile, JSON.stringify(items, null, 2), 'utf8');
+}
+
+function readJobs(){
+  ensureDataFile();
+  try{
+    const raw = fs.readFileSync(jobsFile, 'utf8');
+    return JSON.parse(raw || '[]');
+  }catch(e){
+    return [];
+  }
+}
+
+function writeJobs(jobs){
+  ensureDataFile();
+  fs.writeFileSync(jobsFile, JSON.stringify(jobs, null, 2), 'utf8');
 }
 
 function filterByType(entries, type){
@@ -96,7 +122,7 @@ app.post('/api/inventory', (req, res) => {
   const qtyNum = Number(qty);
   if(!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
   const entries = readEntries();
-  const entry = { code, name, qty: qtyNum, location, jobId, notes, ts: ts || Date.now(), type: 'in' };
+  const entry = { id: newId(), code, name, qty: qtyNum, location, jobId, notes, ts: ts || Date.now(), type: 'in' };
   entries.push(entry);
   writeEntries(entries);
   res.status(201).json(entry);
@@ -109,7 +135,7 @@ app.post('/api/inventory-checkout', (req, res) => {
   const entries = readEntries();
   const available = calcAvailability(entries, code);
   if(qtyNum > available) return res.status(400).json({ error: 'insufficient stock', available });
-  const entry = { code, jobId, qty: qtyNum, reason, notes, ts: ts || Date.now(), type: 'out' };
+  const entry = { id: newId(), code, jobId, qty: qtyNum, reason, notes, ts: ts || Date.now(), type: 'out' };
   entries.push(entry);
   writeEntries(entries);
   res.status(201).json(entry);
@@ -143,7 +169,7 @@ app.post('/api/inventory-reserve', (req, res) => {
   const entries = readEntries();
   const available = calcAvailability(entries, code);
   if(qtyNum > available) return res.status(400).json({ error: 'insufficient stock', available });
-  const entry = { code, jobId, qty: qtyNum, returnDate, notes, ts: ts || Date.now(), type: 'reserve' };
+  const entry = { id: newId(), code, jobId, qty: qtyNum, returnDate, notes, ts: ts || Date.now(), type: 'reserve' };
   entries.push(entry);
   writeEntries(entries);
   res.status(201).json(entry);
@@ -169,7 +195,7 @@ app.post('/api/inventory-return', (req, res) => {
   const outstanding = calcOutstandingCheckout(entries, code, jobId);
   if(outstanding <= 0) return res.status(400).json({ error: 'no matching checkout to return' });
   if(qtyNum > outstanding) return res.status(400).json({ error: 'return exceeds outstanding checkout', outstanding });
-  const entry = { code, jobId, qty: qtyNum, reason, location, notes, ts: ts || Date.now(), type: 'return' };
+  const entry = { id: newId(), code, jobId, qty: qtyNum, reason, location, notes, ts: ts || Date.now(), type: 'return' };
   entries.push(entry);
   writeEntries(entries);
   res.status(201).json(entry);
@@ -206,6 +232,34 @@ app.delete('/api/items/:code', (req, res) => {
   let items = readItems();
   items = items.filter(i=> i.code !== code);
   writeItems(items);
+  res.status(204).end();
+});
+
+// JOBS
+app.get('/api/jobs', (req, res) => {
+  res.json(readJobs());
+});
+
+app.post('/api/jobs', (req, res) => {
+  const { code, name, scheduleDate } = req.body;
+  if(!code) return res.status(400).json({ error: 'code required' });
+  let jobs = readJobs();
+  const existing = jobs.find(j=> j.code === code);
+  if(existing){
+    existing.name = name || existing.name || '';
+    existing.scheduleDate = scheduleDate || existing.scheduleDate || null;
+  }else{
+    jobs.push({ code, name: name || '', scheduleDate: scheduleDate || null });
+  }
+  writeJobs(jobs);
+  res.status(existing ? 200 : 201).json({ code, name: name || '', scheduleDate: scheduleDate || null });
+});
+
+app.delete('/api/jobs/:code', (req, res) => {
+  const code = req.params.code;
+  let jobs = readJobs();
+  jobs = jobs.filter(j=> j.code !== code);
+  writeJobs(jobs);
   res.status(204).end();
 });
 

@@ -1,9 +1,86 @@
 let allItems = [];
+let jobOptions = [];
 const FALLBACK = 'N/A';
 
 // ===== SHARED UTILITIES =====
 async function loadItems(){
   allItems = await utils.fetchJsonSafe('/api/items', {}, []) || [];
+}
+
+async function loadJobOptions(){
+  const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
+  const today = new Date();
+  jobOptions = (jobs || [])
+    .filter(j=> !j.scheduleDate || new Date(j.scheduleDate) >= today)
+    .map(j=> j.code)
+    .filter(Boolean)
+    .sort();
+  applyJobOptions();
+}
+
+function applyJobOptions(){
+  const ids = ['checkin-jobId','checkout-jobId','reserve-jobId','return-jobId'];
+  ids.forEach(id=>{
+    const sel = document.getElementById(id);
+    if(!sel) return;
+    const current = sel.value;
+    const isRequired = sel.hasAttribute('required');
+    sel.innerHTML = isRequired ? '<option value="">Select job...</option>' : '<option value="">General Inventory</option>';
+    jobOptions.forEach(job=>{
+      const opt=document.createElement('option');
+      opt.value=job; opt.textContent=job;
+      sel.appendChild(opt);
+    });
+    if(current) sel.value=current;
+  });
+}
+
+function ensureJobOption(jobId){
+  const id = (jobId||'').trim();
+  if(!id) return;
+  if(!jobOptions.includes(id)) return; // only allow known, non-expired jobs
+}
+
+function getOutstandingCheckouts(checkouts, returns){
+  const map = new Map(); // key -> {qty, last}
+  const sum = (list, sign)=>{
+    list.forEach(e=>{
+      const key = `${e.code}|${(e.jobId||'').trim()}`;
+      const qty = Number(e.qty)||0;
+      if(!map.has(key)) map.set(key,{qty:0,last:0,entry:e});
+      const rec = map.get(key);
+      rec.qty += sign*qty;
+      if((e.ts||0) > rec.last){ rec.last = e.ts||0; rec.entry = e; }
+    });
+  };
+  sum(checkouts, 1);
+  sum(returns, -1);
+  return Array.from(map.entries())
+    .filter(([,v])=> v.qty > 0)
+    .map(([key,v])=>({key, outstanding:v.qty, entry:v.entry}));
+}
+
+async function refreshReturnDropdown(select){
+  const checkouts = await loadCheckouts();
+  const returns = await loadReturns();
+  const outstanding = getOutstandingCheckouts(checkouts, returns);
+  select.innerHTML = '<option value="">-- Manual Entry --</option>';
+  outstanding.slice(-20).reverse().forEach(item=>{
+    const co = item.entry;
+    const opt = document.createElement('option');
+    opt.value = JSON.stringify({...co, qty: item.outstanding});
+    opt.textContent = `${co.code} (Job: ${co.jobId||FALLBACK}, Qty left: ${item.outstanding})`;
+    select.appendChild(opt);
+  });
+  select.onchange = ()=>{
+    if(!select.value) return;
+    const co = JSON.parse(select.value);
+    document.getElementById('return-itemCode').value = co.code;
+    document.getElementById('return-itemName').value = co.name || '';
+    document.getElementById('return-jobId').value = co.jobId || '';
+    document.getElementById('return-qty').value = co.qty;
+    document.getElementById('return-reason').value = 'unused';
+  };
 }
 
 // ===== CHECK-IN MODE =====
@@ -247,6 +324,7 @@ function switchMode(mode){
 // ===== DOM READY =====
 document.addEventListener('DOMContentLoaded', async ()=>{
   await loadItems();
+  await loadJobOptions();
   
   // Load all tables initially
   await renderCheckinTable();
@@ -295,37 +373,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       // Auto-load checkouts when switching to return mode
       if(btn.dataset.mode === 'return'){
         const select = document.getElementById('return-fromCheckout');
-        const checkouts = await loadCheckouts();
-        const returns = await loadReturns();
-        
-        if(checkouts.length){
-          // Create a set of returned items (code + jobId combination)
-          const returnedItems = new Set(returns.map(r => `${r.code}|${r.jobId}`));
-          
-          // Filter out checkouts that have been returned
-          const availableCheckouts = checkouts.filter(co => {
-            const key = `${co.code}|${co.jobId}`;
-            return !returnedItems.has(key);
-          });
-          
-          select.innerHTML = '<option value="">-- Manual Entry --</option>';
-          availableCheckouts.slice(-20).reverse().forEach(co=>{
-            const opt = document.createElement('option');
-            opt.value = JSON.stringify(co);
-            opt.textContent = `${co.code} (Job: ${co.jobId}, Qty: ${co.qty})`;
-            select.appendChild(opt);
-          });
-          // Setup change listener
-          select.onchange = ()=>{
-            if(!select.value) return;
-            const co = JSON.parse(select.value);
-            document.getElementById('return-itemCode').value = co.code;
-            document.getElementById('return-itemName').value = co.name || '';
-            document.getElementById('return-jobId').value = co.jobId;
-            document.getElementById('return-qty').value = co.qty;
-            document.getElementById('return-reason').value = 'unused';
-          };
-        }
+        await refreshReturnDropdown(select);
       }
     });
   });
@@ -336,37 +384,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     returnLoadBtn.addEventListener('click', async ()=>{
       const select = document.getElementById('return-fromCheckout');
       const checkouts = await loadCheckouts();
-      const returns = await loadReturns();
-      
       if(!checkouts.length){alert('No recent checkouts found'); return}
-      
-      // Create a set of returned items (code + jobId combination)
-      const returnedItems = new Set(returns.map(r => `${r.code}|${r.jobId}`));
-      
-      // Filter out checkouts that have been returned
-      const availableCheckouts = checkouts.filter(co => {
-        const key = `${co.code}|${co.jobId}`;
-        return !returnedItems.has(key);
-      });
-      
-      if(!availableCheckouts.length){alert('No available checkouts (all have been returned)'); return}
-      
-      select.innerHTML = '<option value="">-- Manual Entry --</option>';
-      availableCheckouts.slice(-20).reverse().forEach(co=>{
-        const opt = document.createElement('option');
-        opt.value = JSON.stringify(co);
-        opt.textContent = `${co.code} (Job: ${co.jobId}, Qty: ${co.qty})`;
-        select.appendChild(opt);
-      });
-      select.onchange = ()=>{
-        if(!select.value) return;
-        const co = JSON.parse(select.value);
-        document.getElementById('return-itemCode').value = co.code;
-        document.getElementById('return-itemName').value = co.name || '';
-        document.getElementById('return-jobId').value = co.jobId;
-        document.getElementById('return-qty').value = co.qty;
-        document.getElementById('return-reason').value = 'unused';
-      };
+      await refreshReturnDropdown(select);
+      if(select.options.length <= 1){alert('No available checkouts (all have been returned)');}
     });
   }
   
@@ -388,6 +408,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     else{
       checkinForm.reset();
       document.getElementById('checkin-qty').value = '1';
+      ensureJobOption(jobId);
     }
   });
   
@@ -412,6 +433,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     else{
       checkoutForm.reset();
       document.getElementById('checkout-qty').value = '1';
+      ensureJobOption(jobId);
     }
   });
   
@@ -437,6 +459,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     else{
       reserveForm.reset();
       document.getElementById('reserve-qty').value = '1';
+      ensureJobOption(jobId);
     }
   });
   
@@ -464,6 +487,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       else{
         returnForm.reset();
         document.getElementById('return-qty').value = '1';
+        const select = document.getElementById('return-fromCheckout');
+        if(select) await refreshReturnDropdown(select);
+        ensureJobOption(jobId);
       }
     });
   }

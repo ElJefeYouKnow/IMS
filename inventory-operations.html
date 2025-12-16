@@ -48,6 +48,7 @@
         <a class="active" href="inventory-operations.html">Operations</a>
         <a href="job-report.html">Job Report</a>
         <a href="item-master.html">Item Master</a>
+        <a href="job-creator.html">Job Creator</a>
         <a href="#">Settings</a>
       </nav>
     </aside>
@@ -84,7 +85,11 @@
             </div>
             <div class="form-row">
               <label>Quantity<input id="checkin-qty" type="number" min="1" value="1" required></label>
-              <label>Job ID<input id="checkin-jobId" placeholder="Optional - job this inventory is for"></label>
+              <label>Job ID
+                <select id="checkin-jobId">
+                  <option value="">General Inventory</option>
+                </select>
+              </label>
             </div>
             <div class="form-row">
               <label>Location<input id="checkin-location" placeholder="Warehouse / Shelf"></label>
@@ -127,7 +132,11 @@
             </div>
             <div class="form-row">
               <label>Quantity<input id="checkout-qty" type="number" min="1" value="1" required></label>
-              <label>Job ID<input id="checkout-jobId" required placeholder="Which job is this for?"></label>
+              <label>Job ID
+                <select id="checkout-jobId" required>
+                  <option value="">Select job...</option>
+                </select>
+              </label>
             </div>
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="checkout-notes" rows="2" placeholder="Optional notes about usage"></textarea></label>
@@ -167,7 +176,11 @@
             </div>
             <div class="form-row">
               <label>Quantity to Reserve<input id="reserve-qty" type="number" min="1" value="1" required></label>
-              <label>Job Name/ID<input id="reserve-jobId" required placeholder="Job number or name"></label>
+              <label>Job Name/ID
+                <select id="reserve-jobId" required>
+                  <option value="">Select job...</option>
+                </select>
+              </label>
             </div>
             <div class="form-row">
               <label>Expected Return Date<input id="reserve-returnDate" type="date"></label>
@@ -220,7 +233,11 @@
             </div>
             <div class="form-row">
               <label>Quantity to Return<input id="return-qty" type="number" min="1" value="1" required></label>
-              <label>From Job ID<input id="return-jobId" placeholder="Which job is this returning from?"></label>
+              <label>From Job ID
+                <select id="return-jobId">
+                  <option value="">Select job...</option>
+                </select>
+              </label>
             </div>
             <div class="form-row">
               <label>Return Reason<select id="return-reason" required>

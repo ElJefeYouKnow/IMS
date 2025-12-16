@@ -1,12 +1,43 @@
 const STORAGE_KEY = 'inventoryEntries_v1';
 const FALLBACK = 'N/A';
 let allItems = [];
+let jobOptions = [];
 
 function loadEntriesLocal(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]')}catch(e){return []}}
 function saveEntriesLocal(entries){localStorage.setItem(STORAGE_KEY,JSON.stringify(entries))}
 
 async function loadItems(){
   allItems = await utils.fetchJsonSafe('/api/items', {}, []) || [];
+}
+
+async function loadJobOptions(){
+  const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
+  const today = new Date();
+  jobOptions = (jobs || [])
+    .filter(j=> !j.scheduleDate || new Date(j.scheduleDate) >= today)
+    .map(j=> j.code)
+    .filter(Boolean)
+    .sort();
+  applyJobOptions();
+}
+
+function applyJobOptions(){
+  const sel = document.getElementById('jobId');
+  if(!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">General Inventory</option>';
+  jobOptions.forEach(j=>{
+    const opt=document.createElement('option');
+    opt.value=j; opt.textContent=j;
+    sel.appendChild(opt);
+  });
+  if(current) sel.value=current;
+}
+
+function ensureJobOption(jobId){
+  const id=(jobId||'').trim();
+  if(!id) return;
+  if(!jobOptions.includes(id)) return; // only allow known, non-expired jobs
 }
 
 async function apiAvailable(){
@@ -70,6 +101,7 @@ async function exportCSV(){
 
 document.addEventListener('DOMContentLoaded',async ()=>{
   await loadItems();
+  await loadJobOptions();
   renderTable();
   
   utils.attachItemLookup({
@@ -93,6 +125,7 @@ document.addEventListener('DOMContentLoaded',async ()=>{
     if(!code||qty<=0){alert('Please provide an item code and a positive quantity');return}
     const entry = {code,name,qty,location,jobId,notes,ts:Date.now()};
     await addEntry(entry);
+    ensureJobOption(jobId);
     form.reset();document.getElementById('qty').value='1';
   });
   document.getElementById('clearBtn').addEventListener('click',async ()=>{if(confirm('Clear all saved entries?')) await clearEntries();});

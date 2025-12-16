@@ -30,6 +30,7 @@ npm start
 - Reservations: http://localhost:8000/inventory-reserve.html
 - Job Report: http://localhost:8000/job-report.html
 - Item Master (Admin): http://localhost:8000/item-master.html
+- Job Creator: http://localhost:8000/job-creator.html
 
 ## Features
 
