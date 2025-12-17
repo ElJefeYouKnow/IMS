@@ -3,7 +3,7 @@
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:var(--bg);color:#111}
-.dark body{background:#0b1020;color:#e5e7eb}
+.dark body{background:#0b1020;color:#fff}
 .app{display:flex;min-height:100vh}
 .sidebar{width:220px;background:#0f172a;color:#fff;padding:20px;display:flex;flex-direction:column}
 .sidebar{position:sticky;top:0;align-self:flex-start;min-height:100vh}
@@ -29,6 +29,8 @@ table{width:100%;border-collapse:collapse}
 thead th{text-align:left;padding:8px;color:var(--muted);font-size:0.85rem}
 tbody td{padding:10px;border-top:1px solid #eef2f7}
 .clock{font-size:0.9rem;color:var(--muted)}
+.dark thead th{color:#cbd5f5}
+.dark tbody td{color:#fff;border-top:1px solid #1f2937}
 @media(max-width:800px){.sidebar{display:none}.panel{grid-template-columns:1fr}.app{flex-direction:column}.main{padding:12px}}
 
 /* Inventory page tweaks */
@@ -46,4 +48,5 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
 .form-row input,.form-row textarea,.form-row select{padding:8px;border-radius:6px;border:1px solid #e6edf3}
 .inventory-form button{padding:8px 12px;border-radius:6px;border:none;background:var(--accent);color:#fff}
 .inventory-form button.muted{background:#eef2f7;color:#111;border:1px solid #e6edf3}
+.dark .inventory-form button.muted{background:#1f2937;color:#fff;border:1px solid #374151}
 @media(max-width:680px){.form-row{flex-direction:column}}

@@ -95,6 +95,15 @@ async function initDb(){
     hash TEXT,
     createdAt INTEGER
   )`);
+  const row = await getAsync('SELECT COUNT(*) as c FROM users');
+  if(row?.c === 0){
+    const pwd = 'ChangeMe123!';
+    const { salt, hash } = hashPassword(pwd);
+    const user = { id:newId(), email:'admin@example.com', name:'Admin', role:'admin', salt, hash, createdAt: Date.now() };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt) VALUES(?,?,?,?,?,?,?)',
+      [user.id,user.email,user.name,user.role,user.salt,user.hash,user.createdAt]);
+    console.log('Seeded default admin: admin@example.com / ChangeMe123! — change after login.');
+  }
 }
 initDb().catch(console.error);
 
