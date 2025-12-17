@@ -38,6 +38,81 @@
           suggestionsDiv.appendChild(div);
         });
       });
+    },
+    setupLogout(){
+      const btn = document.getElementById('logoutBtn');
+      if(btn){
+        btn.addEventListener('click', ()=>{
+          localStorage.removeItem('sessionUser');
+          window.location.href='login.html';
+        });
+      }
+    },
+    getSession(){
+      try{return JSON.parse(localStorage.getItem('sessionUser')||'null');}catch(e){return null;}
+    },
+    async initSession(){
+      return this.getSession();
+    },
+    addAuthHeaders(options={}){
+      const headers = options.headers ? {...options.headers} : {};
+      headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+      return { ...options, headers };
+    },
+    applyStoredTheme(){
+      const theme = localStorage.getItem('theme') || 'light';
+      this.setTheme(theme, false);
+    },
+    setTheme(theme, persist=true){
+      const root = document.documentElement;
+      if(theme === 'dark'){
+        root.classList.add('dark');
+      }else{
+        root.classList.remove('dark');
+      }
+      if(persist) localStorage.setItem('theme', theme);
+    },
+    requireRole(role){
+      const user = this.getSession();
+      if(!user){
+        window.location.href='login.html';
+        return;
+      }
+      if(role === 'admin' && user.role !== 'admin'){
+        window.location.href = 'employee-dashboard.html';
+      }else if(role === 'employee' && user.role === 'admin'){
+        window.location.href = 'dashboard.html';
+      }
+    },
+    applyNavVisibility(){
+      const user = this.getSession();
+      const links = document.querySelectorAll('.sidebar nav a');
+      links.forEach(a=>{
+        const role = a.dataset.role;
+        if(!role) return;
+        if(!user){
+          a.style.display = 'none';
+          return;
+        }
+        const isAdmin = user.role === 'admin';
+        const isEmployee = !isAdmin; // treat non-admin as employee/user
+        if(role === 'admin' && !isAdmin) a.style.display='none';
+        else if(role === 'employee' && !isEmployee) a.style.display='none';
+        else a.style.display='';
+      });
+    },
+    wrapFetchWithRole(){
+      if(this._fetchWrapped) return;
+      this._fetchWrapped = true;
+      const self = this;
+      const orig = window.fetch.bind(window);
+      window.fetch = (url, options={})=>{
+        const opts = {...options};
+        opts.headers = new Headers(options.headers || {});
+        const user = self.getSession();
+        if(user?.role) opts.headers.set('x-user-role', user.role);
+        return orig(url, opts);
+      };
     }
   };
   global.utils = utils;

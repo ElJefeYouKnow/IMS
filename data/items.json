@@ -1,9 +1,23 @@
 [
   {
+    "code": "H240IE",
+    "name": "Insert",
+    "category": "Insert",
+    "unitPrice": 5300,
+    "description": ""
+  },
+  {
+    "code": "SSC75.5x25.5",
+    "name": "Stainless Steel Cap 75.5\"x25.5\"",
+    "category": "Full Coerage Cap",
+    "unitPrice": 1300,
+    "description": ""
+  },
+  {
     "code": "E615IK",
     "name": "Stainless Steel Liner 6\" 15'",
     "category": "Liners",
-    "unitPrice": null,
+    "unitPrice": 400,
     "description": ""
   }
 ]

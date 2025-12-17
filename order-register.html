@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Register Order (Admin)</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="job-report.html">Job Report</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">History</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Register Ordered Items</h1>
+        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
+      </header>
+
+      <section class="card inventory-card">
+        <p style="color:#6b7280;margin-top:0;">Admin-only: log items that have been ordered but not yet received.</p>
+        <form id="orderForm" class="inventory-form">
+          <div class="form-row">
+            <label>Item Code<input id="orderCode" required placeholder="SKU/part"></label>
+            <label>Item Name<input id="orderName" placeholder="Optional name"></label>
+          </div>
+          <div class="form-row">
+            <label>Quantity<input id="orderQty" type="number" min="1" value="1" required></label>
+            <label>Expected Arrival<input id="orderEta" type="date"></label>
+          </div>
+          <div class="form-row">
+            <label style="flex:1">Notes<textarea id="orderNotes" rows="2"></textarea></label>
+          </div>
+          <div class="form-row">
+            <button type="submit">Register Order</button>
+            <button id="orderClearBtn" type="button" class="muted">Clear</button>
+          </div>
+          <div id="orderMsg" style="font-size:0.9rem;"></div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/order-register.js"></script>
+  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
+</body>
+</html>

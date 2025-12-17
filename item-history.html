@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Item History</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
+        <a href="job-report.html">Job Report</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a class="active" href="item-history.html" data-role="admin">History</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Item History (Admin)</h1>
+        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
+      </header>
+
+      <section class="card">
+        <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
+          <input id="histSearch" type="text" placeholder="Search code or job..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;max-width:220px;">
+          <select id="histType" style="padding:8px;border-radius:6px;border:1px solid #e6edf3;">
+            <option value="">All types</option>
+            <option value="ordered">Ordered</option>
+            <option value="in">Check-In</option>
+            <option value="out">Check-Out</option>
+            <option value="reserve">Reserve</option>
+            <option value="return">Return</option>
+          </select>
+        </div>
+        <table id="historyTable">
+          <thead><tr><th>Type</th><th>Status</th><th>Code</th><th>Qty</th><th>Job</th><th>User</th><th>When</th><th>Notes</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/item-history.js"></script>
+  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
+</body>
+</html>

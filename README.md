@@ -31,6 +31,14 @@ npm start
 - Job Report: http://localhost:8000/job-report.html
 - Item Master (Admin): http://localhost:8000/item-master.html
 - Job Creator: http://localhost:8000/job-creator.html
+- Register Order (Admin): http://localhost:8000/order-register.html
+- Admin Dashboard: http://localhost:8000/dashboard.html
+- Employee Dashboard: http://localhost:8000/employee-dashboard.html
+- Login: http://localhost:8000/login.html
+- Register: http://localhost:8000/register.html
+- Settings (Admin): http://localhost:8000/settings.html
+
+> The first registered user becomes an admin by default.
 
 ## Features
 

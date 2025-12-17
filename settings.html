@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin Settings</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .tab-bar{display:flex;gap:10px;border-bottom:2px solid #e5e7eb;margin-bottom:12px;}
+    .tab-bar button{padding:10px 14px;background:none;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;color:#6b7280;}
+    .tab-bar button.active{color:#111;border-color:#4f46e5;}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a href="dashboard.html">Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
+        <a href="job-report.html">Job Report</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a class="active" href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">History</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Settings</h1>
+        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
+      </header>
+
+      <div class="card">
+        <div class="tab-bar">
+          <button class="active" data-tab="users">User Management</button>
+          <button data-tab="profile" disabled style="opacity:0.5;cursor:not-allowed;">Profile (coming soon)</button>
+        </div>
+        <div id="admin-guard" style="color:#b91c1c;display:none;">Admin only. Please login with an admin account.</div>
+        <div id="settings-content">
+          <section class="inventory-card">
+            <h3>Create User</h3>
+            <form id="userForm" class="inventory-form">
+              <div class="form-row">
+                <label>Name<input id="userName" required></label>
+                <label>Email<input id="userEmail" type="email" required></label>
+              </div>
+              <div class="form-row">
+                <label>Password<input id="userPassword" type="password" required></label>
+                <label>Role
+                  <select id="userRole">
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <button type="submit">Create User</button>
+                <button id="userClearBtn" type="button" class="muted">Clear</button>
+              </div>
+              <div id="userError" style="color:#b91c1c;font-size:0.9rem;"></div>
+            </form>
+          </section>
+
+          <section class="card">
+            <h3>Existing Users</h3>
+            <table id="usersTable">
+              <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Created</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/settings.js"></script>
+  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
+</body>
+</html>

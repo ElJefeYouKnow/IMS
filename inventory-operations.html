@@ -46,23 +46,27 @@
         <a href="dashboard.html">Dashboard</a>
         <a href="inventory-list.html">Inventory</a>
         <a class="active" href="inventory-operations.html">Operations</a>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
         <a href="job-report.html">Job Report</a>
-        <a href="item-master.html">Item Master</a>
-        <a href="job-creator.html">Job Creator</a>
-        <a href="#">Settings</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">History</a>
       </nav>
     </aside>
 
     <main class="main">
       <header class="topbar">
         <h1>Inventory Operations</h1>
-        <div class="topbar-right"></div>
+        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
       <section class="card">
         <div class="mode-tabs">
           <button class="mode-btn active" data-mode="checkin">Check-In</button>
-          <button class="mode-btn" data-mode="checkout">Check-Out</button>
+          <button class="mode-btn" data-mode="checkout">Pick Items (Check-Out)</button>
           <button class="mode-btn" data-mode="reserve">Reserve</button>
           <button class="mode-btn" data-mode="return">Return</button>
         </div>
@@ -72,19 +76,14 @@
       <div id="checkin-mode" class="mode-content active">
         <section class="card inventory-card">
           <form id="checkinForm" class="inventory-form">
-            <div class="form-row">
-              <label>Item Code
-                <input id="checkin-itemCode" required placeholder="SKU, part number or barcode">
-                <div id="checkin-itemCodeSuggestions" class="suggestions"></div>
-              </label>
-              <label>Item Name<input id="checkin-itemName" placeholder="Auto-filled from master" readonly></label>
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <strong>Line Items</strong>
+                <button id="checkin-addLine" type="button" class="muted">Add Line</button>
+              </div>
+              <div id="checkin-lines" class="line-items"></div>
             </div>
             <div class="form-row">
-              <label>Category<input id="checkin-itemCategory" placeholder="Auto-filled from master" readonly></label>
-              <label>Unit Price<input id="checkin-itemUnitPrice" placeholder="Auto-filled from master" readonly></label>
-            </div>
-            <div class="form-row">
-              <label>Quantity<input id="checkin-qty" type="number" min="1" value="1" required></label>
               <label>Job ID
                 <select id="checkin-jobId">
                   <option value="">General Inventory</option>
@@ -117,21 +116,16 @@
       <!-- CHECK-OUT MODE -->
       <div id="checkout-mode" class="mode-content">
         <section class="card inventory-card">
-          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Materials and parts are taken from inventory to be used. Track which job this is for and any notes about the usage.</p>
+          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Pick items from inventory for a job. Track the job and notes.</p>
           <form id="checkoutForm" class="inventory-form">
-            <div class="form-row">
-              <label>Item Code
-                <input id="checkout-itemCode" required placeholder="SKU, part number or barcode">
-                <div id="checkout-itemCodeSuggestions" class="suggestions"></div>
-              </label>
-              <label>Item Name<input id="checkout-itemName" placeholder="Auto-filled from master" readonly></label>
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <strong>Pick Items</strong>
+                <button id="checkout-addLine" type="button" class="muted">Add Line</button>
+              </div>
+              <div id="checkout-lines" class="line-items"></div>
             </div>
             <div class="form-row">
-              <label>Category<input id="checkout-itemCategory" placeholder="Auto-filled from master" readonly></label>
-              <label>Unit Price<input id="checkout-itemUnitPrice" placeholder="Auto-filled from master" readonly></label>
-            </div>
-            <div class="form-row">
-              <label>Quantity<input id="checkout-qty" type="number" min="1" value="1" required></label>
               <label>Job ID
                 <select id="checkout-jobId" required>
                   <option value="">Select job...</option>
@@ -163,19 +157,14 @@
         <section class="card inventory-card">
           <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Allocate inventory to a specific job (removes from available stock). Set an expected return date if the inventory may come back.</p>
           <form id="reserveForm" class="inventory-form">
-            <div class="form-row">
-              <label>Item Code
-                <input id="reserve-itemCode" required placeholder="SKU, part number or barcode">
-                <div id="reserve-itemCodeSuggestions" class="suggestions"></div>
-              </label>
-              <label>Item Name<input id="reserve-itemName" placeholder="Auto-filled from master" readonly></label>
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <strong>Line Items</strong>
+                <button id="reserve-addLine" type="button" class="muted">Add Line</button>
+              </div>
+              <div id="reserve-lines" class="line-items"></div>
             </div>
             <div class="form-row">
-              <label>Category<input id="reserve-itemCategory" placeholder="Auto-filled from master" readonly></label>
-              <label>Unit Price<input id="reserve-itemUnitPrice" placeholder="Auto-filled from master" readonly></label>
-            </div>
-            <div class="form-row">
-              <label>Quantity to Reserve<input id="reserve-qty" type="number" min="1" value="1" required></label>
               <label>Job Name/ID
                 <select id="reserve-jobId" required>
                   <option value="">Select job...</option>
@@ -220,19 +209,14 @@
             </div>
             <div style="border-top: 1px solid #e5e7eb; margin: 16px 0; padding-top: 16px;">
               <p style="color: #6b7280; font-size: 12px; margin: 0 0 12px 0;">Or enter manually:</p>
-            <div class="form-row">
-              <label>Item Code
-                <input id="return-itemCode" required placeholder="SKU, part number or barcode">
-                <div id="return-itemCodeSuggestions" class="suggestions"></div>
-              </label>
-              <label>Item Name<input id="return-itemName" placeholder="Auto-filled from master" readonly></label>
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <strong>Line Items</strong>
+                <button id="return-addLine" type="button" class="muted">Add Line</button>
+              </div>
+              <div id="return-lines" class="line-items"></div>
             </div>
             <div class="form-row">
-              <label>Category<input id="return-itemCategory" placeholder="Auto-filled from master" readonly></label>
-              <label>Unit Price<input id="return-itemUnitPrice" placeholder="Auto-filled from master" readonly></label>
-            </div>
-            <div class="form-row">
-              <label>Quantity to Return<input id="return-qty" type="number" min="1" value="1" required></label>
               <label>From Job ID
                 <select id="return-jobId">
                   <option value="">Select job...</option>
@@ -275,6 +259,7 @@
   </div>
 
   <script src="js/utils.js"></script>
+  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();}});</script>
   <script src="js/operations.js"></script>
 </body>
 </html>

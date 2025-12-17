@@ -1,6 +1,13 @@
 let allItems = [];
 let jobOptions = [];
 const FALLBACK = 'N/A';
+const MIN_LINES = 1;
+const SESSION_KEY = 'sessionUser';
+
+function uid(){ return Math.random().toString(16).slice(2,8); }
+function getSessionUser(){
+  try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; }
+}
 
 // ===== SHARED UTILITIES =====
 async function loadItems(){
@@ -41,6 +48,65 @@ function ensureJobOption(jobId){
   if(!jobOptions.includes(id)) return; // only allow known, non-expired jobs
 }
 
+function addLine(prefix){
+  const container = document.getElementById(`${prefix}-lines`);
+  if(!container) return;
+  const codeId = `${prefix}-code-${uid()}`;
+  const nameId = `${prefix}-name-${uid()}`;
+  const categoryId = `${prefix}-category-${uid()}`;
+  const priceId = `${prefix}-price-${uid()}`;
+  const qtyId = `${prefix}-qty-${uid()}`;
+  const suggId = `${codeId}-s`;
+  const row = document.createElement('div');
+  row.className = 'form-row line-row';
+  row.innerHTML = `
+    <label>Item Code
+      <input id="${codeId}" name="code" required placeholder="SKU, part number or barcode">
+      <div id="${suggId}" class="suggestions"></div>
+    </label>
+    <label>Item Name<input id="${nameId}" name="name" readonly placeholder="Auto-filled"></label>
+    <label>Category<input id="${categoryId}" name="category" readonly placeholder="Auto-filled"></label>
+    <label>Unit Price<input id="${priceId}" name="price" readonly placeholder="Auto-filled"></label>
+    <label style="max-width:120px;">Qty<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
+    <button type="button" class="muted remove-line">Remove</button>
+  `;
+  container.appendChild(row);
+  row.querySelector('.remove-line').addEventListener('click', ()=>{
+    if(container.querySelectorAll('.line-row').length > MIN_LINES){
+      row.remove();
+    }
+  });
+  utils.attachItemLookup({
+    getItems: ()=> allItems,
+    codeInputId: codeId,
+    nameInputId: nameId,
+    categoryInputId: categoryId,
+    priceInputId: priceId,
+    suggestionsId: suggId
+  });
+}
+
+function resetLines(prefix){
+  const container = document.getElementById(`${prefix}-lines`);
+  if(!container) return;
+  container.innerHTML = '';
+  addLine(prefix);
+}
+
+function gatherLines(prefix){
+  const rows=[...document.querySelectorAll(`#${prefix}-lines .line-row`)];
+  const items=[];
+  rows.forEach(r=>{
+    const code = r.querySelector('input[name="code"]')?.value.trim() || '';
+    const name = r.querySelector('input[name="name"]')?.value.trim() || '';
+    const qty = parseInt(r.querySelector('input[name="qty"]')?.value || '0', 10) || 0;
+    if(code && qty>0){
+      items.push({code,name,qty});
+    }
+  });
+  return items;
+}
+
 function getOutstandingCheckouts(checkouts, returns){
   const map = new Map(); // key -> {qty, last}
   const sum = (list, sign)=>{
@@ -75,10 +141,13 @@ async function refreshReturnDropdown(select){
   select.onchange = ()=>{
     if(!select.value) return;
     const co = JSON.parse(select.value);
-    document.getElementById('return-itemCode').value = co.code;
-    document.getElementById('return-itemName').value = co.name || '';
+    const row = document.querySelector('#return-lines .line-row');
+    if(row){
+      row.querySelector('input[name="code"]').value = co.code;
+      row.querySelector('input[name="name"]').value = co.name || '';
+      row.querySelector('input[name="qty"]').value = co.qty;
+    }
     document.getElementById('return-jobId').value = co.jobId || '';
-    document.getElementById('return-qty').value = co.qty;
     document.getElementById('return-reason').value = 'unused';
   };
 }
@@ -325,46 +394,25 @@ function switchMode(mode){
 document.addEventListener('DOMContentLoaded', async ()=>{
   await loadItems();
   await loadJobOptions();
+  const initialMode = new URLSearchParams(window.location.search).get('mode') || 'checkin';
+  if(window.utils && utils.setupLogout) utils.setupLogout();
   
   // Load all tables initially
   await renderCheckinTable();
   await renderCheckoutTable();
   await renderReserveTable();
   await renderReturnTable();
+  // Initialize line items
+  resetLines('checkin');
+  resetLines('checkout');
+  resetLines('reserve');
+  resetLines('return');
+  ['checkin','checkout','reserve','return'].forEach(prefix=>{
+    const btn = document.getElementById(`${prefix}-addLine`);
+    if(btn) btn.addEventListener('click', ()=> addLine(prefix));
+  });
+  switchMode(initialMode);
   
-  // Setup item lookups for all modes
-  utils.attachItemLookup({
-    getItems: ()=> allItems,
-    codeInputId: 'checkin-itemCode',
-    nameInputId: 'checkin-itemName',
-    categoryInputId: 'checkin-itemCategory',
-    priceInputId: 'checkin-itemUnitPrice',
-    suggestionsId: 'checkin-itemCodeSuggestions'
-  });
-  utils.attachItemLookup({
-    getItems: ()=> allItems,
-    codeInputId: 'checkout-itemCode',
-    nameInputId: 'checkout-itemName',
-    categoryInputId: 'checkout-itemCategory',
-    priceInputId: 'checkout-itemUnitPrice',
-    suggestionsId: 'checkout-itemCodeSuggestions'
-  });
-  utils.attachItemLookup({
-    getItems: ()=> allItems,
-    codeInputId: 'reserve-itemCode',
-    nameInputId: 'reserve-itemName',
-    categoryInputId: 'reserve-itemCategory',
-    priceInputId: 'reserve-itemUnitPrice',
-    suggestionsId: 'reserve-itemCodeSuggestions'
-  });
-  utils.attachItemLookup({
-    getItems: ()=> allItems,
-    codeInputId: 'return-itemCode',
-    nameInputId: 'return-itemName',
-    categoryInputId: 'return-itemCategory',
-    priceInputId: 'return-itemUnitPrice',
-    suggestionsId: 'return-itemCodeSuggestions'
-  });
   
   // Mode switching
   document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -394,22 +442,21 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const checkinForm = document.getElementById('checkinForm');
   checkinForm.addEventListener('submit', async ev=>{
     ev.preventDefault();
-    const code = document.getElementById('checkin-itemCode').value.trim();
-    const name = document.getElementById('checkin-itemName').value.trim();
-    const qty = parseInt(document.getElementById('checkin-qty').value, 10) || 0;
+    const lines = gatherLines('checkin');
     const location = document.getElementById('checkin-location').value.trim();
     const jobId = document.getElementById('checkin-jobId').value.trim();
     const notes = document.getElementById('checkin-notes').value.trim();
-    
-    if(!code || qty <= 0){alert('Please provide item code and quantity'); return}
-    
-    const ok = await addCheckin({code, name, qty, location, jobId, notes, ts: Date.now()});
-    if(!ok) alert('Failed to check in item');
-    else{
-      checkinForm.reset();
-      document.getElementById('checkin-qty').value = '1';
-      ensureJobOption(jobId);
+    const user = getSessionUser();
+    if(!lines.length){alert('Add at least one line with code and quantity'); return;}
+    let okAll=true;
+    for(const line of lines){
+      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, location, jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name});
+      if(!ok) okAll=false;
     }
+    if(!okAll) alert('Some items failed to check in');
+    checkinForm.reset();
+    resetLines('checkin');
+    ensureJobOption(jobId);
   });
   
   document.getElementById('checkin-clearBtn').addEventListener('click', async ()=>{
@@ -421,20 +468,23 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const checkoutForm = document.getElementById('checkoutForm');
   checkoutForm.addEventListener('submit', async ev=>{
     ev.preventDefault();
-    const code = document.getElementById('checkout-itemCode').value.trim();
+    const lines = gatherLines('checkout');
     const jobId = document.getElementById('checkout-jobId').value.trim();
-    const qty = parseInt(document.getElementById('checkout-qty').value, 10) || 0;
     const notes = document.getElementById('checkout-notes').value.trim();
+    const user = getSessionUser();
     
-    if(!code || !jobId || qty <= 0){alert('Please provide item code, job ID, and quantity'); return}
+    if(!jobId){alert('Job ID required'); return;}
+    if(!lines.length){alert('Add at least one line with code and quantity'); return;}
     
-    const ok = await addCheckout({code, jobId, qty, notes, ts: Date.now(), type: 'out'});
-    if(!ok) alert('Failed to take item from inventory');
-    else{
-      checkoutForm.reset();
-      document.getElementById('checkout-qty').value = '1';
-      ensureJobOption(jobId);
+    let okAll=true;
+    for(const line of lines){
+      const ok = await addCheckout({code: line.code, jobId, qty: line.qty, notes, ts: Date.now(), type: 'out', userEmail: user?.email, userName: user?.name});
+      if(!ok) okAll=false;
     }
+    if(!okAll) alert('Some items failed to check out');
+    checkoutForm.reset();
+    resetLines('checkout');
+    ensureJobOption(jobId);
   });
   
   document.getElementById('checkout-clearBtn').addEventListener('click', async ()=>{
@@ -446,21 +496,24 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const reserveForm = document.getElementById('reserveForm');
   reserveForm.addEventListener('submit', async ev=>{
     ev.preventDefault();
-    const code = document.getElementById('reserve-itemCode').value.trim();
+    const lines = gatherLines('reserve');
     const jobId = document.getElementById('reserve-jobId').value.trim();
-    const qty = parseInt(document.getElementById('reserve-qty').value, 10) || 0;
     const returnDate = document.getElementById('reserve-returnDate').value;
     const notes = document.getElementById('reserve-notes').value.trim();
+    const user = getSessionUser();
     
-    if(!code || !jobId || qty <= 0){alert('Please provide item code, job ID, and quantity'); return}
+    if(!jobId){alert('Job ID required'); return;}
+    if(!lines.length){alert('Add at least one line with code and quantity'); return;}
     
-    const ok = await addReservation({code, jobId, qty, returnDate, notes, ts: Date.now(), type: 'reserve'});
-    if(!ok) alert('Failed to reserve item');
-    else{
-      reserveForm.reset();
-      document.getElementById('reserve-qty').value = '1';
-      ensureJobOption(jobId);
+    let okAll=true;
+    for(const line of lines){
+      const ok = await addReservation({code: line.code, jobId, qty: line.qty, returnDate, notes, ts: Date.now(), type: 'reserve', userEmail: user?.email, userName: user?.name});
+      if(!ok) okAll=false;
     }
+    if(!okAll) alert('Some items failed to reserve');
+    reserveForm.reset();
+    resetLines('reserve');
+    ensureJobOption(jobId);
   });
   
   document.getElementById('reserve-clearBtn').addEventListener('click', async ()=>{
@@ -473,24 +526,27 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   if(returnForm){
     returnForm.addEventListener('submit', async ev=>{
       ev.preventDefault();
-      const code = document.getElementById('return-itemCode').value.trim();
       const jobId = document.getElementById('return-jobId').value.trim();
-      const qty = parseInt(document.getElementById('return-qty').value, 10) || 0;
       const reason = document.getElementById('return-reason').value.trim();
       const location = document.getElementById('return-location').value.trim();
       const notes = document.getElementById('return-notes').value.trim();
+      const user = getSessionUser();
       
-      if(!code || !reason || qty <= 0){alert('Please provide item code, return reason, and quantity'); return}
+      const lines = gatherLines('return');
+      if(!lines.length){alert('Add at least one line with code and quantity'); return}
+      if(!reason){alert('Return reason required'); return;}
       
-      const ok = await addReturn({code, jobId, qty, reason, location, notes, ts: Date.now(), type: 'return'});
-      if(!ok) alert('Failed to return item');
-      else{
-        returnForm.reset();
-        document.getElementById('return-qty').value = '1';
-        const select = document.getElementById('return-fromCheckout');
-        if(select) await refreshReturnDropdown(select);
-        ensureJobOption(jobId);
+      let okAll=true;
+      for(const line of lines){
+        const ok = await addReturn({code: line.code, jobId, qty: line.qty, reason, location, notes, ts: Date.now(), type: 'return', userEmail: user?.email, userName: user?.name});
+        if(!ok) okAll=false;
       }
+      if(!okAll) alert('Some items failed to return');
+      returnForm.reset();
+      resetLines('return');
+      const select = document.getElementById('return-fromCheckout');
+      if(select) await refreshReturnDropdown(select);
+      ensureJobOption(jobId);
     });
   }
   

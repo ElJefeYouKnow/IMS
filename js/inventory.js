@@ -103,6 +103,7 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   await loadItems();
   await loadJobOptions();
   renderTable();
+  if(window.utils && utils.setupLogout) utils.setupLogout();
   
   utils.attachItemLookup({
     getItems: ()=> allItems,

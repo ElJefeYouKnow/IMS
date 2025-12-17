@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .auth-wrapper{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg);}
+    .auth-card{background:var(--card);padding:24px;border-radius:10px;box-shadow:0 4px 20px rgba(15,23,42,0.08);width:100%;max-width:360px;}
+    .auth-card h1{margin-top:0;margin-bottom:12px;}
+    .auth-card .inventory-form{gap:12px;}
+  </style>
+</head>
+<body>
+  <div class="auth-wrapper">
+    <div class="auth-card">
+      <h1>Welcome Back</h1>
+      <p style="color:#6b7280;margin-top:0;margin-bottom:16px;">Sign in to continue.</p>
+      <form id="loginForm" class="inventory-form">
+        <div class="form-row">
+          <label>Email<input id="login-email" type="email" required></label>
+        </div>
+        <div class="form-row">
+          <label>Password<input id="login-password" type="password" required></label>
+        </div>
+        <div class="form-row">
+          <button type="submit">Login</button>
+        </div>
+        <div style="font-size:0.9rem;color:#6b7280;">No account? <a href="register.html">Register</a></div>
+        <div id="login-error" style="color:#b91c1c;font-size:0.9rem;margin-top:8px;"></div>
+      </form>
+    </div>
+  </div>
+  <script src="js/login.js"></script>
+</body>
+</html>

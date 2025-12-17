@@ -14,17 +14,21 @@
         <a href="dashboard.html">Dashboard</a>
         <a href="inventory-list.html">Inventory</a>
         <a class="active" href="inventory-operations.html">Operations</a>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
         <a href="job-report.html">Job Report</a>
-        <a href="item-master.html">Item Master</a>
-        <a href="job-creator.html">Job Creator</a>
-        <a href="#">Settings</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">History</a>
       </nav>
     </aside>
 
     <main class="main">
       <header class="topbar">
         <h1>Inventory Check-In</h1>
-        <div class="topbar-right"></div>
+        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
       <section class="card inventory-card">
@@ -73,6 +77,7 @@
   </div>
 
   <script src="js/utils.js"></script>
+  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();}});</script>
   <script src="js/inventory.js"></script>
 </body>
 </html>

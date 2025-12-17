@@ -3,19 +3,25 @@
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:var(--bg);color:#111}
+.dark body{background:#0b1020;color:#e5e7eb}
 .app{display:flex;min-height:100vh}
 .sidebar{width:220px;background:#0f172a;color:#fff;padding:20px;display:flex;flex-direction:column}
 .sidebar{position:sticky;top:0;align-self:flex-start;min-height:100vh}
+.dark .sidebar{background:#0b1226;color:#e5e7eb}
 .brand{font-weight:700;font-size:1.25rem;margin-bottom:1rem}
 .sidebar nav{display:flex;flex-direction:column;gap:8px}
 .sidebar a{color:rgba(255,255,255,0.9);text-decoration:none;padding:8px;border-radius:6px}
+.sidebar a[data-role]{display:none}
 .sidebar a.active{background:rgba(255,255,255,0.06)}
 .collapse{margin-top:auto;padding:8px;border:none;background:#111827;color:#fff;border-radius:6px}
 .main{flex:1;padding:20px}
+.dark .main{background:#0b1020;color:#e5e7eb}
 .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
 .widgets{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px}
 .card{background:var(--card);padding:14px;border-radius:8px;box-shadow:0 1px 2px rgba(16,24,40,0.04)}
+.dark .card{background:#111827;box-shadow:0 1px 3px rgba(0,0,0,0.4)}
 .card h3{margin:0;color:var(--muted);font-size:0.9rem}
+.dark .card h3{color:#cbd5f5}
 .value{font-size:1.6rem;font-weight:700;margin-top:8px}
 .panel{display:grid;grid-template-columns:2fr 1fr;gap:12px}
 .chart-card,.table-card{background:var(--card);padding:14px;border-radius:8px}
@@ -29,6 +35,12 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
 .inventory-card{margin-bottom:12px}
 .inventory-form{display:flex;flex-direction:column;gap:10px}
 .form-row{display:flex;gap:10px;position:relative}
+.line-items{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
+.line-row{align-items:flex-end}
+.dark input,.dark select,.dark textarea{background:#0f172a;color:#e5e7eb;border-color:#1f2937}
+.compact .card{padding:10px}
+.compact .form-row{gap:6px}
+.compact .line-items{gap:6px}
 .suggestions{position:absolute;top:100%;left:0;background:#fff;border:1px solid #e6edf3;border-radius:6px;max-height:200px;overflow-y:auto;z-index:10;width:100%;min-width:200px;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
 .form-row label{display:flex;flex-direction:column;flex:1;font-size:0.9rem}
 .form-row input,.form-row textarea,.form-row select{padding:8px;border-radius:6px;border:1px solid #e6edf3}

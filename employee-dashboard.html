@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Employee Dashboard</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    .quick-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px;}
+    .quick-actions a{display:flex;align-items:center;justify-content:center;padding:24px;font-size:1.1rem;font-weight:700;text-decoration:none;border-radius:10px;background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;box-shadow:0 10px 25px rgba(79,70,229,0.25);}
+    .quick-actions a.secondary{background:linear-gradient(135deg,#0ea5e9,#22d3ee);}
+    .quick-actions a.warn{background:linear-gradient(135deg,#f97316,#facc15);}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a class="active" href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="job-report.html">Job Report</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">History</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Employee Dashboard</h1>
+        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
+      </header>
+
+      <section class="card">
+        <h3>Go to your tasks</h3>
+        <div class="quick-actions">
+          <a href="inventory-operations.html?mode=checkout" class="secondary">Pick / Return Items</a>
+          <a href="inventory-list.html">Check Stock</a>
+          <a href="job-report.html" class="warn">Job Activity</a>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Recent Activity</h3>
+        <table id="empActivityTable">
+          <thead><tr><th>Type</th><th>Code</th><th>Qty</th><th>Job</th><th>When</th></tr></thead>
+          <tbody><tr><td colspan="5" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded',()=>{
+      if(window.utils){
+        utils.wrapFetchWithRole?.();
+        utils.applyStoredTheme?.();
+        utils.requireRole?.('employee');
+        utils.applyNavVisibility?.();
+        utils.setupLogout?.();
+      }
+    });
+    function typeLabel(t){
+      if(t==='in') return 'Check-In';
+      if(t==='out') return 'Check-Out';
+      if(t==='reserve') return 'Reserve';
+      if(t==='return') return 'Return';
+      return t;
+    }
+    async function loadEntries(){
+      try{const r=await fetch('/api/inventory'); if(r.ok) return await r.json();}catch(e){}
+      return [];
+    }
+    async function renderEmpActivity(){
+      const tbody=document.querySelector('#empActivityTable tbody');tbody.innerHTML='';
+      const entries = await loadEntries();
+      const recent = entries.slice().sort((a,b)=> (b.ts||0)-(a.ts||0)).slice(0,8);
+      if(!recent.length){
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No activity yet</td>`;
+        tbody.appendChild(tr);
+        return;
+      }
+      recent.forEach(e=>{
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td>${typeLabel(e.type)}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||''}</td><td>${e.ts ? new Date(e.ts).toLocaleString() : ''}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    document.addEventListener('DOMContentLoaded', renderEmpActivity);
+  </script>
+</body>
+</html>

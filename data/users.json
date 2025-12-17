@@ -1,0 +1,20 @@
+[
+  {
+    "id": "itm_3e4df1b319b2a05bc0c",
+    "email": "ilyastocalan@gmail.com",
+    "name": "Ilyas Tomas Oecalan",
+    "role": "admin",
+    "salt": "a66bf668bec225bcc13e060cbb005f78",
+    "hash": "2a6d05dfaf9692e815ea749592ae84a386868fd803baccc63099a7397ffde1ef",
+    "createdAt": 1765936577548
+  },
+  {
+    "id": "itm_1185fda119b2a33b4a8",
+    "email": "Ben.Siedman@gmail.com",
+    "name": "Ben Siedman",
+    "role": "user",
+    "salt": "42ac99bb3cc7c4f5812690d5acbec838",
+    "hash": "c987e0435b216507792e02c2ce1657eb921aa33d9dd296dbac3edebe59bd3451",
+    "createdAt": 1765939590312
+  }
+]

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Settings</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Inventory Management System</div>
+      <nav>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="job-report.html">Job Report</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="settings.html" data-role="admin">Admin Settings</a>
+        <a class="active" href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">History</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Settings</h1>
+        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
+      </header>
+
+      <section class="card inventory-card">
+        <h3>Appearance</h3>
+        <div class="form-row">
+          <label>Theme
+            <select id="themeSelect">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+          <label>Compact Spacing
+            <select id="densitySelect">
+              <option value="normal">Normal</option>
+              <option value="compact">Compact</option>
+            </select>
+          </label>
+        </div>
+        <div id="empSettingsMsg" style="font-size:0.9rem;color:#6b7280;"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/settings-employee.js"></script>
+</body>
+</html>

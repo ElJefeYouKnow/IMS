@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>App Dashboard</title>
+  <title>Admin Dashboard</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -11,22 +11,26 @@
     <aside class="sidebar">
       <div class="brand">Inventory Management System</div>
       <nav>
-        <a class="active" href="dashboard.html">Dashboard</a>
+        <a class="active" href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
         <a href="inventory-list.html">Inventory</a>
         <a href="inventory-operations.html">Operations</a>
         <a href="job-report.html">Job Report</a>
-        <a href="item-master.html">Item Master</a>
-        <a href="job-creator.html">Job Creator</a>
-        <a href="#">Settings</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">History</a>
       </nav>
       <button id="collapseBtn" class="collapse">Collapse</button>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <h1>Dashboard</h1>
+        <h1>Admin Dashboard</h1>
         <div class="topbar-right">
           <div id="clock" class="clock"></div>
+          <button id="logoutBtn" class="muted">Logout</button>
         </div>
       </header>
 
@@ -42,6 +46,14 @@
         <div class="card">
           <h3>Low Stock Alerts</h3>
           <div id="lowStockCount" class="value">-</div>
+        </div>
+        <div class="card">
+          <h3>Active Jobs</h3>
+          <div id="activeJobs" class="value">-</div>
+        </div>
+        <div class="card">
+          <h3>Transactions (7d)</h3>
+          <div id="txLast7" class="value">-</div>
         </div>
       </section>
 
@@ -71,6 +83,7 @@
   </div>
 
   <script src="js/utils.js"></script>
+  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.requireRole?.('admin');utils.applyNavVisibility?.();}});</script>
   <script src="js/dashboard.js"></script>
 </body>
 </html>
