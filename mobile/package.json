@@ -12,6 +12,7 @@
   "dependencies": {
     "@expo/cli": "^54.0.20",
     "expo": "^51.0.0",
+    "graphql": "^16.12.0",
     "react": "18.2.0",
     "react-native": "0.73.6"
   }
