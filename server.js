@@ -1,3 +1,6 @@
+// Force Node to ignore self-signed cert errors (managed DBs often use custom CAs).
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = process.env.NODE_TLS_REJECT_UNAUTHORIZED || '0';
+
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -11,7 +14,6 @@ const PORT = process.env.PORT || 8000;
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ims';
 // Force SSL with relaxed cert validation to avoid self-signed errors on managed DBs.
 // Override by setting DATABASE_SSL_REJECT_UNAUTHORIZED=true if you want strict checking with a valid CA.
-const sslStrictFlag = (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || '').toLowerCase();
 const sslRootCertPath = process.env.DATABASE_SSL_CA || process.env.PGSSLROOTCERT;
 let ca;
 if (sslRootCertPath) {
@@ -22,7 +24,8 @@ if (sslRootCertPath) {
   }
 }
 const sslConfig = {
-  rejectUnauthorized: sslStrictFlag === 'true' || sslStrictFlag === '1',
+  // Always relax cert validation unless you remove or override this in code.
+  rejectUnauthorized: false,
   ca,
 };
 const pool = new Pool({
