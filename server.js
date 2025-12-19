@@ -9,22 +9,10 @@ const { Pool } = require('pg');
 const app = express();
 const PORT = process.env.PORT || 8000;
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ims';
-const sslFlag = (process.env.DATABASE_SSL || '').toLowerCase();
-const sslRejectFlag = (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || '').toLowerCase();
-const sslModeEnv = (process.env.PGSSLMODE || '').toLowerCase();
+// Simplified SSL handling: default to SSL on with relaxed cert validation for managed DBs.
+const sslStrictFlag = (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || process.env.DB_SSL_STRICT || '').toLowerCase();
+const sslDisableFlag = (process.env.DATABASE_SSL_DISABLE || '').toLowerCase();
 const sslRootCertPath = process.env.DATABASE_SSL_CA || process.env.PGSSLROOTCERT;
-let hostLooksManaged = false;
-try {
-  const parsed = new URL(DATABASE_URL);
-  hostLooksManaged = /ondigitalocean\.com$/.test(parsed.hostname) || parsed.port === '25060';
-} catch (e) {
-  hostLooksManaged = false;
-}
-const sslModeRequired =
-  sslFlag === 'true' ||
-  sslModeEnv === 'require' ||
-  /sslmode=require/i.test(DATABASE_URL) ||
-  hostLooksManaged;
 let ca;
 if (sslRootCertPath) {
   try {
@@ -33,11 +21,12 @@ if (sslRootCertPath) {
     console.warn('Could not read SSL CA file at', sslRootCertPath, e.message);
   }
 }
-const sslConfig = sslModeRequired ? {
-  // Managed Postgres providers often use their own CA; default to allowing self-signed unless explicitly overridden.
-  rejectUnauthorized: sslRejectFlag === 'true' || sslRejectFlag === '1',
+const sslStrict = sslStrictFlag === 'true' || sslStrictFlag === '1';
+const sslDisabled = sslDisableFlag === 'true' || sslDisableFlag === '1';
+const sslConfig = sslDisabled ? undefined : {
+  rejectUnauthorized: sslStrict,
   ca,
-} : undefined;
+};
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: sslConfig,
