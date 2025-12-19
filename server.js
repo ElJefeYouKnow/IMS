@@ -1,4 +1,5 @@
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const helmet = require('helmet');
@@ -10,6 +11,8 @@ const PORT = process.env.PORT || 8000;
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ims';
 const sslFlag = (process.env.DATABASE_SSL || '').toLowerCase();
 const sslRejectFlag = (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || '').toLowerCase();
+const sslModeEnv = (process.env.PGSSLMODE || '').toLowerCase();
+const sslRootCertPath = process.env.DATABASE_SSL_CA || process.env.PGSSLROOTCERT;
 let hostLooksManaged = false;
 try {
   const parsed = new URL(DATABASE_URL);
@@ -17,10 +20,23 @@ try {
 } catch (e) {
   hostLooksManaged = false;
 }
-const sslModeRequired = sslFlag === 'true' || /sslmode=require/i.test(DATABASE_URL) || hostLooksManaged;
+const sslModeRequired =
+  sslFlag === 'true' ||
+  sslModeEnv === 'require' ||
+  /sslmode=require/i.test(DATABASE_URL) ||
+  hostLooksManaged;
+let ca;
+if (sslRootCertPath) {
+  try {
+    ca = fs.readFileSync(path.resolve(sslRootCertPath)).toString();
+  } catch (e) {
+    console.warn('Could not read SSL CA file at', sslRootCertPath, e.message);
+  }
+}
 const sslConfig = sslModeRequired ? {
   // Managed Postgres providers often use their own CA; default to allowing self-signed unless explicitly overridden.
   rejectUnauthorized: sslRejectFlag === 'true' || sslRejectFlag === '1',
+  ca,
 } : undefined;
 const pool = new Pool({
   connectionString: DATABASE_URL,
