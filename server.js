@@ -8,9 +8,15 @@ const { Pool } = require('pg');
 const app = express();
 const PORT = process.env.PORT || 8000;
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ims';
+const sslFlag = (process.env.DATABASE_SSL || '').toLowerCase();
+const sslModeRequired = sslFlag === 'true' || /sslmode=require/i.test(DATABASE_URL);
+const sslConfig = sslModeRequired ? {
+  // Managed Postgres providers often use their own CA; default to allowing self-signed unless explicitly overridden.
+  rejectUnauthorized: (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || '').toLowerCase() === 'true',
+} : undefined;
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+  ssl: sslConfig,
 });
 
 app.use(express.json());
