@@ -9,9 +9,9 @@ const { Pool } = require('pg');
 const app = express();
 const PORT = process.env.PORT || 8000;
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ims';
-// Simplified SSL handling: default to SSL on with relaxed cert validation for managed DBs.
-const sslStrictFlag = (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || process.env.DB_SSL_STRICT || '').toLowerCase();
-const sslDisableFlag = (process.env.DATABASE_SSL_DISABLE || '').toLowerCase();
+// Force SSL with relaxed cert validation to avoid self-signed errors on managed DBs.
+// Override by setting DATABASE_SSL_REJECT_UNAUTHORIZED=true if you want strict checking with a valid CA.
+const sslStrictFlag = (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || '').toLowerCase();
 const sslRootCertPath = process.env.DATABASE_SSL_CA || process.env.PGSSLROOTCERT;
 let ca;
 if (sslRootCertPath) {
@@ -21,10 +21,8 @@ if (sslRootCertPath) {
     console.warn('Could not read SSL CA file at', sslRootCertPath, e.message);
   }
 }
-const sslStrict = sslStrictFlag === 'true' || sslStrictFlag === '1';
-const sslDisabled = sslDisableFlag === 'true' || sslDisableFlag === '1';
-const sslConfig = sslDisabled ? undefined : {
-  rejectUnauthorized: sslStrict,
+const sslConfig = {
+  rejectUnauthorized: sslStrictFlag === 'true' || sslStrictFlag === '1',
   ca,
 };
 const pool = new Pool({
