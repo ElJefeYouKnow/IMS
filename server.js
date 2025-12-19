@@ -9,10 +9,18 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ims';
 const sslFlag = (process.env.DATABASE_SSL || '').toLowerCase();
-const sslModeRequired = sslFlag === 'true' || /sslmode=require/i.test(DATABASE_URL);
+const sslRejectFlag = (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || '').toLowerCase();
+let hostLooksManaged = false;
+try {
+  const parsed = new URL(DATABASE_URL);
+  hostLooksManaged = /ondigitalocean\.com$/.test(parsed.hostname) || parsed.port === '25060';
+} catch (e) {
+  hostLooksManaged = false;
+}
+const sslModeRequired = sslFlag === 'true' || /sslmode=require/i.test(DATABASE_URL) || hostLooksManaged;
 const sslConfig = sslModeRequired ? {
   // Managed Postgres providers often use their own CA; default to allowing self-signed unless explicitly overridden.
-  rejectUnauthorized: (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED || '').toLowerCase() === 'true',
+  rejectUnauthorized: sslRejectFlag === 'true' || sslRejectFlag === '1',
 } : undefined;
 const pool = new Pool({
   connectionString: DATABASE_URL,
