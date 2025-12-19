@@ -34,7 +34,8 @@ const pool = new Pool({
 });
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+// Serve static assets but avoid auto-serving empty index.html; we route "/" manually.
+app.use(express.static(path.join(__dirname), { index: false }));
 app.use(helmet());
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50, standardHeaders: true, legacyHeaders: false });
 app.use(['/api/auth/login', '/api/auth/register'], authLimiter);
