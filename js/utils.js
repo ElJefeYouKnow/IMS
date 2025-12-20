@@ -98,7 +98,10 @@
           // non-role links stay visible regardless of auth
           return;
         }
-        if(alwaysVisible) return;
+        if(alwaysVisible){
+          a.style.display = '';
+          return;
+        }
         if(!user){
           a.style.display = 'none';
           return;
