@@ -92,7 +92,13 @@
       const links = document.querySelectorAll(selector);
       links.forEach(a=>{
         const role = a.dataset.role;
-        if(!role) return;
+        // Dashboard links should always be visible
+        const alwaysVisible = a.textContent?.toLowerCase().includes('dashboard');
+        if(!role){
+          // non-role links stay visible regardless of auth
+          return;
+        }
+        if(alwaysVisible) return;
         if(!user){
           a.style.display = 'none';
           return;
