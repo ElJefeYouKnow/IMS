@@ -85,8 +85,11 @@
       }
     },
     applyNavVisibility(){
+      this.buildMobileNav?.();
+      this.registerServiceWorker?.();
       const user = this.getSession();
-      const links = document.querySelectorAll('.sidebar nav a');
+      const selector = '.sidebar nav a, .mobile-nav a';
+      const links = document.querySelectorAll(selector);
       links.forEach(a=>{
         const role = a.dataset.role;
         if(!role) return;
@@ -100,6 +103,34 @@
         else if(role === 'employee' && !isEmployee) a.style.display='none';
         else a.style.display='';
       });
+    },
+    buildMobileNav(){
+      if(document.querySelector('.mobile-nav')) return;
+      const sidebarLinks = Array.from(document.querySelectorAll('.sidebar nav a'));
+      if(!sidebarLinks.length) return;
+      const nav = document.createElement('nav');
+      nav.className = 'mobile-nav';
+      const wrap = document.createElement('div');
+      wrap.className = 'nav-items';
+      const dedup = new Set();
+      sidebarLinks.forEach(l=>{
+        const href = l.getAttribute('href');
+        if(!href || dedup.has(href)) return;
+        dedup.add(href);
+        const a = document.createElement('a');
+        a.href = href;
+        a.textContent = l.textContent || href;
+        if(l.dataset.role) a.dataset.role = l.dataset.role;
+        if(window.location.pathname.endsWith(href)) a.classList.add('active');
+        wrap.appendChild(a);
+      });
+      nav.appendChild(wrap);
+      document.body.appendChild(nav);
+    },
+    registerServiceWorker(){
+      if(!('serviceWorker' in navigator) || this._swRegistered) return;
+      this._swRegistered = true;
+      navigator.serviceWorker.register('/service-worker.js').catch(()=>{});
     },
     wrapFetchWithRole(){
       if(this._fetchWrapped) return;

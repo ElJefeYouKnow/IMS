@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Employee Dashboard</title>
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/style.css" />
   <style>
     .quick-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px;}
@@ -62,8 +64,10 @@
         utils.wrapFetchWithRole?.();
         utils.applyStoredTheme?.();
         utils.requireRole?.('employee');
+        utils.buildMobileNav?.();
         utils.applyNavVisibility?.();
         utils.setupLogout?.();
+        utils.registerServiceWorker?.();
       }
     });
     function typeLabel(t){

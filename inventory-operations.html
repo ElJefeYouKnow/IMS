@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Inventory Operations</title>
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/style.css" />
   <style>
     .mode-tabs {
@@ -96,7 +98,7 @@
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="checkin-notes" rows="2" placeholder="Optional notes"></textarea></label>
             </div>
-            <div class="form-row">
+            <div class="form-row sticky-actions">
               <button id="checkinBtn" type="submit">Check In</button>
               <button id="checkin-clearBtn" type="button" class="muted">Clear All</button>
               <button id="checkin-exportBtn" type="button" class="muted">Export CSV</button>
@@ -135,7 +137,7 @@
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="checkout-notes" rows="2" placeholder="Optional notes about usage"></textarea></label>
             </div>
-            <div class="form-row">
+            <div class="form-row sticky-actions">
               <button id="checkoutBtn" type="submit">Take from Inventory</button>
               <button id="checkout-clearBtn" type="button" class="muted">Clear All</button>
               <button id="checkout-exportBtn" type="button" class="muted">Export CSV</button>
@@ -177,7 +179,7 @@
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="reserve-notes" rows="2" placeholder="Optional notes"></textarea></label>
             </div>
-            <div class="form-row">
+            <div class="form-row sticky-actions">
               <button id="reserveBtn" type="submit">Reserve</button>
               <button id="reserve-clearBtn" type="button" class="muted">Clear All</button>
               <button id="reserve-exportBtn" type="button" class="muted">Export CSV</button>
@@ -239,7 +241,7 @@
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="return-notes" rows="2" placeholder="Optional notes"></textarea></label>
             </div>
-            <div class="form-row">
+            <div class="form-row sticky-actions">
               <button id="returnBtn" type="submit">Return to Inventory</button>
               <button id="return-clearBtn" type="button" class="muted">Clear All</button>
               <button id="return-exportBtn" type="button" class="muted">Export CSV</button>
@@ -259,7 +261,17 @@
   </div>
 
   <script src="js/utils.js"></script>
-  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();}});</script>
+  <script>
+    document.addEventListener('DOMContentLoaded',()=>{
+      if(window.utils){
+        utils.wrapFetchWithRole?.();
+        utils.applyStoredTheme?.();
+        utils.buildMobileNav?.();
+        utils.applyNavVisibility?.();
+        utils.registerServiceWorker?.();
+      }
+    });
+  </script>
   <script src="js/operations.js"></script>
 </body>
 </html>
