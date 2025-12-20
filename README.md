@@ -17,26 +17,25 @@ npm install
 
 2. **Start the server**:
 ```powershell
+# set your DB connection
+set DATABASE_URL=postgres://user:pass@host:5432/ims
+set DATABASE_SSL=true   # use false only for local non-TLS
 npm start
 # or use the setup script:
 .\start.ps1
 ```
 
 3. **Open in browser**:
-- Dashboard: http://localhost:8000/dashboard.html
-- Check-In: http://localhost:8000/inventory.html
-- Check-Out: http://localhost:8000/inventory-checkout.html
-- Inventory List: http://localhost:8000/inventory-list.html
-- Reservations: http://localhost:8000/inventory-reserve.html
-- Job Report: http://localhost:8000/job-report.html
-- Item Master (Admin): http://localhost:8000/item-master.html
-- Job Creator: http://localhost:8000/job-creator.html
-- Register Order (Admin): http://localhost:8000/order-register.html
 - Admin Dashboard: http://localhost:8000/dashboard.html
 - Employee Dashboard: http://localhost:8000/employee-dashboard.html
-- Login: http://localhost:8000/login.html
-- Register: http://localhost:8000/register.html
-- Settings (Admin): http://localhost:8000/settings.html
+- Operations (all modes: check-in/out/reserve/return): http://localhost:8000/inventory-operations.html
+- Inventory List: http://localhost:8000/inventory-list.html
+- Job Report: http://localhost:8000/job-report.html
+- Item Master (Admin): http://localhost:8000/item-master.html
+- Job Creator (Admin): http://localhost:8000/job-creator.html
+- Register Order (Admin): http://localhost:8000/order-register.html
+- Settings: http://localhost:8000/settings.html (admin) or http://localhost:8000/settings-employee.html
+- Auth: http://localhost:8000/login.html and http://localhost:8000/register.html
 
 > The first registered user becomes an admin by default.
 
@@ -78,11 +77,11 @@ npm start
 - `DELETE /api/items/:code` - Delete item by code
 
 ### Inventory Transactions
-- `GET /api/inventory` - Get all transactions (check-in, check-out, reserve)
+- `GET /api/inventory` - Get all transactions
 - `POST /api/inventory` - Check in (type: 'in')
 - `POST /api/inventory-checkout` - Check out (type: 'out')
 - `POST /api/inventory-reserve` - Reserve (type: 'reserve')
+- `POST /api/inventory-return` - Return checked-out items
 
 ### Data Storage
-- Items stored in: `data/items.json`
-- Transactions stored in: `data/inventory.json`
+- PostgreSQL (configured via `DATABASE_URL`); tables auto-create on startup
