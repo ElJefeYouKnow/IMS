@@ -125,33 +125,7 @@
     buildMobileNav(){
       // repurpose to build bottom nav if not present
       if(document.querySelector('.bottom-nav')) return;
-      const sourceLinks = Array.from(document.querySelectorAll('.sidebar nav a'));
-      if(!sourceLinks.length) return;
-      const nav = document.createElement('nav');
-      nav.className = 'bottom-nav collapsed';
-      const toggle = document.createElement('button');
-      toggle.className = 'nav-toggle';
-      toggle.type = 'button';
-      toggle.textContent = 'Menu';
-      const wrap = document.createElement('div');
-      wrap.className = 'nav-items';
-      const dedup = new Set();
-      sourceLinks.forEach(l=>{
-        const href = l.getAttribute('href');
-        if(!href || dedup.has(href)) return;
-        dedup.add(href);
-        const a = document.createElement('a');
-        a.href = href;
-        a.textContent = l.textContent || href;
-        if(l.dataset.role) a.dataset.role = l.dataset.role;
-        if(l.classList.contains('always-visible')) a.classList.add('always-visible');
-        if(window.location.pathname.endsWith(href)) a.classList.add('active');
-        wrap.appendChild(a);
-      });
-      nav.appendChild(toggle);
-      nav.appendChild(wrap);
-      document.body.appendChild(nav);
-      toggle.addEventListener('click', ()=> nav.classList.toggle('collapsed'));
+      // bottom nav removed; no-op
     },
     registerServiceWorker(){
       // Disabled to ensure UI changes are picked up immediately; re-enable if offline caching is required.
