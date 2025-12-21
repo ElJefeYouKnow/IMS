@@ -26,13 +26,17 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neu
 .collapse{display:none}
 .main{flex:1;padding:20px}
 .dark .main{background:#0b1020;color:#e5e7eb}
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:14px 16px;border-radius:12px;background:linear-gradient(90deg,#0a1b2b,#0f7a57);color:#fff;box-shadow:0 10px 30px rgba(10,27,43,0.28)}
+.topbar h1{margin:0;font-size:1.3rem;letter-spacing:0.2px}
+.topbar .muted{background:rgba(255,255,255,0.12)!important;color:#fff;border:1px solid rgba(255,255,255,0.16)!important}
 .widgets{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px}
-.card{background:var(--card);padding:14px;border-radius:10px;box-shadow:0 8px 30px rgba(15,27,43,0.08);border:1px solid var(--line)}
+.card{background:var(--card);padding:16px;border-radius:12px;box-shadow:0 12px 32px rgba(15,27,43,0.12);border:1px solid var(--line);transition:transform .15s ease, box-shadow .15s ease}
+.card:hover{transform:translateY(-2px);box-shadow:0 16px 36px rgba(15,27,43,0.16)}
 .dark .card{background:#0d1624;box-shadow:0 8px 30px rgba(0,0,0,0.45);border:1px solid #12233a}
 .card h3{margin:0;color:var(--muted);font-size:0.9rem;letter-spacing:0.1px}
 .dark .card h3{color:#cbd5f5}
-.value{font-size:1.6rem;font-weight:700;margin-top:8px}
+.value{font-size:1.8rem;font-weight:800;margin-top:8px;color:#0f7a57;letter-spacing:0.2px}
+.dark .value{color:#5eead4}
 .panel{display:grid;grid-template-columns:2fr 1fr;gap:12px}
 .chart-card,.table-card{background:var(--card);padding:14px;border-radius:10px;border:1px solid var(--line);box-shadow:0 6px 24px rgba(15,27,43,0.06)}
 table{width:100%;border-collapse:collapse}
