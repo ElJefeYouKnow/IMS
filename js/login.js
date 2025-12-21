@@ -13,11 +13,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,tenantCode})});
       if(!r.ok){
         const data = await r.json().catch(()=>({error:'Login failed'}));
-        if(r.status === 401){
-          err.textContent = 'Invalid business code, email, or password. Please verify and try again.';
-        }else{
-          err.textContent = data.error || 'Login failed';
-        }
+        err.textContent = data.error || 'Login failed';
         return;
       }
       const user = await r.json();
