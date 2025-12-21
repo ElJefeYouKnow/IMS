@@ -9,6 +9,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
+const { Parser } = require('json2csv');
 
 // Simple in-memory session store (replace with Redis/DB for production)
 const sessions = new Map();
@@ -17,6 +18,7 @@ const SESSION_COOKIE = 'sid';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true'; // set true in production with HTTPS
 const loginAttempts = new Map(); // email -> {count, lockUntil}
+const AUDIT_ACTIONS = ['auth.login', 'auth.register', 'inventory.in', 'inventory.out', 'inventory.reserve', 'inventory.return', 'inventory.order', 'items.create', 'items.update', 'items.delete'];
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -106,6 +108,13 @@ function safeUser(u) {
 function normalizeTenantCode(code) {
   return (code || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'default';
 }
+async function logAudit({ tenantId: tid, userId, action, details }) {
+  const tenantId = tid || 'default';
+  if (!AUDIT_ACTIONS.includes(action)) return;
+  const entry = { id: newId(), tenantId, userId: userId || null, action, details: details || {}, ts: Date.now() };
+  try { await runAsync('INSERT INTO audit_events(id,tenantId,userId,action,details,ts) VALUES($1,$2,$3,$4,$5,$6)', [entry.id, entry.tenantId, entry.userId, entry.action, entry.details, entry.ts]); }
+  catch (e) { console.warn('audit log failed', e.message); }
+}
 
 async function runAsync(sql, params = []) {
   return pool.query(sql, params);
@@ -148,6 +157,9 @@ function getSession(token) {
 
 async function loadUserById(id) {
   return getAsync('SELECT * FROM users WHERE id=$1', [id]);
+}
+function currentUserId(req) {
+  return (req.user && (req.user.id || req.user.userid)) || null;
 }
 
 async function requireAuth(req, res, next) {
@@ -235,6 +247,16 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_jobs_tenant ON jobs(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenantId)');
+  await runAsync(`CREATE TABLE IF NOT EXISTS audit_events(
+    id TEXT PRIMARY KEY,
+    tenantId TEXT REFERENCES tenants(id),
+    userId TEXT,
+    action TEXT,
+    details JSONB,
+    ts BIGINT
+  )`);
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_events(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_events(ts)');
 
   const row = await getAsync('SELECT COUNT(*) as c FROM users');
   if (row?.c === 0) {
@@ -335,6 +357,7 @@ app.post('/api/inventory', async (req, res) => {
     const entry = { id: newId(), code, name, qty: qtyNum, location, jobId, notes, ts: ts || Date.now(), type: 'in', status: statusForType('in'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
     await runAsync(`INSERT INTO inventory(id,code,name,qty,location,jobId,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.jobId, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { code, qty: qtyNum, jobId, location } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -351,6 +374,7 @@ app.post('/api/inventory-checkout', async (req, res) => {
     const entry = { id: newId(), code, jobId, qty: qtyNum, reason, notes, ts: ts || Date.now(), type: 'out', status: statusForType('out'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
     await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty: qtyNum, jobId } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -391,6 +415,7 @@ app.post('/api/inventory-reserve', async (req, res) => {
     const entry = { id: newId(), code, jobId, qty: qtyNum, returnDate, notes, ts: ts || Date.now(), type: 'reserve', status: statusForType('reserve'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
     await runAsync(`INSERT INTO inventory(id,code,jobId,qty,returnDate,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [entry.id, entry.code, entry.jobId, entry.qty, entry.returnDate, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty: qtyNum, jobId, returnDate } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -422,6 +447,7 @@ app.post('/api/inventory-return', async (req, res) => {
     const entry = { id: newId(), code, jobId, qty: qtyNum, reason, location, notes, ts: ts || Date.now(), type: 'return', status: statusForType('return'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
     await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,location,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.location, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.return', details: { code, qty: qtyNum, jobId, reason } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -453,6 +479,7 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
       VALUES($1,$2,$3,$4,$5,$6)
       ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tenantId=EXCLUDED.tenantId`,
       [code, name, category, price, description, t]);
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: { code } });
     res.status(201).json({ code, name, category, unitPrice: price, description, tenantId: t });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -460,6 +487,7 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
 app.delete('/api/items/:code', requireRole('admin'), async (req, res) => {
   try {
     await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [req.params.code, tenantId(req)]);
+    await logAudit({ tenantId: tenantId(req), userId: currentUserId(req), action: 'items.delete', details: { code: req.params.code } });
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -510,6 +538,7 @@ app.post('/api/auth/register', async (req, res) => {
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
     const token = createSession(user.id);
     setSessionCookie(res, token);
+    await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.register', details: { email } });
     res.status(201).json(safeUser(user));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -551,6 +580,7 @@ app.post('/api/auth/login', async (req, res) => {
     loginAttempts.delete(attemptKey);
     const token = createSession(user.id);
     setSessionCookie(res, token);
+    await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login', details: { email } });
     res.json(safeUser(user));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -657,6 +687,7 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     const entry = { id: newId(), code, name, qty: qtyNum, eta, notes, jobId, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
     await runAsync(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [entry.id, entry.code, entry.name, entry.qty, entry.eta, entry.notes, entry.jobId, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId]);
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -711,6 +742,28 @@ app.get('/api/recent-activity', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || '10', 10) || 10, 50);
     const rows = await allAsync('SELECT * FROM inventory WHERE tenantId=$1 ORDER BY ts DESC LIMIT $2', [tenantId(req), limit]);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.get('/api/export/inventory', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const type = req.query.type;
+    const rows = type ? await allAsync('SELECT * FROM inventory WHERE tenantId=$1 AND type=$2 ORDER BY ts DESC', [t, type]) : await allAsync('SELECT * FROM inventory WHERE tenantId=$1 ORDER BY ts DESC', [t]);
+    if (!rows.length) return res.status(400).json({ error: 'no data' });
+    const parser = new Parser();
+    const csv = parser.parse(rows);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="inventory-${type || 'all'}.csv"`);
+    res.send(csv);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.get('/api/notifications', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const rows = await allAsync('SELECT * FROM audit_events WHERE tenantId=$1 ORDER BY ts DESC LIMIT 20', [t]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
