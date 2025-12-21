@@ -71,9 +71,10 @@ app.use((req, res, next) => {
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50, standardHeaders: true, legacyHeaders: false });
 app.use(['/api/auth/login', '/api/auth/register'], authLimiter);
 
-// Protect all API routes (except auth) with session auth
+// Protect all API routes (except auth and tenant creation) with session auth
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/auth')) return next();
+  if (req.path.startsWith('/api/tenants')) return next();
   if (req.path.startsWith('/api')) return requireAuth(req, res, next);
   next();
 });
