@@ -481,7 +481,7 @@ app.get('/api/recent-activity', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dashboard.html'));
+  res.sendFile(path.join(__dirname, 'login.html'));
 });
 
 app.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));

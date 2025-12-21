@@ -48,6 +48,14 @@
         });
       }
     },
+    requireSession(){
+      const user = this.getSession();
+      if(!user){
+        window.location.href = 'login.html';
+        return false;
+      }
+      return true;
+    },
     getSession(){
       try{return JSON.parse(localStorage.getItem('sessionUser')||'null');}catch(e){return null;}
     },

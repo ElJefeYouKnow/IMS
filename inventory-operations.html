@@ -265,6 +265,7 @@
   <script>
     document.addEventListener('DOMContentLoaded',()=>{
       if(window.utils){
+        if(!utils.requireSession?.()) return;
         utils.wrapFetchWithRole?.();
         utils.applyStoredTheme?.();
         utils.buildMobileNav?.();
