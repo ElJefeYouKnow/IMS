@@ -323,7 +323,7 @@ app.post('/api/inventory', async (req, res) => {
     const t = tenantId(req);
     const exists = await itemExists(code, t);
     if (!exists) {
-      if (!name) return res.status(400).json({ error: 'unknown item code; provide name to create' });
+      if (!name) return res.status(400).json({ error: 'unknown item code; include a name to add it' });
       const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
       await runAsync(`INSERT INTO items(code,name,category,unitPrice,tenantId)
         VALUES($1,$2,$3,$4,$5)
@@ -438,15 +438,12 @@ app.get('/api/items', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/items', async (req, res) => {
+app.post('/api/items', requireRole('admin'), async (req, res) => {
   try {
     const { code, oldCode, name, category, unitPrice, description } = req.body;
     if (!code || !name) return res.status(400).json({ error: 'code and name required' });
-    const userRole = (req.user?.role || '').toLowerCase();
     const t = tenantId(req);
     const exists = await itemExists(code, t);
-    if (oldCode && oldCode !== code && userRole !== 'admin') return res.status(403).json({ error: 'only admin can rename items' });
-    if (exists && userRole !== 'admin' && (!oldCode || oldCode === code)) return res.status(403).json({ error: 'only admin can update existing items' });
     const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
     if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [oldCode, t]);
     await runAsync(`INSERT INTO items(code,name,category,unitPrice,description)

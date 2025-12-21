@@ -111,22 +111,6 @@ function gatherLines(prefix){
   return items;
 }
 
-async function ensureItemExists(line){
-  const existing = allItems.find(i=> i.code === line.code);
-  if(existing) return existing;
-  if(!line.name){ throw new Error(`Item ${line.code} not found. Add a name to create it.`); }
-  const payload = { code: line.code, name: line.name, category: line.category || '', unitPrice: line.unitPrice ?? null };
-  const res = await fetch('/api/items', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-  let data = null;
-  try{ data = await res.json(); }catch(_){}
-  if(!res.ok){
-    throw new Error((data && data.error) || 'Unable to create item');
-  }
-  const created = data || payload;
-  allItems.push(created);
-  return created;
-}
-
 function getOutstandingCheckouts(checkouts, returns){
   const map = new Map(); // key -> {qty, last}
   const sum = (list, sign)=>{
@@ -468,16 +452,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const notes = document.getElementById('checkin-notes').value.trim();
     const user = getSessionUser();
     if(!lines.length){alert('Add at least one line with code and quantity'); return;}
+    const missingName = lines.find(l=> !allItems.find(i=> i.code === l.code) && !l.name);
+    if(missingName){ alert(`Item ${missingName.code} is new. Add a name before checking in.`); return; }
     let okAll=true;
     for(const line of lines){
-      try{
-        const ensured = await ensureItemExists(line);
-        const ok = await addCheckin({code: line.code, name: ensured.name || line.name, qty: line.qty, location, jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, unitPrice: line.unitPrice, category: line.category});
-        if(!ok) okAll=false;
-      }catch(err){
-        okAll=false;
-        alert(err.message || 'Unable to add item');
-      }
+      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, location, jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, unitPrice: line.unitPrice, category: line.category});
+      if(!ok) okAll=false;
     }
     if(!okAll) alert('Some items failed to check in');
     checkinForm.reset();
