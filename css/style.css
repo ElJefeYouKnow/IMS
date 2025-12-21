@@ -83,6 +83,9 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
 .dark .inventory-form button.muted{background:#0f172a;color:#fff;border:1px solid #1f2937}
 @media(max-width:680px){.form-row{flex-direction:column}}
 
+.tab-btn{background:#f1f5f9;border:1px solid #e2e8f0;color:#0a1b2b;font-weight:700}
+.tab-btn.active{background:linear-gradient(135deg,#0a1b2b,#0f7a57);color:#fff;border-color:rgba(255,255,255,0.3);box-shadow:0 10px 24px rgba(10,27,43,0.2)}
+
 /* Role visibility helpers */
 body.role-admin .sidebar a[data-role='admin']{display:flex}
 body.role-employee .sidebar a[data-role='employee']{display:flex}

@@ -144,7 +144,7 @@ function setupTabs(){
   const show = (key)=>{
     Object.keys(panels).forEach(k=>{
       panels[k].style.display = k === key ? '' : 'none';
-      buttons[k].classList.toggle('active', k === key);
+      if(buttons[k]) buttons[k].classList.toggle('active', k === key);
     });
   };
   if(buttons.appearance) buttons.appearance.addEventListener('click',()=>show('appearance'));
