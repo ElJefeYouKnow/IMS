@@ -166,6 +166,14 @@ async function initDb() {
     name TEXT NOT NULL,
     createdAt BIGINT
   )`);
+  // Ensure default tenant exists before applying FK defaults
+  const defaultTenantId = 'default';
+  await runAsync(`INSERT INTO tenants(id,code,name,createdAt)
+    VALUES($1,$2,$3,$4)
+    ON CONFLICT (id) DO NOTHING`, [defaultTenantId, 'default', 'Default Tenant', Date.now()]);
+  await runAsync(`INSERT INTO tenants(id,code,name,createdAt)
+    VALUES($1,$2,$3,$4)
+    ON CONFLICT (code) DO NOTHING`, [defaultTenantId, 'default', 'Default Tenant', Date.now()]);
   await runAsync(`CREATE TABLE IF NOT EXISTS items(
     code TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -227,8 +235,6 @@ async function initDb() {
   const row = await getAsync('SELECT COUNT(*) as c FROM users');
   if (row?.c === 0) {
     const tenantId = 'default';
-    await runAsync(`INSERT INTO tenants(id,code,name,createdAt) VALUES($1,$2,$3,$4)
-      ON CONFLICT (id) DO NOTHING`, [tenantId, 'default', 'Default Tenant', Date.now()]);
     const pwd = 'ChangeMe123!';
     const { salt, hash } = await hashPassword(pwd);
     const user = { id: newId(), email: 'admin@example.com', name: 'Admin', role: 'admin', salt, hash, createdAt: Date.now(), tenantId };
