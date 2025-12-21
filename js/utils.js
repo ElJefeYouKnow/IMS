@@ -44,7 +44,9 @@
       if(btn){
         btn.addEventListener('click', ()=>{
           localStorage.removeItem('sessionUser');
-          window.location.href='login.html';
+          fetch('/api/auth/logout',{method:'POST'}).finally(()=>{
+            window.location.href='login.html';
+          });
         });
       }
     },

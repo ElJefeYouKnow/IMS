@@ -7,7 +7,16 @@ const path = require('path');
 const crypto = require('crypto');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
+
+// Simple in-memory session store (replace with Redis/DB for production)
+const sessions = new Map();
+const SESSION_TTL_MS = 1000 * 60 * 60 * 8; // 8 hours
+const SESSION_COOKIE = 'sid';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
+const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true'; // set true in production with HTTPS
+const loginAttempts = new Map(); // email -> {count, lockUntil}
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -62,18 +71,30 @@ app.use((req, res, next) => {
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50, standardHeaders: true, legacyHeaders: false });
 app.use(['/api/auth/login', '/api/auth/register'], authLimiter);
 
+// Protect all API routes (except auth) with session auth
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/auth')) return next();
+  if (req.path.startsWith('/api')) return requireAuth(req, res, next);
+  next();
+});
+
 // Helpers
 function newId() {
   return 'itm_' + Math.random().toString(16).slice(2, 10) + Date.now().toString(16);
 }
 
-function hashPassword(password, salt) {
-  const s = salt || crypto.randomBytes(16).toString('hex');
-  const hash = crypto.createHmac('sha256', s).update(password).digest('hex');
-  return { salt: s, hash };
+async function hashPassword(password) {
+  const salt = await bcrypt.genSalt(10);
+  const hash = await bcrypt.hash(password, salt);
+  // store bcrypt hash in hash column; keep salt column for backward compat marker
+  return { salt: 'bcrypt', hash };
 }
 
 function verifyPassword(password, salt, hash) {
+  // Support legacy HMAC hashes
+  if (hash && hash.startsWith('$2')) {
+    return bcrypt.compareSync(password, hash);
+  }
   const h = crypto.createHmac('sha256', salt).update(password).digest('hex');
   return h === hash;
 }
@@ -94,6 +115,50 @@ async function getAsync(sql, params = []) {
   return result.rows[0];
 }
 
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  if (!header) return {};
+  return header.split(';').reduce((acc, part) => {
+    const [k, v] = part.trim().split('=');
+    acc[k] = decodeURIComponent(v || '');
+    return acc;
+  }, {});
+}
+
+function createSession(userId) {
+  const token = crypto.createHmac('sha256', SESSION_SECRET).update(userId + Date.now().toString() + Math.random().toString()).digest('hex');
+  const expires = Date.now() + SESSION_TTL_MS;
+  sessions.set(token, { userId, expires });
+  return token;
+}
+
+function getSession(token) {
+  const sess = token && sessions.get(token);
+  if (!sess) return null;
+  if (sess.expires < Date.now()) {
+    sessions.delete(token);
+    return null;
+  }
+  return sess;
+}
+
+async function loadUserById(id) {
+  return getAsync('SELECT * FROM users WHERE id=$1', [id]);
+}
+
+async function requireAuth(req, res, next) {
+  const cookies = parseCookies(req);
+  const token = cookies[SESSION_COOKIE];
+  const sess = getSession(token);
+  if (!sess) return res.status(401).json({ error: 'unauthorized' });
+  const user = await loadUserById(sess.userId);
+  if (!user) {
+    sessions.delete(token);
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  req.user = user;
+  next();
+}
 async function initDb() {
   await runAsync(`CREATE TABLE IF NOT EXISTS items(
     code TEXT PRIMARY KEY,
@@ -139,7 +204,7 @@ async function initDb() {
   const row = await getAsync('SELECT COUNT(*) as c FROM users');
   if (row?.c === 0) {
     const pwd = 'ChangeMe123!';
-    const { salt, hash } = hashPassword(pwd);
+    const { salt, hash } = await hashPassword(pwd);
     const user = { id: newId(), email: 'admin@example.com', name: 'Admin', role: 'admin', salt, hash, createdAt: Date.now() };
     await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt]);
@@ -198,8 +263,8 @@ async function calcOutstandingCheckout(code, jobId) {
 
 function requireRole(role) {
   return (req, res, next) => {
-    const r = (req.headers['x-user-role'] || req.headers['x-admin-role'] || '').toLowerCase();
-    if (r !== role) return res.status(403).json({ error: 'forbidden' });
+    const userRole = (req.user && req.user.role || '').toLowerCase();
+    if (userRole !== role) return res.status(403).json({ error: 'forbidden' });
     next();
   };
 }
@@ -351,26 +416,57 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, name } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+    if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
     const existing = await getAsync('SELECT id FROM users WHERE email=$1', [email]);
     if (existing) return res.status(400).json({ error: 'email already exists' });
     const role = (await getAsync('SELECT COUNT(*) as c FROM users')).c === 0 ? 'admin' : 'user';
-    const { salt, hash } = hashPassword(password);
+    const { salt, hash } = await hashPassword(password);
     const user = { id: newId(), email, name, role, salt, hash, createdAt: Date.now() };
     await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt]);
+    const token = createSession(user.id);
+    setSessionCookie(res, token);
     res.status(201).json(safeUser(user));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
+
+const MAX_ATTEMPTS = 5;
+const LOCK_MS = 15 * 60 * 1000;
 
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+    const attempt = loginAttempts.get(email) || { count: 0, lockUntil: 0 };
+    if (attempt.lockUntil > Date.now()) return res.status(429).json({ error: 'account locked, try later' });
+
     const user = await getAsync('SELECT * FROM users WHERE email=$1', [email]);
-    if (!user) return res.status(401).json({ error: 'invalid credentials' });
-    if (!verifyPassword(password, user.salt, user.hash)) return res.status(401).json({ error: 'invalid credentials' });
+    if (!user || !verifyPassword(password, user.salt, user.hash)) {
+      attempt.count += 1;
+      if (attempt.count >= MAX_ATTEMPTS) {
+        attempt.lockUntil = Date.now() + LOCK_MS;
+        attempt.count = 0;
+      }
+      loginAttempts.set(email, attempt);
+      return res.status(401).json({ error: 'invalid credentials' });
+    }
+    loginAttempts.delete(email);
+    const token = createSession(user.id);
+    setSessionCookie(res, token);
     res.json(safeUser(user));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const cookies = parseCookies(req);
+  const token = cookies[SESSION_COOKIE];
+  if (token) sessions.delete(token);
+  clearSessionCookie(res);
+  res.status(204).end();
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json(safeUser(req.user));
 });
 
 app.get('/api/users', requireRole('admin'), async (req, res) => {
@@ -384,9 +480,10 @@ app.post('/api/users', requireRole('admin'), async (req, res) => {
   try {
     const { email, password, name, role = 'user' } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+    if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
     const exists = await getAsync('SELECT id FROM users WHERE email=$1', [email]);
     if (exists) return res.status(400).json({ error: 'email already exists' });
-    const { salt, hash } = hashPassword(password);
+    const { salt, hash } = await hashPassword(password);
     const user = { id: newId(), email, name, role, salt, hash, createdAt: Date.now() };
     await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt]);
@@ -502,4 +599,16 @@ async function readItems() {
 }
 async function readJobs() {
   return allAsync('SELECT * FROM jobs ORDER BY code ASC');
+}
+function setSessionCookie(res, token) {
+  res.cookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: COOKIE_SECURE,
+    maxAge: SESSION_TTL_MS,
+  });
+}
+
+function clearSessionCookie(res) {
+  res.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE });
 }
