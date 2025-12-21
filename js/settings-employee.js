@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const shortcutToggles = document.querySelectorAll('.shortcut-toggle');
   const profileName = document.getElementById('profileName');
   const profileAvatar = document.getElementById('profileAvatar');
+  const profilePicture = document.getElementById('profilePicture');
   const msg = document.getElementById('empSettingsMsg');
 
   // Load stored prefs
@@ -34,6 +35,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   profileName.value = localStorage.getItem('profileName') || '';
   profileAvatar.value = localStorage.getItem('profileAvatar') || '';
+  // Load picture (we only keep the latest as data URL)
+  const storedPic = localStorage.getItem('profilePicData');
+  if(profilePicture && storedPic){
+    profilePicture.setAttribute('data-preview','loaded');
+  }
 
   applyDensity(storedDensity);
   applyFontSize(storedFontSize);
@@ -84,6 +90,20 @@ document.addEventListener('DOMContentLoaded', ()=>{
     localStorage.setItem('profileAvatar', profileAvatar.value.trim().toUpperCase());
     msg.textContent = 'Avatar initials saved';
   });
+
+  if(profilePicture){
+    profilePicture.addEventListener('change', async (e)=>{
+      const file = e.target.files && e.target.files[0];
+      if(!file) return;
+      const data = await fileToDataUrl(file);
+      // Only store the newest picture
+      localStorage.setItem('profilePicData', data);
+      msg.textContent = 'Profile picture updated';
+    });
+  }
+
+  // Tabs
+  setupTabs();
 });
 
 function applyDensity(val){
@@ -97,4 +117,39 @@ function applyDensity(val){
 function applyFontSize(val){
   document.documentElement.style.setProperty('--font-scale', val === 'large' ? '1.1' : val === 'xlarge' ? '1.2' : '1');
   document.body.style.fontSize = `calc(16px * ${document.documentElement.style.getPropertyValue('--font-scale') || 1})`;
+}
+
+async function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function setupTabs(){
+  const panels = {
+    appearance: document.getElementById('panelAppearance'),
+    profile: document.getElementById('panelProfile'),
+    shortcuts: document.getElementById('panelShortcuts'),
+    locale: document.getElementById('panelLocale')
+  };
+  const buttons = {
+    appearance: document.getElementById('tabAppearance'),
+    profile: document.getElementById('tabProfile'),
+    shortcuts: document.getElementById('tabShortcuts'),
+    locale: document.getElementById('tabLocale')
+  };
+  const show = (key)=>{
+    Object.keys(panels).forEach(k=>{
+      panels[k].style.display = k === key ? '' : 'none';
+      buttons[k].classList.toggle('active', k === key);
+    });
+  };
+  if(buttons.appearance) buttons.appearance.addEventListener('click',()=>show('appearance'));
+  if(buttons.profile) buttons.profile.addEventListener('click',()=>show('profile'));
+  if(buttons.shortcuts) buttons.shortcuts.addEventListener('click',()=>show('shortcuts'));
+  if(buttons.locale) buttons.locale.addEventListener('click',()=>show('locale'));
+  show('appearance');
 }

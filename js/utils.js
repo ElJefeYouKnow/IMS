@@ -50,6 +50,24 @@
         });
       }
     },
+    setupUserChip(){
+      const chip = document.querySelector('.user-chip');
+      if(!chip) return;
+      chip.addEventListener('click', ()=>{
+        const user = this.getSession();
+        if(user?.role === 'admin') window.location.href='settings.html';
+        else window.location.href='settings-employee.html';
+      });
+      const avatar = chip.querySelector('.avatar');
+      const name = chip.querySelector('.user-name');
+      const roleText = chip.querySelector('.user-role');
+      const user = this.getSession();
+      if(user){
+        if(avatar) avatar.textContent = (user.name || user.email || 'U').slice(0,2).toUpperCase();
+        if(name) name.textContent = user.name || user.email || 'User';
+        if(roleText) roleText.textContent = user.role ? user.role.charAt(0).toUpperCase()+user.role.slice(1) : 'User';
+      }
+    },
     requireSession(){
       const user = this.getSession();
       if(!user){
