@@ -19,6 +19,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true'; // set true in production with HTTPS
 const loginAttempts = new Map(); // email -> {count, lockUntil}
 const AUDIT_ACTIONS = ['auth.login', 'auth.register', 'inventory.in', 'inventory.out', 'inventory.reserve', 'inventory.return', 'inventory.order', 'items.create', 'items.update', 'items.delete'];
+const CHECKOUT_RETURN_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -114,6 +115,10 @@ async function logAudit({ tenantId: tid, userId, action, details }) {
   const entry = { id: newId(), tenantId, userId: userId || null, action, details: details || {}, ts: Date.now() };
   try { await runAsync('INSERT INTO audit_events(id,tenantId,userId,action,details,ts) VALUES($1,$2,$3,$4,$5,$6)', [entry.id, entry.tenantId, entry.userId, entry.action, entry.details, entry.ts]); }
   catch (e) { console.warn('audit log failed', e.message); }
+}
+async function enforceCheckoutAging(tenantIdVal) {
+  const cutoff = Date.now() - CHECKOUT_RETURN_WINDOW_MS;
+  await runAsync("UPDATE inventory SET status='used' WHERE tenantId=$1 AND type='out' AND status!='used' AND ts < $2", [tenantIdVal, cutoff]);
 }
 
 async function runAsync(sql, params = []) {
@@ -368,12 +373,15 @@ app.post('/api/inventory-checkout', async (req, res) => {
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
+    await enforceCheckoutAging(t);
     if (!(await itemExists(code, t))) return res.status(400).json({ error: 'unknown item code' });
     const available = await calcAvailability(code, t);
     if (qtyNum > available) return res.status(400).json({ error: 'insufficient stock', available });
-    const entry = { id: newId(), code, jobId, qty: qtyNum, reason, notes, ts: ts || Date.now(), type: 'out', status: statusForType('out'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
-    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
+    const tsNow = ts || Date.now();
+    const due = tsNow + CHECKOUT_RETURN_WINDOW_MS;
+    const entry = { id: newId(), code, jobId, qty: qtyNum, reason, notes, ts: tsNow, returnDate: new Date(due).toISOString(), type: 'out', status: statusForType('out'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,notes,returnDate,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.notes, entry.returnDate, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty: qtyNum, jobId } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
