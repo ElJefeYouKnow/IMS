@@ -630,7 +630,7 @@ app.delete('/api/jobs/:code', requireRole('admin'), async (req, res) => {
 // ADMIN ORDERS
 app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
   try {
-    const { code, name, qty, eta, notes, ts } = req.body;
+    const { code, name, qty, eta, notes, ts, jobId } = req.body;
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
@@ -638,9 +638,9 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     if (!exists) {
       await runAsync('INSERT INTO items(code,name,category,unitPrice,description,tenantId) VALUES($1,$2,$3,$4,$5,$6)', [code, name || code, '', null, '', t]);
     }
-    const entry = { id: newId(), code, name, qty: qtyNum, eta, notes, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
-    await runAsync(`INSERT INTO inventory(id,code,name,qty,eta,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [entry.id, entry.code, entry.name, entry.qty, entry.eta, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId]);
+    const entry = { id: newId(), code, name, qty: qtyNum, eta, notes, jobId, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+    await runAsync(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [entry.id, entry.code, entry.name, entry.qty, entry.eta, entry.notes, entry.jobId, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId]);
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
