@@ -102,15 +102,8 @@
       const links = document.querySelectorAll(selector);
       links.forEach(a=>{
         const role = a.dataset.role;
-        // Keep dashboard links always visible to avoid accidental hiding
-        const label = (a.textContent || '').toLowerCase();
-        const alwaysVisible = label.includes('dashboard');
         if(!role){
           // non-role links stay visible regardless of auth
-          return;
-        }
-        if(alwaysVisible){
-          a.style.display = '';
           return;
         }
         if(!user){
