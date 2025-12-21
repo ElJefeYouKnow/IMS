@@ -522,15 +522,27 @@ app.post('/api/auth/login', async (req, res) => {
     const attempt = loginAttempts.get(attemptKey) || { count: 0, lockUntil: 0 };
     if (attempt.lockUntil > Date.now()) return res.status(429).json({ error: 'account locked, try later' });
 
-    const user = await getAsync('SELECT * FROM users WHERE email=$1 AND tenantId=(SELECT id FROM tenants WHERE code=$2)', [email, tenantCode || 'default']);
-    if (!user || !verifyPassword(password, user.salt, user.hash)) {
+    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [tenantCode || 'default']);
+    if (!tenant) return res.status(400).json({ error: 'Business code not found' });
+
+    const user = await getAsync('SELECT * FROM users WHERE email=$1 AND tenantId=$2', [email, tenant.id]);
+    if (!user) {
       attempt.count += 1;
       if (attempt.count >= MAX_ATTEMPTS) {
         attempt.lockUntil = Date.now() + LOCK_MS;
         attempt.count = 0;
       }
       loginAttempts.set(attemptKey, attempt);
-      return res.status(401).json({ error: 'invalid credentials' });
+      return res.status(401).json({ error: 'Email not found for this business' });
+    }
+    if (!verifyPassword(password, user.salt, user.hash)) {
+      attempt.count += 1;
+      if (attempt.count >= MAX_ATTEMPTS) {
+        attempt.lockUntil = Date.now() + LOCK_MS;
+        attempt.count = 0;
+      }
+      loginAttempts.set(attemptKey, attempt);
+      return res.status(401).json({ error: 'Incorrect password' });
     }
     loginAttempts.delete(attemptKey);
     const token = createSession(user.id);
