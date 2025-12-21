@@ -103,6 +103,9 @@ function verifyPassword(password, salt, hash) {
 function safeUser(u) {
   return { id: u.id, email: u.email, name: u.name || '', role: u.role || 'user', tenantId: u.tenantid || u.tenantId, createdAt: u.createdat || u.createdAt };
 }
+function normalizeTenantCode(code) {
+  return (code || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'default';
+}
 
 async function runAsync(sql, params = []) {
   return pool.query(sql, params);
@@ -467,7 +470,7 @@ app.post('/api/tenants', async (req, res) => {
     const { code, name, adminEmail, adminPassword, adminName } = req.body;
     if (!code || !name || !adminEmail || !adminPassword) return res.status(400).json({ error: 'code, name, adminEmail, adminPassword required' });
     if (adminPassword.length < 10) return res.status(400).json({ error: 'admin password too weak' });
-    const normCode = code.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const normCode = normalizeTenantCode(code);
     if (!normCode) return res.status(400).json({ error: 'invalid code' });
     const exists = await getAsync('SELECT id FROM tenants WHERE code=$1', [normCode]);
     if (exists) return res.status(400).json({ error: 'tenant already exists' });
@@ -488,7 +491,7 @@ app.post('/api/auth/register', async (req, res) => {
     const { email, password, name, role: requestedRole, adminKey, tenantCode } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
-    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [tenantCode || 'default']);
+    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [normalizeTenantCode(tenantCode)]);
     if (!tenant) return res.status(400).json({ error: 'invalid tenant' });
     const existing = await getAsync('SELECT id FROM users WHERE email=$1 AND tenantId=$2', [email, tenant.id]);
     if (existing) return res.status(400).json({ error: 'email already exists' });
@@ -518,11 +521,12 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password, tenantCode } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
-    const attemptKey = `${email}:${tenantCode || 'default'}`;
+    const normalizedTenant = normalizeTenantCode(tenantCode);
+    const attemptKey = `${email}:${normalizedTenant}`;
     const attempt = loginAttempts.get(attemptKey) || { count: 0, lockUntil: 0 };
     if (attempt.lockUntil > Date.now()) return res.status(429).json({ error: 'account locked, try later' });
 
-    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [tenantCode || 'default']);
+    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [normalizedTenant]);
     if (!tenant) return res.status(400).json({ error: 'Business code not found' });
 
     const user = await getAsync('SELECT * FROM users WHERE email=$1 AND tenantId=$2', [email, tenant.id]);
