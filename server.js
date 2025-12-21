@@ -100,7 +100,7 @@ function verifyPassword(password, salt, hash) {
 }
 
 function safeUser(u) {
-  return { id: u.id, email: u.email, name: u.name || '', role: u.role || 'user', createdAt: u.createdat || u.createdAt };
+  return { id: u.id, email: u.email, name: u.name || '', role: u.role || 'user', tenantId: u.tenantid || u.tenantId, createdAt: u.createdat || u.createdAt };
 }
 
 async function runAsync(sql, params = []) {
@@ -160,12 +160,19 @@ async function requireAuth(req, res, next) {
   next();
 }
 async function initDb() {
+  await runAsync(`CREATE TABLE IF NOT EXISTS tenants(
+    id TEXT PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    createdAt BIGINT
+  )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS items(
     code TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     category TEXT,
     unitPrice NUMERIC,
-    description TEXT
+    description TEXT,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS inventory(
     id TEXT PRIMARY KEY,
@@ -182,12 +189,14 @@ async function initDb() {
     returnDate TEXT,
     eta TEXT,
     userEmail TEXT,
-    userName TEXT
+    userName TEXT,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS jobs(
     code TEXT PRIMARY KEY,
     name TEXT,
-    scheduleDate TEXT
+    scheduleDate TEXT,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS users(
     id TEXT PRIMARY KEY,
@@ -196,19 +205,36 @@ async function initDb() {
     role TEXT NOT NULL,
     salt TEXT NOT NULL,
     hash TEXT NOT NULL,
-    createdAt BIGINT
+    createdAt BIGINT,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
+  // Backfill tenant columns if the DB was created earlier
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`UPDATE items SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE inventory SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE jobs SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE users SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory(code)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_job ON inventory(jobId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_items_tenant ON items(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_jobs_tenant ON jobs(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenantId)');
 
   const row = await getAsync('SELECT COUNT(*) as c FROM users');
   if (row?.c === 0) {
+    const tenantId = 'default';
+    await runAsync(`INSERT INTO tenants(id,code,name,createdAt) VALUES($1,$2,$3,$4)
+      ON CONFLICT (id) DO NOTHING`, [tenantId, 'default', 'Default Tenant', Date.now()]);
     const pwd = 'ChangeMe123!';
     const { salt, hash } = await hashPassword(pwd);
-    const user = { id: newId(), email: 'admin@example.com', name: 'Admin', role: 'admin', salt, hash, createdAt: Date.now() };
-    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt) VALUES($1,$2,$3,$4,$5,$6,$7)',
-      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt]);
-    console.log('Seeded default admin: admin@example.com / ChangeMe123! (change after login).');
+    const user = { id: newId(), email: 'admin@example.com', name: 'Admin', role: 'admin', salt, hash, createdAt: Date.now(), tenantId };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
+    console.log('Seeded default tenant + admin: admin@example.com / ChangeMe123! (change after login).');
   }
 }
 initDb().catch(err => {
@@ -225,12 +251,12 @@ function statusForType(type) {
   return 'unknown';
 }
 
-async function itemExists(code) {
-  const row = await getAsync('SELECT 1 FROM items WHERE code=$1 LIMIT 1', [code]);
+async function itemExists(code, tenantIdVal) {
+  const row = await getAsync('SELECT 1 FROM items WHERE code=$1 AND tenantId=$2 LIMIT 1', [code, tenantIdVal]);
   return !!row;
 }
 
-async function calcAvailability(code) {
+async function calcAvailability(code, tenantIdVal) {
   const row = await getAsync(`
     SELECT COALESCE(SUM(
       CASE 
@@ -240,23 +266,23 @@ async function calcAvailability(code) {
         WHEN type='out' THEN -qty
         ELSE 0 END
     ),0) AS available
-    FROM inventory WHERE code = $1
-  `, [code]);
+    FROM inventory WHERE code = $1 AND tenantId=$2
+  `, [code, tenantIdVal]);
   return row?.available || 0;
 }
 
-async function calcOutstandingCheckout(code, jobId) {
-  const params = [code];
+async function calcOutstandingCheckout(code, jobId, tenantIdVal) {
+  const params = [code, tenantIdVal];
   let jobClause = '';
   if (jobId) {
-    jobClause = 'AND jobId = $2';
+    jobClause = 'AND jobId = $3';
     params.push(jobId);
   } else {
     jobClause = "AND (jobId IS NULL OR jobId = '')";
   }
   const row = await getAsync(`
     SELECT COALESCE(SUM(CASE WHEN type='out' THEN qty WHEN type='return' THEN -qty ELSE 0 END),0) as outstanding
-    FROM inventory WHERE code=$1 ${jobClause}
+    FROM inventory WHERE code=$1 AND tenantId=$2 ${jobClause}
   `, params);
   return Math.max(0, row?.outstanding || 0);
 }
@@ -268,12 +294,16 @@ function requireRole(role) {
     next();
   };
 }
+function tenantId(req) {
+  return (req.user && (req.user.tenantid || req.user.tenantId)) || 'default';
+}
 
 // INVENTORY
 app.get('/api/inventory', async (req, res) => {
   try {
     const type = req.query.type;
-    const rows = type ? await allAsync('SELECT * FROM inventory WHERE type = $1', [type]) : await allAsync('SELECT * FROM inventory');
+    const t = tenantId(req);
+    const rows = type ? await allAsync('SELECT * FROM inventory WHERE tenantId=$1 AND type = $2', [t, type]) : await allAsync('SELECT * FROM inventory WHERE tenantId=$1', [t]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -283,17 +313,18 @@ app.post('/api/inventory', async (req, res) => {
     const { code, name, category, unitPrice, qty, location, jobId, notes, ts } = req.body;
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
-    const exists = await itemExists(code);
+    const t = tenantId(req);
+    const exists = await itemExists(code, t);
     if (!exists) {
       if (!name) return res.status(400).json({ error: 'unknown item code; provide name to create' });
       const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
-      await runAsync(`INSERT INTO items(code,name,category,unitPrice)
-        VALUES($1,$2,$3,$4)
-        ON CONFLICT (code) DO NOTHING`, [code, name, category || null, price]);
+      await runAsync(`INSERT INTO items(code,name,category,unitPrice,tenantId)
+        VALUES($1,$2,$3,$4,$5)
+        ON CONFLICT (code) DO NOTHING`, [code, name, category || null, price, t]);
     }
-    const entry = { id: newId(), code, name, qty: qtyNum, location, jobId, notes, ts: ts || Date.now(), type: 'in', status: statusForType('in'), userEmail: req.body.userEmail, userName: req.body.userName };
-    await runAsync(`INSERT INTO inventory(id,code,name,qty,location,jobId,notes,ts,type,status,userEmail,userName) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.jobId, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName]);
+    const entry = { id: newId(), code, name, qty: qtyNum, location, jobId, notes, ts: ts || Date.now(), type: 'in', status: statusForType('in'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+    await runAsync(`INSERT INTO inventory(id,code,name,qty,location,jobId,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.jobId, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -303,12 +334,13 @@ app.post('/api/inventory-checkout', async (req, res) => {
     const { code, jobId, qty, reason, notes, ts } = req.body;
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
-    if (!(await itemExists(code))) return res.status(400).json({ error: 'unknown item code' });
-    const available = await calcAvailability(code);
+    const t = tenantId(req);
+    if (!(await itemExists(code, t))) return res.status(400).json({ error: 'unknown item code' });
+    const available = await calcAvailability(code, t);
     if (qtyNum > available) return res.status(400).json({ error: 'insufficient stock', available });
-    const entry = { id: newId(), code, jobId, qty: qtyNum, reason, notes, ts: ts || Date.now(), type: 'out', status: statusForType('out'), userEmail: req.body.userEmail, userName: req.body.userName };
-    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,notes,ts,type,status,userEmail,userName) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName]);
+    const entry = { id: newId(), code, jobId, qty: qtyNum, reason, notes, ts: ts || Date.now(), type: 'out', status: statusForType('out'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -316,22 +348,23 @@ app.post('/api/inventory-checkout', async (req, res) => {
 app.delete('/api/inventory', async (req, res) => {
   try {
     const type = req.query.type;
-    if (type) await runAsync('DELETE FROM inventory WHERE type = $1', [type]);
-    else await runAsync('DELETE FROM inventory');
+    const t = tenantId(req);
+    if (type) await runAsync('DELETE FROM inventory WHERE tenantId=$1 AND type = $2', [t, type]);
+    else await runAsync('DELETE FROM inventory WHERE tenantId=$1', [t]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
 app.delete('/api/inventory-checkout', async (req, res) => {
   try {
-    await runAsync("DELETE FROM inventory WHERE type='out'");
+    await runAsync("DELETE FROM inventory WHERE type='out' AND tenantId=$1", [tenantId(req)]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
 app.get('/api/inventory-reserve', async (req, res) => {
   try {
-    const rows = await allAsync('SELECT * FROM inventory WHERE type=$1', ['reserve']);
+    const rows = await allAsync('SELECT * FROM inventory WHERE type=$1 AND tenantId=$2', ['reserve', tenantId(req)]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -341,19 +374,20 @@ app.post('/api/inventory-reserve', async (req, res) => {
     const { code, jobId, qty, returnDate, notes, ts } = req.body;
     const qtyNum = Number(qty);
     if (!code || !jobId || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code, jobId and positive qty required' });
-    if (!(await itemExists(code))) return res.status(400).json({ error: 'unknown item code' });
-    const available = await calcAvailability(code);
+    const t = tenantId(req);
+    if (!(await itemExists(code, t))) return res.status(400).json({ error: 'unknown item code' });
+    const available = await calcAvailability(code, t);
     if (qtyNum > available) return res.status(400).json({ error: 'insufficient stock', available });
-    const entry = { id: newId(), code, jobId, qty: qtyNum, returnDate, notes, ts: ts || Date.now(), type: 'reserve', status: statusForType('reserve'), userEmail: req.body.userEmail, userName: req.body.userName };
-    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,returnDate,notes,ts,type,status,userEmail,userName) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [entry.id, entry.code, entry.jobId, entry.qty, entry.returnDate, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName]);
+    const entry = { id: newId(), code, jobId, qty: qtyNum, returnDate, notes, ts: ts || Date.now(), type: 'reserve', status: statusForType('reserve'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,returnDate,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [entry.id, entry.code, entry.jobId, entry.qty, entry.returnDate, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
 app.delete('/api/inventory-reserve', async (req, res) => {
   try {
-    await runAsync("DELETE FROM inventory WHERE type='reserve'");
+    await runAsync("DELETE FROM inventory WHERE type='reserve' AND tenantId=$1", [tenantId(req)]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -370,20 +404,21 @@ app.post('/api/inventory-return', async (req, res) => {
     const { code, jobId, qty, reason, location, notes, ts } = req.body;
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
-    if (!(await itemExists(code))) return res.status(400).json({ error: 'unknown item code' });
-    const outstanding = await calcOutstandingCheckout(code, jobId);
+    const t = tenantId(req);
+    if (!(await itemExists(code, t))) return res.status(400).json({ error: 'unknown item code' });
+    const outstanding = await calcOutstandingCheckout(code, jobId, t);
     if (outstanding <= 0) return res.status(400).json({ error: 'no matching checkout to return' });
     if (qtyNum > outstanding) return res.status(400).json({ error: 'return exceeds outstanding checkout', outstanding });
-    const entry = { id: newId(), code, jobId, qty: qtyNum, reason, location, notes, ts: ts || Date.now(), type: 'return', status: statusForType('return'), userEmail: req.body.userEmail, userName: req.body.userName };
-    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,location,notes,ts,type,status,userEmail,userName) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.location, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName]);
+    const entry = { id: newId(), code, jobId, qty: qtyNum, reason, location, notes, ts: ts || Date.now(), type: 'return', status: statusForType('return'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,location,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.location, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
 app.delete('/api/inventory-return', async (req, res) => {
   try {
-    await runAsync("DELETE FROM inventory WHERE type='return'");
+    await runAsync("DELETE FROM inventory WHERE type='return' AND tenantId=$1", [tenantId(req)]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -391,7 +426,7 @@ app.delete('/api/inventory-return', async (req, res) => {
 // ITEMS
 app.get('/api/items', async (req, res) => {
   try {
-    const rows = await readItems();
+    const rows = await readItems(tenantId(req));
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -401,35 +436,59 @@ app.post('/api/items', async (req, res) => {
     const { code, oldCode, name, category, unitPrice, description } = req.body;
     if (!code || !name) return res.status(400).json({ error: 'code and name required' });
     const userRole = (req.user?.role || '').toLowerCase();
-    const exists = await itemExists(code);
+    const t = tenantId(req);
+    const exists = await itemExists(code, t);
     if (oldCode && oldCode !== code && userRole !== 'admin') return res.status(403).json({ error: 'only admin can rename items' });
     if (exists && userRole !== 'admin' && (!oldCode || oldCode === code)) return res.status(403).json({ error: 'only admin can update existing items' });
     const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
-    if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1', [oldCode]);
+    if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [oldCode, t]);
     await runAsync(`INSERT INTO items(code,name,category,unitPrice,description)
-      VALUES($1,$2,$3,$4,$5)
-      ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description`,
-      [code, name, category, price, description]);
-    res.status(201).json({ code, name, category, unitPrice: price, description });
+      VALUES($1,$2,$3,$4,$5,$6)
+      ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tenantId=EXCLUDED.tenantId`,
+      [code, name, category, price, description, t]);
+    res.status(201).json({ code, name, category, unitPrice: price, description, tenantId: t });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
 app.delete('/api/items/:code', requireRole('admin'), async (req, res) => {
   try {
-    await runAsync('DELETE FROM items WHERE code=$1', [req.params.code]);
+    await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [req.params.code, tenantId(req)]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
 // AUTH + USERS
+app.post('/api/tenants', async (req, res) => {
+  try {
+    const { code, name, adminEmail, adminPassword, adminName } = req.body;
+    if (!code || !name || !adminEmail || !adminPassword) return res.status(400).json({ error: 'code, name, adminEmail, adminPassword required' });
+    if (adminPassword.length < 10) return res.status(400).json({ error: 'admin password too weak' });
+    const normCode = code.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    if (!normCode) return res.status(400).json({ error: 'invalid code' });
+    const exists = await getAsync('SELECT id FROM tenants WHERE code=$1', [normCode]);
+    if (exists) return res.status(400).json({ error: 'tenant already exists' });
+    const tenantId = newId();
+    await runAsync('INSERT INTO tenants(id,code,name,createdAt) VALUES($1,$2,$3,$4)', [tenantId, normCode, name, Date.now()]);
+    const { salt, hash } = await hashPassword(adminPassword);
+    const user = { id: newId(), email: adminEmail, name: adminName || name || 'Admin', role: 'admin', salt, hash, createdAt: Date.now(), tenantId };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
+    const token = createSession(user.id);
+    setSessionCookie(res, token);
+    res.status(201).json({ tenant: { id: tenantId, code: normCode, name }, admin: safeUser(user) });
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { email, password, name, role: requestedRole, adminKey } = req.body;
+    const { email, password, name, role: requestedRole, adminKey, tenantCode } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
-    const existing = await getAsync('SELECT id FROM users WHERE email=$1', [email]);
+    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [tenantCode || 'default']);
+    if (!tenant) return res.status(400).json({ error: 'invalid tenant' });
+    const existing = await getAsync('SELECT id FROM users WHERE email=$1 AND tenantId=$2', [email, tenant.id]);
     if (existing) return res.status(400).json({ error: 'email already exists' });
-    const totalCount = (await getAsync('SELECT COUNT(*) as c FROM users')).c;
+    const totalCount = (await getAsync('SELECT COUNT(*) as c FROM users WHERE tenantId=$1', [tenant.id])).c;
     let role = totalCount === 0 ? 'admin' : 'user';
     const adminSecret = process.env.ADMIN_SIGNUP_SECRET;
     if (requestedRole === 'admin') {
@@ -439,9 +498,9 @@ app.post('/api/auth/register', async (req, res) => {
       role = 'admin';
     }
     const { salt, hash } = await hashPassword(password);
-    const user = { id: newId(), email, name, role, salt, hash, createdAt: Date.now() };
-    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt) VALUES($1,$2,$3,$4,$5,$6,$7)',
-      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt]);
+    const user = { id: newId(), email, name, role, salt, hash, createdAt: Date.now(), tenantId: tenant.id };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
     const token = createSession(user.id);
     setSessionCookie(res, token);
     res.status(201).json(safeUser(user));
@@ -453,22 +512,23 @@ const LOCK_MS = 15 * 60 * 1000;
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, tenantCode } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
-    const attempt = loginAttempts.get(email) || { count: 0, lockUntil: 0 };
+    const attemptKey = `${email}:${tenantCode || 'default'}`;
+    const attempt = loginAttempts.get(attemptKey) || { count: 0, lockUntil: 0 };
     if (attempt.lockUntil > Date.now()) return res.status(429).json({ error: 'account locked, try later' });
 
-    const user = await getAsync('SELECT * FROM users WHERE email=$1', [email]);
+    const user = await getAsync('SELECT * FROM users WHERE email=$1 AND tenantId=(SELECT id FROM tenants WHERE code=$2)', [email, tenantCode || 'default']);
     if (!user || !verifyPassword(password, user.salt, user.hash)) {
       attempt.count += 1;
       if (attempt.count >= MAX_ATTEMPTS) {
         attempt.lockUntil = Date.now() + LOCK_MS;
         attempt.count = 0;
       }
-      loginAttempts.set(email, attempt);
+      loginAttempts.set(attemptKey, attempt);
       return res.status(401).json({ error: 'invalid credentials' });
     }
-    loginAttempts.delete(email);
+    loginAttempts.delete(attemptKey);
     const token = createSession(user.id);
     setSessionCookie(res, token);
     res.json(safeUser(user));
@@ -489,7 +549,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 
 app.get('/api/users', requireRole('admin'), async (req, res) => {
   try {
-    const rows = await allAsync('SELECT * FROM users');
+    const rows = await allAsync('SELECT * FROM users WHERE tenantId=$1', [tenantId(req)]);
     res.json(rows.map(safeUser));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -499,12 +559,13 @@ app.post('/api/users', requireRole('admin'), async (req, res) => {
     const { email, password, name, role = 'user' } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
-    const exists = await getAsync('SELECT id FROM users WHERE email=$1', [email]);
+    const t = tenantId(req);
+    const exists = await getAsync('SELECT id FROM users WHERE email=$1 AND tenantId=$2', [email, t]);
     if (exists) return res.status(400).json({ error: 'email already exists' });
     const { salt, hash } = await hashPassword(password);
-    const user = { id: newId(), email, name, role, salt, hash, createdAt: Date.now() };
-    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt) VALUES($1,$2,$3,$4,$5,$6,$7)',
-      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt]);
+    const user = { id: newId(), email, name, role, salt, hash, createdAt: Date.now(), tenantId: t };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
     res.status(201).json(safeUser(user));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -513,10 +574,11 @@ app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const { email, name, role, password } = req.body;
-    const user = await getAsync('SELECT * FROM users WHERE id=$1', [id]);
+    const t = tenantId(req);
+    const user = await getAsync('SELECT * FROM users WHERE id=$1 AND tenantId=$2', [id, t]);
     if (!user) return res.status(404).json({ error: 'not found' });
     if (email) {
-      const dup = await getAsync('SELECT id FROM users WHERE email=$1 AND id<>$2', [email, id]);
+      const dup = await getAsync('SELECT id FROM users WHERE email=$1 AND id<>$2 AND tenantId=$3', [email, id, t]);
       if (dup) return res.status(400).json({ error: 'email already exists' });
     }
     let salt = user.salt;
@@ -527,9 +589,9 @@ app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
       salt = hashed.salt;
       hash = hashed.hash;
     }
-    await runAsync('UPDATE users SET email=$1, name=$2, role=$3, salt=$4, hash=$5 WHERE id=$6',
-      [email || user.email, name ?? user.name, role || user.role, salt, hash, id]);
-    const updated = await getAsync('SELECT * FROM users WHERE id=$1', [id]);
+    await runAsync('UPDATE users SET email=$1, name=$2, role=$3, salt=$4, hash=$5 WHERE id=$6 AND tenantId=$7',
+      [email || user.email, name ?? user.name, role || user.role, salt, hash, id, t]);
+    const updated = await getAsync('SELECT * FROM users WHERE id=$1 AND tenantId=$2', [id, t]);
     res.json(safeUser(updated));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -537,7 +599,7 @@ app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
 // JOBS
 app.get('/api/jobs', async (req, res) => {
   try {
-    const rows = await readJobs();
+    const rows = await readJobs(tenantId(req));
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -546,15 +608,17 @@ app.post('/api/jobs', requireRole('admin'), async (req, res) => {
   try {
     const { code, name, scheduleDate } = req.body;
     if (!code) return res.status(400).json({ error: 'code required' });
+    const t = tenantId(req);
     await runAsync(`INSERT INTO jobs(code,name,scheduleDate) VALUES($1,$2,$3)
       ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, scheduleDate=EXCLUDED.scheduleDate`, [code, name || '', scheduleDate || null]);
-    res.status(201).json({ code, name: name || '', scheduleDate: scheduleDate || null });
+    await runAsync('UPDATE jobs SET tenantId=$1 WHERE code=$2', [t, code]);
+    res.status(201).json({ code, name: name || '', scheduleDate: scheduleDate || null, tenantId: t });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
 app.delete('/api/jobs/:code', requireRole('admin'), async (req, res) => {
   try {
-    await runAsync('DELETE FROM jobs WHERE code=$1', [req.params.code]);
+    await runAsync('DELETE FROM jobs WHERE code=$1 AND tenantId=$2', [req.params.code, tenantId(req)]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -565,13 +629,14 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     const { code, name, qty, eta, notes, ts } = req.body;
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
-    const exists = await itemExists(code);
+    const t = tenantId(req);
+    const exists = await itemExists(code, t);
     if (!exists) {
-      await runAsync('INSERT INTO items(code,name,category,unitPrice,description) VALUES($1,$2,$3,$4,$5)', [code, name || code, '', null, '']);
+      await runAsync('INSERT INTO items(code,name,category,unitPrice,description,tenantId) VALUES($1,$2,$3,$4,$5,$6)', [code, name || code, '', null, '', t]);
     }
-    const entry = { id: newId(), code, name, qty: qtyNum, eta, notes, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName };
-    await runAsync(`INSERT INTO inventory(id,code,name,qty,eta,notes,ts,type,status,userEmail,userName) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [entry.id, entry.code, entry.name, entry.qty, entry.eta, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName]);
+    const entry = { id: newId(), code, name, qty: qtyNum, eta, notes, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+    await runAsync(`INSERT INTO inventory(id,code,name,qty,eta,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [entry.id, entry.code, entry.name, entry.qty, entry.eta, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId]);
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -625,7 +690,7 @@ app.get('/api/low-stock', async (req, res) => {
 app.get('/api/recent-activity', async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || '10', 10) || 10, 50);
-    const rows = await allAsync('SELECT * FROM inventory ORDER BY ts DESC LIMIT $1', [limit]);
+    const rows = await allAsync('SELECT * FROM inventory WHERE tenantId=$1 ORDER BY ts DESC LIMIT $2', [tenantId(req), limit]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -637,11 +702,11 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));
 
 // Helpers to read common lists
-async function readItems() {
-  return allAsync('SELECT * FROM items ORDER BY name ASC');
+async function readItems(tenantIdVal) {
+  return allAsync('SELECT * FROM items WHERE tenantId=$1 ORDER BY name ASC', [tenantIdVal]);
 }
-async function readJobs() {
-  return allAsync('SELECT * FROM jobs ORDER BY code ASC');
+async function readJobs(tenantIdVal) {
+  return allAsync('SELECT * FROM jobs WHERE tenantId=$1 ORDER BY code ASC', [tenantIdVal]);
 }
 function setSessionCookie(res, token) {
   res.cookie(SESSION_COOKIE, token, {

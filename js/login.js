@@ -7,9 +7,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
     err.textContent = '';
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
+    const tenantCode = document.getElementById('login-tenant').value.trim() || 'default';
     if(!email || !password){ err.textContent = 'Email and password required'; return; }
     try{
-      const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+      const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,tenantCode})});
       if(!r.ok){
         const data = await r.json().catch(()=>({error:'Login failed'}));
         err.textContent = data.error || 'Login failed';

@@ -27,6 +27,9 @@
       <p id="reg-subtitle" style="color:#6b7280;margin-top:0;margin-bottom:16px;">Register to start using the app.</p>
       <form id="registerForm" class="inventory-form">
         <div class="form-row">
+          <label>Business Code<input id="reg-tenant" required placeholder="Your business code"></label>
+        </div>
+        <div class="form-row">
           <label>Name<input id="reg-name" required></label>
         </div>
         <div class="form-row">
@@ -41,7 +44,7 @@
         <div class="form-row">
           <button type="submit">Register</button>
         </div>
-        <div style="font-size:0.9rem;color:#6b7280;">Already have an account? <a href="login.html">Login</a></div>
+        <div style="font-size:0.9rem;color:#6b7280;">Already have an account? <a href="login.html">Login</a> &nbsp;|&nbsp; <a href="tenant-create.html">Create a business</a></div>
         <div id="reg-error" style="color:#b91c1c;font-size:0.9rem;margin-top:8px;"></div>
         <div id="admin-note" class="admin-note" style="display:none;">Admin signup requires the admin key configured on the server (ADMIN_SIGNUP_SECRET).</div>
       </form>

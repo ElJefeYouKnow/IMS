@@ -28,12 +28,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
     err.textContent='';
+    const tenantCode=document.getElementById('reg-tenant').value.trim()||'default';
     const name=document.getElementById('reg-name').value.trim();
     const email=document.getElementById('reg-email').value.trim();
     const password=document.getElementById('reg-password').value;
     const adminKey=document.getElementById('reg-adminkey').value;
     if(!email || !password){err.textContent='Email and password required';return;}
-    const payload = {name,email,password};
+    const payload = {name,email,password,tenantCode};
     if(mode === 'admin'){
       payload.role = 'admin';
       if(adminKey) payload.adminKey = adminKey;
