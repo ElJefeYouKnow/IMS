@@ -19,7 +19,7 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neu
 .user-chip .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#16a34a,#0f7a57);display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff;letter-spacing:0.5px}
 .sidebar nav{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .sidebar a{color:rgba(255,255,255,0.9);text-decoration:none;padding:10px 12px;border-radius:10px;display:flex;align-items:center;gap:10px;font-weight:600;border:1px solid transparent;transition:all .2s}
-.sidebar a[data-role]{display:block}
+.sidebar a[data-role]{display:none}
 .sidebar a[href*="dashboard"]{display:block!important}
 .sidebar a.always-visible{display:block}
 .sidebar a.active{background:rgba(15,122,87,0.22);border-color:rgba(15,122,87,0.4);color:#e8fff6}
