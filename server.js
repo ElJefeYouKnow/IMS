@@ -33,6 +33,9 @@ const pool = new Pool({
   ssl: sslConfig,
 });
 
+// Behind proxies (App Platform/Cloudflare), trust forwarded headers for rate limiting + IPs.
+app.set('trust proxy', 1);
+
 app.use(express.json());
 // Serve static assets but avoid auto-serving empty index.html; we route "/" manually.
 app.use(express.static(path.join(__dirname), { index: false }));
