@@ -12,6 +12,8 @@
     .quick-actions a{display:flex;align-items:center;justify-content:center;padding:24px;font-size:1.1rem;font-weight:700;text-decoration:none;border-radius:10px;background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;box-shadow:0 10px 25px rgba(79,70,229,0.25);}
     .quick-actions a.secondary{background:linear-gradient(135deg,#0ea5e9,#22d3ee);}
     .quick-actions a.warn{background:linear-gradient(135deg,#f97316,#facc15);}
+    .task-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 14px;border-radius:10px;font-weight:800;text-decoration:none;transition:transform .15s ease, box-shadow .15s ease, opacity .15s ease;}
+    .task-btn:hover{transform:translateY(-2px);box-shadow:0 12px 26px rgba(0,0,0,0.22);opacity:0.95;}
   </style>
 </head>
 <body>
@@ -55,11 +57,24 @@
             <div style="font-size:0.95rem;opacity:0.85;">Jump straight into your daily workflows.</div>
           </div>
           <div style="display:flex;gap:8px;">
-            <a href="inventory-operations.html?mode=checkout" class="secondary" style="background:#fff;color:#0a1b2b;padding:10px 14px;border-radius:10px;font-weight:700;text-decoration:none;box-shadow:0 10px 22px rgba(255,255,255,0.2);">Pick / Return</a>
-            <a href="inventory-list.html" style="background:rgba(255,255,255,0.12);color:#fff;padding:10px 14px;border-radius:10px;font-weight:700;text-decoration:none;border:1px solid rgba(255,255,255,0.25);">Check Stock</a>
-            <a href="job-report.html" style="background:rgba(255,255,255,0.12);color:#fff;padding:10px 14px;border-radius:10px;font-weight:700;text-decoration:none;border:1px solid rgba(255,255,255,0.25);">Job Activity</a>
+            <a href="inventory-operations.html?mode=checkout" class="task-btn" style="background:#fff;color:#0a1b2b;box-shadow:0 10px 22px rgba(255,255,255,0.2);">Pick / Return</a>
+            <a href="inventory-list.html" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Check Stock</a>
+            <a href="job-report.html" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Job Activity</a>
           </div>
         </div>
+      </section>
+
+      <section class="card" id="pendingCard">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+          <div>
+            <h3 style="margin-bottom:4px;">Pending Returns</h3>
+            <div style="color:#6b7280;font-size:0.9rem;">Items you picked that still need to come back.</div>
+          </div>
+        </div>
+        <table id="pendingTable">
+          <thead><tr><th>Code</th><th>Job</th><th>Qty Out</th><th>Outstanding</th><th>Last Out</th></tr></thead>
+          <tbody><tr><td colspan="5" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+        </table>
       </section>
 
       <section class="card">
@@ -97,6 +112,51 @@
       try{const r=await fetch('/api/inventory'); if(r.ok) return await r.json();}catch(e){}
       return [];
     }
+    async function getCurrentUser(){
+      const local = utils.getSession?.();
+      if(local) return local;
+      try{
+        const r = await fetch('/api/auth/me');
+        if(r.ok) return await r.json();
+      }catch(e){}
+      return null;
+    }
+    function computeOutstanding(entries, userEmail){
+      const map = new Map();
+      entries.forEach(e=>{
+        if(!userEmail || e.userEmail !== userEmail) return;
+        const key = `${e.code}|${e.jobId||''}`;
+        const cur = map.get(key) || { code:e.code, jobId:e.jobId||'', out:0, ret:0, lastOut:0 };
+        if(e.type === 'out'){ cur.out += Number(e.qty||0); cur.lastOut = Math.max(cur.lastOut || 0, e.ts||0); }
+        if(e.type === 'return'){ cur.ret += Number(e.qty||0); }
+        map.set(key, cur);
+      });
+      return Array.from(map.values()).map(x=>({ ...x, outstanding: Math.max(0, (x.out||0) - (x.ret||0)) }));
+    }
+    async function renderPending(){
+      const tbody = document.querySelector('#pendingTable tbody'); tbody.innerHTML='';
+      const user = await getCurrentUser();
+      if(!user){
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">Please log in</td>`;
+        tbody.appendChild(tr);
+        return;
+      }
+      const entries = await loadEntries();
+      const pending = computeOutstanding(entries, user.email).filter(x=> x.outstanding > 0);
+      if(!pending.length){
+        const tr=document.createElement('tr');
+        tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No pending returns</td>`;
+        tbody.appendChild(tr);
+        return;
+      }
+      pending.slice(0,8).forEach(p=>{
+        const tr=document.createElement('tr');
+        const overdue = (Date.now() - (p.lastOut||0)) > 2*24*60*60*1000;
+        tr.innerHTML=`<td>${p.code}</td><td>${p.jobId||''}</td><td>${p.out}</td><td style="${overdue?'color:#b91c1c;font-weight:700;':''}">${p.outstanding}</td><td>${p.lastOut ? new Date(p.lastOut).toLocaleString() : ''}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
     async function renderEmpActivity(){
       const tbody=document.querySelector('#empActivityTable tbody');tbody.innerHTML='';
       const entries = await loadEntries();
@@ -113,7 +173,10 @@
         tbody.appendChild(tr);
       });
     }
-    document.addEventListener('DOMContentLoaded', renderEmpActivity);
+    document.addEventListener('DOMContentLoaded', ()=>{
+      renderPending();
+      renderEmpActivity();
+    });
   </script>
 </body>
 </html>
