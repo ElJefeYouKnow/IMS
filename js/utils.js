@@ -130,6 +130,7 @@
         a.href = href;
         a.textContent = l.textContent || href;
         if(l.dataset.role) a.dataset.role = l.dataset.role;
+        if(l.classList.contains('always-visible')) a.classList.add('always-visible');
         if(window.location.pathname.endsWith(href)) a.classList.add('active');
         wrap.appendChild(a);
       });

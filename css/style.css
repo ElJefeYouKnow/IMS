@@ -11,7 +11,8 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neu
 .brand{font-weight:700;font-size:1.25rem;margin-bottom:1rem}
 .sidebar nav{display:flex;flex-direction:column;gap:8px}
 .sidebar a{color:rgba(255,255,255,0.9);text-decoration:none;padding:8px;border-radius:6px}
-.sidebar a[data-role]{display:none}
+.sidebar a[data-role]{display:block}
+.sidebar a[href*="dashboard"]{display:block!important}
 .sidebar a.always-visible{display:block}
 .sidebar a.active{background:rgba(255,255,255,0.06)}
 .collapse{margin-top:auto;padding:8px;border:none;background:#111827;color:#fff;border-radius:6px}
@@ -37,7 +38,8 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
 .mobile-nav{display:none;position:sticky;bottom:0;left:0;right:0;background:#0f172a;color:#fff;z-index:20;border-top:2px solid rgba(255,255,255,0.08);}
 .mobile-nav .nav-items{display:flex;justify-content:space-around;align-items:center;padding:14px 16px;}
 .mobile-nav a{color:rgba(255,255,255,0.9);text-decoration:none;font-size:1rem;padding:10px 12px;border-radius:15px}
-.mobile-nav a[data-role]{display:none}
+.mobile-nav a[data-role]{display:inline-flex}
+.mobile-nav a[href*="dashboard"]{display:inline-flex!important}
 .mobile-nav a.always-visible{display:inline-flex}
 .mobile-nav a.active{background:rgba(255,255,255,0.1)}
 .sticky-actions{position:sticky;bottom:72px;background:var(--card);padding:8px 0;z-index:10}
