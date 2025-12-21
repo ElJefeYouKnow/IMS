@@ -20,7 +20,6 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neu
 .sidebar nav{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .sidebar a{color:rgba(255,255,255,0.9);text-decoration:none;padding:10px 12px;border-radius:10px;display:flex;align-items:center;gap:10px;font-weight:600;border:1px solid transparent;transition:all .2s}
 .sidebar a[data-role]{display:none}
-.sidebar a[href*="dashboard"]{display:block!important}
 .sidebar a.always-visible{display:block}
 .sidebar a.active{background:rgba(15,122,87,0.22);border-color:rgba(15,122,87,0.4);color:#e8fff6}
 .sidebar a:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.12)}
