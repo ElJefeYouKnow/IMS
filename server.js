@@ -37,8 +37,18 @@ const pool = new Pool({
 app.set('trust proxy', 1);
 
 app.use(express.json());
+// Disable etags and caching for HTML/CSS/JS so UI changes propagate immediately
+app.disable('etag');
+app.use((req, res, next) => {
+  if (/\.(html|css|js|json)$/i.test(req.path)) {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  }
+  next();
+});
 // Serve static assets but avoid auto-serving empty index.html; we route "/" manually.
-app.use(express.static(path.join(__dirname), { index: false }));
+app.use(express.static(path.join(__dirname), { index: false, cacheControl: false, etag: false }));
 app.use(helmet());
 
 // Prevent browser caching of HTML so UI changes propagate immediately.
