@@ -146,9 +146,8 @@
       toggle.addEventListener('click', ()=> nav.classList.toggle('collapsed'));
     },
     registerServiceWorker(){
-      if(!('serviceWorker' in navigator) || this._swRegistered) return;
-      this._swRegistered = true;
-      navigator.serviceWorker.register('/service-worker.js').catch(()=>{});
+      // Disabled to ensure UI changes are picked up immediately; re-enable if offline caching is required.
+      return;
     },
     wrapFetchWithRole(){
       if(this._fetchWrapped) return;

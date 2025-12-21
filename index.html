@@ -11,9 +11,7 @@
 <body>
   Redirecting...
   <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/service-worker.js').catch(()=>{});
-    }
+    // Service worker disabled to ensure UI updates apply immediately.
     window.location.replace('dashboard.html');
   </script>
 </body>

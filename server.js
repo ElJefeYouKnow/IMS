@@ -40,6 +40,15 @@ app.use(express.json());
 // Serve static assets but avoid auto-serving empty index.html; we route "/" manually.
 app.use(express.static(path.join(__dirname), { index: false }));
 app.use(helmet());
+
+// Prevent browser caching of HTML so UI changes propagate immediately.
+app.use((req, res, next) => {
+  if (req.path.endsWith('.html')) {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  }
+  next();
+});
+
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50, standardHeaders: true, legacyHeaders: false });
 app.use(['/api/auth/login', '/api/auth/register'], authLimiter);
 
