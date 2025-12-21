@@ -424,12 +424,20 @@ app.delete('/api/items/:code', requireRole('admin'), async (req, res) => {
 // AUTH + USERS
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, role: requestedRole, adminKey } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
     const existing = await getAsync('SELECT id FROM users WHERE email=$1', [email]);
     if (existing) return res.status(400).json({ error: 'email already exists' });
-    const role = (await getAsync('SELECT COUNT(*) as c FROM users')).c === 0 ? 'admin' : 'user';
+    const totalCount = (await getAsync('SELECT COUNT(*) as c FROM users')).c;
+    let role = totalCount === 0 ? 'admin' : 'user';
+    const adminSecret = process.env.ADMIN_SIGNUP_SECRET;
+    if (requestedRole === 'admin') {
+      if (!adminSecret) return res.status(400).json({ error: 'admin signups disabled (missing ADMIN_SIGNUP_SECRET)' });
+      const key = adminKey || req.headers['x-admin-signup'];
+      if (key !== adminSecret) return res.status(403).json({ error: 'invalid admin signup key' });
+      role = 'admin';
+    }
     const { salt, hash } = await hashPassword(password);
     const user = { id: newId(), email, name, role, salt, hash, createdAt: Date.now() };
     await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt) VALUES($1,$2,$3,$4,$5,$6,$7)',
@@ -498,6 +506,31 @@ app.post('/api/users', requireRole('admin'), async (req, res) => {
     await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt) VALUES($1,$2,$3,$4,$5,$6,$7)',
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt]);
     res.status(201).json(safeUser(user));
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email, name, role, password } = req.body;
+    const user = await getAsync('SELECT * FROM users WHERE id=$1', [id]);
+    if (!user) return res.status(404).json({ error: 'not found' });
+    if (email) {
+      const dup = await getAsync('SELECT id FROM users WHERE email=$1 AND id<>$2', [email, id]);
+      if (dup) return res.status(400).json({ error: 'email already exists' });
+    }
+    let salt = user.salt;
+    let hash = user.hash;
+    if (password) {
+      if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
+      const hashed = await hashPassword(password);
+      salt = hashed.salt;
+      hash = hashed.hash;
+    }
+    await runAsync('UPDATE users SET email=$1, name=$2, role=$3, salt=$4, hash=$5 WHERE id=$6',
+      [email || user.email, name ?? user.name, role || user.role, salt, hash, id]);
+    const updated = await getAsync('SELECT * FROM users WHERE id=$1', [id]);
+    res.json(safeUser(updated));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 

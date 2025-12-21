@@ -7,15 +7,41 @@ function saveSession(user){
 document.addEventListener('DOMContentLoaded', ()=>{
   const form = document.getElementById('registerForm');
   const err = document.getElementById('reg-error');
+  const modeBtns = document.querySelectorAll('.tab-toggle button');
+  const adminRow = document.getElementById('admin-key-row');
+  const subtitle = document.getElementById('reg-subtitle');
+  const adminNote = document.getElementById('admin-note');
+  let mode = 'user';
+
+  modeBtns.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      modeBtns.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      mode = btn.dataset.mode;
+      const isAdmin = mode === 'admin';
+      adminRow.style.display = isAdmin ? 'block' : 'none';
+      adminNote.style.display = isAdmin ? 'block' : 'none';
+      subtitle.textContent = isAdmin ? 'Create an admin account (requires admin key).' : 'Register to start using the app.';
+    });
+  });
+
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
     err.textContent='';
     const name=document.getElementById('reg-name').value.trim();
     const email=document.getElementById('reg-email').value.trim();
     const password=document.getElementById('reg-password').value;
+    const adminKey=document.getElementById('reg-adminkey').value;
     if(!email || !password){err.textContent='Email and password required';return;}
+    const payload = {name,email,password};
+    if(mode === 'admin'){
+      payload.role = 'admin';
+      if(adminKey) payload.adminKey = adminKey;
+    }
     try{
-      const r = await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,password})});
+      const headers = {'Content-Type':'application/json'};
+      if(mode === 'admin' && adminKey) headers['x-admin-signup'] = adminKey;
+      const r = await fetch('/api/auth/register',{method:'POST',headers,body:JSON.stringify(payload)});
       if(!r.ok){
         const data = await r.json().catch(()=>({error:'Registration failed'}));
         err.textContent = data.error || 'Registration failed';

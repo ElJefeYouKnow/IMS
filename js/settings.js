@@ -32,8 +32,19 @@ async function renderUsers(role){
   users.forEach(u=>{
     const tr=document.createElement('tr');
     const dt = u.createdAt ? new Date(u.createdAt).toLocaleString() : '';
-    tr.innerHTML=`<td>${u.email}</td><td>${u.name||''}</td><td>${u.role}</td><td>${dt}</td>`;
+    const btn = `<button type="button" class="muted edit-user" data-id="${u.id}" data-email="${u.email}" data-name="${u.name||''}" data-role="${u.role}">Edit</button>`;
+    tr.innerHTML=`<td>${u.email}</td><td>${u.name||''}</td><td>${u.role}</td><td>${dt}</td><td>${btn}</td>`;
     tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('.edit-user').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.getElementById('edit-userId').value = btn.dataset.id;
+      document.getElementById('edit-userName').value = btn.dataset.name || '';
+      document.getElementById('edit-userEmail').value = btn.dataset.email || '';
+      document.getElementById('edit-userRole').value = btn.dataset.role || 'user';
+      document.getElementById('edit-userPassword').value = '';
+      document.getElementById('edit-userError').textContent = '';
+    });
   });
 }
 
@@ -67,4 +78,34 @@ document.addEventListener('DOMContentLoaded', ()=>{
     renderUsers(session.role);
   });
   document.getElementById('userClearBtn').addEventListener('click',()=>{form.reset();err.textContent='';});
+
+  // Edit user
+  const editForm = document.getElementById('editUserForm');
+  const editErr = document.getElementById('edit-userError');
+  editForm.addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    editErr.textContent='';
+    const id = document.getElementById('edit-userId').value;
+    if(!id){ editErr.textContent='Select a user from the table first.'; return; }
+    const payload = {
+      name: document.getElementById('edit-userName').value.trim(),
+      email: document.getElementById('edit-userEmail').value.trim(),
+      role: document.getElementById('edit-userRole').value
+    };
+    const pw = document.getElementById('edit-userPassword').value;
+    if(pw) payload.password = pw;
+    try{
+      const r = await fetch(`/api/users/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      if(!r.ok){
+        const data = await r.json().catch(()=>({error:'Update failed'}));
+        editErr.textContent = data.error || 'Update failed';
+        return;
+      }
+      editForm.reset();
+      await renderUsers(session.role);
+    }catch(e){
+      editErr.textContent = 'Unable to update user';
+    }
+  });
+  document.getElementById('edit-userClearBtn').addEventListener('click',()=>{editForm.reset();editErr.textContent='';});
 });

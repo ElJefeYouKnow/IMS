@@ -80,9 +80,35 @@
           <section class="card">
             <h3>Existing Users</h3>
             <table id="usersTable">
-              <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Created</th></tr></thead>
+              <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Created</th><th>Action</th></tr></thead>
               <tbody></tbody>
             </table>
+          </section>
+
+          <section class="inventory-card">
+            <h3>Edit User</h3>
+            <p style="color:#6b7280;margin-top:0;">Select a user above to edit email, password or role.</p>
+            <form id="editUserForm" class="inventory-form">
+              <input type="hidden" id="edit-userId">
+              <div class="form-row">
+                <label>Name<input id="edit-userName" required></label>
+                <label>Email<input id="edit-userEmail" type="email" required></label>
+              </div>
+              <div class="form-row">
+                <label>Role
+                  <select id="edit-userRole">
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </label>
+                <label>New Password<input id="edit-userPassword" type="password" placeholder="Leave blank to keep current"></label>
+              </div>
+              <div class="form-row">
+                <button type="submit">Update User</button>
+                <button id="edit-userClearBtn" type="button" class="muted">Clear</button>
+              </div>
+              <div id="edit-userError" style="color:#b91c1c;font-size:0.9rem;"></div>
+            </form>
           </section>
         </div>
       </div>
