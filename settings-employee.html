@@ -30,7 +30,7 @@
         <a href="job-creator.html" data-role="admin">Job Creator</a>
         <a href="order-register.html" data-role="admin">Orders</a>
         <a href="settings.html" data-role="admin">Settings</a>
-        <a class="active" href="settings-employee.html" data-role="employee">Emp Settings</a>
+        <a class="active" href="settings-employee.html" data-role="employee">Settings</a>
         <a href="item-history.html" data-role="admin">History</a>
       </nav>
     </aside>
@@ -56,8 +56,60 @@
               <option value="compact">Compact</option>
             </select>
           </label>
+          <label>Font Size
+            <select id="fontSizeSelect">
+              <option value="normal">Normal</option>
+              <option value="large">Large</option>
+              <option value="xlarge">Extra Large</option>
+            </select>
+          </label>
         </div>
         <div id="empSettingsMsg" style="font-size:0.9rem;color:#6b7280;"></div>
+      </section>
+
+      <section class="card inventory-card">
+        <h3>Shortcuts</h3>
+        <div class="form-row">
+          <label style="flex:1">Choose quick actions to show
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
+              <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="shortcut-toggle" value="pick-return"> Pick / Return</label>
+              <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="shortcut-toggle" value="check-stock"> Check Stock</label>
+              <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="shortcut-toggle" value="job-activity"> Job Activity</label>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <section class="card inventory-card">
+        <h3>Profile</h3>
+        <div class="form-row">
+          <label>Name
+            <input id="profileName" type="text" placeholder="Your display name">
+          </label>
+          <label>Avatar Initials
+            <input id="profileAvatar" type="text" maxlength="2" placeholder="e.g. JD">
+          </label>
+        </div>
+        <div id="loginActivity" style="font-size:0.9rem;color:#6b7280;">Recent logins will appear here.</div>
+      </section>
+
+      <section class="card inventory-card">
+        <h3>Locale</h3>
+        <div class="form-row">
+          <label>Language/Region
+            <select id="languageSelect">
+              <option value="en-US">English (US)</option>
+              <option value="en-GB">English (UK)</option>
+              <option value="es-ES">Español</option>
+            </select>
+          </label>
+          <label>Time Format
+            <select id="timeFormatSelect">
+              <option value="12h">12-hour</option>
+              <option value="24h">24-hour</option>
+            </select>
+          </label>
+        </div>
       </section>
     </main>
   </div>
