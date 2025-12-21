@@ -98,24 +98,12 @@
       this.buildMobileNav?.();
       this.registerServiceWorker?.();
       const user = this.getSession();
-      const selector = '.sidebar nav a, .mobile-nav a, .bottom-nav a';
-      const links = document.querySelectorAll(selector);
-      links.forEach(a=>{
-        const role = a.dataset.role;
-        if(!role){
-          // non-role links stay visible regardless of auth
-          return;
-        }
-        if(!user){
-          a.style.display = 'none';
-          return;
-        }
-        const isAdmin = user.role === 'admin';
-        const isEmployee = !isAdmin; // treat non-admin as employee/user
-        if(role === 'admin' && !isAdmin) a.style.display='none';
-        else if(role === 'employee' && !isEmployee) a.style.display='none';
-        else a.style.display='';
-      });
+      document.body.classList.remove('role-admin','role-employee','role-none');
+      if(!user){
+        document.body.classList.add('role-none');
+        return;
+      }
+      if(user.role === 'admin') document.body.classList.add('role-admin'); else document.body.classList.add('role-employee');
     },
     buildMobileNav(){
       // repurpose to build bottom nav if not present

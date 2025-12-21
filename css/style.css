@@ -75,3 +75,9 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
 .inventory-form button.muted{background:#eef2f7;color:#0a1b2b;border:1px solid #d5dbe4}
 .dark .inventory-form button.muted{background:#0f172a;color:#fff;border:1px solid #1f2937}
 @media(max-width:680px){.form-row{flex-direction:column}}
+
+/* Role visibility helpers */
+body.role-admin .sidebar a[data-role='admin']{display:flex}
+body.role-employee .sidebar a[data-role='employee']{display:flex}
+body.role-none .sidebar a[data-role]{display:none}
+
