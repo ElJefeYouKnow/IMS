@@ -278,12 +278,19 @@ app.get('/api/inventory', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/inventory', requireRole('admin'), async (req, res) => {
+app.post('/api/inventory', async (req, res) => {
   try {
-    const { code, name, qty, location, jobId, notes, ts } = req.body;
+    const { code, name, category, unitPrice, qty, location, jobId, notes, ts } = req.body;
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
-    if (!(await itemExists(code))) return res.status(400).json({ error: 'unknown item code' });
+    const exists = await itemExists(code);
+    if (!exists) {
+      if (!name) return res.status(400).json({ error: 'unknown item code; provide name to create' });
+      const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
+      await runAsync(`INSERT INTO items(code,name,category,unitPrice)
+        VALUES($1,$2,$3,$4)
+        ON CONFLICT (code) DO NOTHING`, [code, name, category || null, price]);
+    }
     const entry = { id: newId(), code, name, qty: qtyNum, location, jobId, notes, ts: ts || Date.now(), type: 'in', status: statusForType('in'), userEmail: req.body.userEmail, userName: req.body.userName };
     await runAsync(`INSERT INTO inventory(id,code,name,qty,location,jobId,notes,ts,type,status,userEmail,userName) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.jobId, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName]);
@@ -389,18 +396,21 @@ app.get('/api/items', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/items', requireRole('admin'), async (req, res) => {
+app.post('/api/items', async (req, res) => {
   try {
     const { code, oldCode, name, category, unitPrice, description } = req.body;
     if (!code || !name) return res.status(400).json({ error: 'code and name required' });
-    if (oldCode && oldCode !== code) {
-      await runAsync('DELETE FROM items WHERE code=$1', [oldCode]);
-    }
+    const userRole = (req.user?.role || '').toLowerCase();
+    const exists = await itemExists(code);
+    if (oldCode && oldCode !== code && userRole !== 'admin') return res.status(403).json({ error: 'only admin can rename items' });
+    if (exists && userRole !== 'admin' && (!oldCode || oldCode === code)) return res.status(403).json({ error: 'only admin can update existing items' });
+    const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
+    if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1', [oldCode]);
     await runAsync(`INSERT INTO items(code,name,category,unitPrice,description)
       VALUES($1,$2,$3,$4,$5)
       ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description`,
-      [code, name, category, unitPrice ?? null, description]);
-    res.status(201).json({ code, name, category, unitPrice, description });
+      [code, name, category, price, description]);
+    res.status(201).json({ code, name, category, unitPrice: price, description });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 

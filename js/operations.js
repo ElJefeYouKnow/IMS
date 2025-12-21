@@ -64,9 +64,9 @@ function addLine(prefix){
       <input id="${codeId}" name="code" required placeholder="SKU, part number or barcode">
       <div id="${suggId}" class="suggestions"></div>
     </label>
-    <label>Item Name<input id="${nameId}" name="name" readonly placeholder="Auto-filled"></label>
-    <label>Category<input id="${categoryId}" name="category" readonly placeholder="Auto-filled"></label>
-    <label>Unit Price<input id="${priceId}" name="price" readonly placeholder="Auto-filled"></label>
+    <label>Item Name<input id="${nameId}" name="name" placeholder="Enter name if new"></label>
+    <label>Category<input id="${categoryId}" name="category" placeholder="Category / type"></label>
+    <label>Unit Price<input id="${priceId}" name="price" type="number" step="0.01" placeholder="0.00"></label>
     <label style="max-width:120px;">Qty<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
     <button type="button" class="muted remove-line">Remove</button>
   `;
@@ -99,12 +99,32 @@ function gatherLines(prefix){
   rows.forEach(r=>{
     const code = r.querySelector('input[name="code"]')?.value.trim() || '';
     const name = r.querySelector('input[name="name"]')?.value.trim() || '';
+    const category = r.querySelector('input[name="category"]')?.value.trim() || '';
+    const unitPriceRaw = r.querySelector('input[name="price"]')?.value.trim();
+    const parsedPrice = unitPriceRaw ? Number(unitPriceRaw) : null;
+    const unitPrice = parsedPrice !== null && !Number.isNaN(parsedPrice) ? parsedPrice : null;
     const qty = parseInt(r.querySelector('input[name="qty"]')?.value || '0', 10) || 0;
     if(code && qty>0){
-      items.push({code,name,qty});
+      items.push({code,name,category,unitPrice,qty});
     }
   });
   return items;
+}
+
+async function ensureItemExists(line){
+  const existing = allItems.find(i=> i.code === line.code);
+  if(existing) return existing;
+  if(!line.name){ throw new Error(`Item ${line.code} not found. Add a name to create it.`); }
+  const payload = { code: line.code, name: line.name, category: line.category || '', unitPrice: line.unitPrice ?? null };
+  const res = await fetch('/api/items', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  let data = null;
+  try{ data = await res.json(); }catch(_){}
+  if(!res.ok){
+    throw new Error((data && data.error) || 'Unable to create item');
+  }
+  const created = data || payload;
+  allItems.push(created);
+  return created;
 }
 
 function getOutstandingCheckouts(checkouts, returns){
@@ -450,8 +470,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(!lines.length){alert('Add at least one line with code and quantity'); return;}
     let okAll=true;
     for(const line of lines){
-      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, location, jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name});
-      if(!ok) okAll=false;
+      try{
+        const ensured = await ensureItemExists(line);
+        const ok = await addCheckin({code: line.code, name: ensured.name || line.name, qty: line.qty, location, jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, unitPrice: line.unitPrice, category: line.category});
+        if(!ok) okAll=false;
+      }catch(err){
+        okAll=false;
+        alert(err.message || 'Unable to add item');
+      }
     }
     if(!okAll) alert('Some items failed to check in');
     checkinForm.reset();
@@ -475,6 +501,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     
     if(!jobId){alert('Job ID required'); return;}
     if(!lines.length){alert('Add at least one line with code and quantity'); return;}
+    const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
+    if(missing){ alert(`Item ${missing.code} does not exist. Check it in first or add via check-in.`); return; }
     
     let okAll=true;
     for(const line of lines){
@@ -504,6 +532,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     
     if(!jobId){alert('Job ID required'); return;}
     if(!lines.length){alert('Add at least one line with code and quantity'); return;}
+    const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
+    if(missing){ alert(`Item ${missing.code} does not exist. Check it in first or add via check-in.`); return; }
     
     let okAll=true;
     for(const line of lines){
@@ -535,6 +565,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const lines = gatherLines('return');
       if(!lines.length){alert('Add at least one line with code and quantity'); return}
       if(!reason){alert('Return reason required'); return;}
+      const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
+      if(missing){ alert(`Item ${missing.code} does not exist. Check it in first.`); return; }
       
       let okAll=true;
       for(const line of lines){
