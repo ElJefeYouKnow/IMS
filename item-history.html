@@ -9,17 +9,28 @@
 <body>
   <div class="app">
     <aside class="sidebar">
-      <div class="brand">Inventory Management System</div>
+      <div>
+        <div class="brand">Inventory Management System</div>
+        <div class="subtitle">Navigation</div>
+        <div class="user-chip">
+          <div class="avatar">US</div>
+          <div>
+            <div style="font-weight:700;">User</div>
+            <div style="font-size:12px;opacity:0.8;">Quick access</div>
+          </div>
+        </div>
+      </div>
       <nav>
-        <a href="dashboard.html">Dashboard</a>
-        <a href="inventory-list.html">Inventory</a>
+        <a class="always-visible" href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a class="always-visible" href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
         <a href="inventory-operations.html">Operations</a>
-        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
-        <a href="employee-dashboard.html" data-role="employee">Employee Dashboard</a>
+        <a href="inventory-list.html">Inventory</a>
         <a href="job-report.html">Job Report</a>
         <a href="item-master.html" data-role="admin">Item Master</a>
         <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="order-register.html" data-role="admin">Orders</a>
         <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Emp Settings</a>
         <a class="active" href="item-history.html" data-role="admin">History</a>
       </nav>
     </aside>
