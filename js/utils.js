@@ -88,7 +88,7 @@
       this.buildMobileNav?.();
       this.registerServiceWorker?.();
       const user = this.getSession();
-      const selector = '.sidebar nav a, .mobile-nav a';
+      const selector = '.sidebar nav a, .mobile-nav a, .bottom-nav a';
       const links = document.querySelectorAll(selector);
       links.forEach(a=>{
         const role = a.dataset.role;
@@ -115,15 +115,20 @@
       });
     },
     buildMobileNav(){
-      if(document.querySelector('.mobile-nav')) return;
-      const sidebarLinks = Array.from(document.querySelectorAll('.sidebar nav a'));
-      if(!sidebarLinks.length) return;
+      // repurpose to build bottom nav if not present
+      if(document.querySelector('.bottom-nav')) return;
+      const sourceLinks = Array.from(document.querySelectorAll('.sidebar nav a'));
+      if(!sourceLinks.length) return;
       const nav = document.createElement('nav');
-      nav.className = 'mobile-nav';
+      nav.className = 'bottom-nav collapsed';
+      const toggle = document.createElement('button');
+      toggle.className = 'nav-toggle';
+      toggle.type = 'button';
+      toggle.textContent = 'Menu';
       const wrap = document.createElement('div');
       wrap.className = 'nav-items';
       const dedup = new Set();
-      sidebarLinks.forEach(l=>{
+      sourceLinks.forEach(l=>{
         const href = l.getAttribute('href');
         if(!href || dedup.has(href)) return;
         dedup.add(href);
@@ -135,8 +140,10 @@
         if(window.location.pathname.endsWith(href)) a.classList.add('active');
         wrap.appendChild(a);
       });
+      nav.appendChild(toggle);
       nav.appendChild(wrap);
       document.body.appendChild(nav);
+      toggle.addEventListener('click', ()=> nav.classList.toggle('collapsed'));
     },
     registerServiceWorker(){
       if(!('serviceWorker' in navigator) || this._swRegistered) return;
