@@ -48,7 +48,10 @@
     <main class="main">
       <header class="topbar">
         <h1>Dashboard</h1>
-        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
+        <div class="topbar-right">
+          <div id="clock-emp" class="clock"></div>
+          <button id="logoutBtn" class="muted">Logout</button>
+        </div>
       </header>
 
       <section class="card" style="background:linear-gradient(135deg,#0a1b2b,#0f7a57);color:#fff;box-shadow:0 14px 36px rgba(10,27,43,0.25);">
@@ -178,6 +181,14 @@
       renderPending();
       renderEmpActivity();
     });
+  </script>
+  <script>
+    (function(){
+      const el=document.getElementById('clock-emp');
+      if(!el) return;
+      const tick=()=>{ el.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); };
+      tick(); setInterval(tick,1000);
+    })();
   </script>
 </body>
 </html>
