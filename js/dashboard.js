@@ -1,7 +1,8 @@
 const FALLBACK = 'N/A';
 const LOW_STOCK_THRESHOLD = 5;
 
-function updateClock(){document.getElementById('clock').textContent=new Date().toLocaleString()}
+function updateClock(){document.getElementById('clock').textContent=new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+function fmtDT(val){ return (window.utils && utils.formatDateTime) ? utils.formatDateTime(val) : (val ? new Date(val).toLocaleString() : ''); }
 
 function setValue(id, val){
   const el = document.getElementById(id);
@@ -40,7 +41,7 @@ function renderActivity(entries){
   const label = { in:'Check-In', out:'Check-Out', reserve:'Reserve', return:'Return' };
   recent.forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${label[e.type]||e.type}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td>${label[e.type]||e.type}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${fmtDT(e.ts)}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -55,8 +56,9 @@ function drawChart(entries){
     return { label:`${d.getMonth()+1}/${d.getDate()}`, key, total:0 };
   });
   entries.forEach(e=>{
-    if(!e.ts) return;
-    const d=new Date(e.ts);
+    const ts = e.ts || utils?.parseTs?.(e.ts);
+    if(!ts) return;
+    const d=new Date(ts);
     const key=d.toDateString();
     const bucket=days.find(day=> day.key===key);
     if(bucket) bucket.total += 1;

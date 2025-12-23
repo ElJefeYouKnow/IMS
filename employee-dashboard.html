@@ -157,7 +157,8 @@
       pending.slice(0,8).forEach(p=>{
         const tr=document.createElement('tr');
         const overdue = (Date.now() - (p.lastOut||0)) > 2*24*60*60*1000;
-        tr.innerHTML=`<td>${p.code}</td><td>${p.jobId||''}</td><td>${p.out}</td><td style="${overdue?'color:#b91c1c;font-weight:700;':''}">${p.outstanding}</td><td>${p.lastOut ? new Date(p.lastOut).toLocaleString() : ''}</td>`;
+        const dt = (window.utils && utils.formatDateTime) ? utils.formatDateTime(p.lastOut) : (p.lastOut ? new Date(p.lastOut).toLocaleString() : '');
+        tr.innerHTML=`<td>${p.code}</td><td>${p.jobId||''}</td><td>${p.out}</td><td style="${overdue?'color:#b91c1c;font-weight:700;':''}">${p.outstanding}</td><td>${dt}</td>`;
         tbody.appendChild(tr);
       });
     }
@@ -173,7 +174,8 @@
       }
       recent.forEach(e=>{
         const tr=document.createElement('tr');
-        tr.innerHTML=`<td>${typeLabel(e.type)}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||''}</td><td>${e.ts ? new Date(e.ts).toLocaleString() : ''}</td>`;
+        const dt = (window.utils && utils.formatDateTime) ? utils.formatDateTime(e.ts) : (e.ts ? new Date(e.ts).toLocaleString() : '');
+        tr.innerHTML=`<td>${typeLabel(e.type)}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||''}</td><td>${dt}</td>`;
         tbody.appendChild(tr);
       });
     }

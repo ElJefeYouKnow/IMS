@@ -170,5 +170,30 @@
       };
     }
   };
+
+  // Date/time helpers
+  utils.parseTs = function(val){
+    if(val === undefined || val === null) return null;
+    if(typeof val === 'number') return val;
+    if(typeof val === 'string'){
+      if(/^\d+$/.test(val)) return Number(val);
+      const t = Date.parse(val);
+      return Number.isNaN(t) ? null : t;
+    }
+    return null;
+  };
+  utils.formatDateTime = function(val){
+    const ts = utils.parseTs(val);
+    if(ts === null) return '';
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
+  };
+  utils.formatDateOnly = function(val){
+    const ts = utils.parseTs(val);
+    if(ts === null) return '';
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+  };
+
   global.utils = utils;
 })(window);

@@ -13,6 +13,13 @@ function getSessionUser(){
 async function loadItems(){
   allItems = await utils.fetchJsonSafe('/api/items', {}, []) || [];
 }
+function addItemLocally(item){
+  if(!item || !item.code) return;
+  const exists = allItems.find(i=> i.code === item.code);
+  if(!exists){
+    allItems.push(item);
+  }
+}
 
 async function loadJobOptions(){
   const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
@@ -138,6 +145,9 @@ function wireSelectAll(tableId){
   });
 }
 
+function fmtDT(val){ return (window.utils && utils.formatDateTime) ? utils.formatDateTime(val) : (val ? new Date(val).toLocaleString() : ''); }
+function fmtD(val){ return (window.utils && utils.formatDateOnly) ? utils.formatDateOnly(val) : (val ? new Date(val).toLocaleDateString() : ''); }
+
 async function refreshReturnDropdown(select){
   const checkouts = await loadCheckouts();
   const returns = await loadReturns();
@@ -184,7 +194,7 @@ async function renderCheckinTable(){
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,name:e.name,qty:e.qty,location:e.location,jobId:e.jobId,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${e.qty}</td><td>${e.location||''}</td><td>${e.jobId||FALLBACK}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,name:e.name,qty:e.qty,location:e.location,jobId:e.jobId,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${e.qty}</td><td>${e.location||''}</td><td>${e.jobId||FALLBACK}</td><td>${fmtDT(e.ts)}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('checkinTable');
@@ -229,7 +239,7 @@ async function renderCheckoutTable(){
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,name:e.name,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${e.jobId||FALLBACK}</td><td>${e.qty}</td><td class="mobile-hide">${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,name:e.name,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${e.jobId||FALLBACK}</td><td>${e.qty}</td><td class="mobile-hide">${fmtDT(e.ts)}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('checkoutTable');
@@ -296,8 +306,8 @@ async function renderReserveTable(){
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    const returnDate = e.returnDate ? new Date(e.returnDate).toLocaleDateString() : FALLBACK;
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,returnDate:e.returnDate,ts:e.ts})}'></td><td>${e.code}</td><td>${e.jobId}</td><td>${e.qty}</td><td class="mobile-hide">${returnDate}</td><td class="mobile-hide">${new Date(e.ts).toLocaleString()}</td>`;
+    const returnDate = fmtD(e.returnDate) || FALLBACK;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,returnDate:e.returnDate,ts:e.ts})}'></td><td>${e.code}</td><td>${e.jobId}</td><td>${e.qty}</td><td class="mobile-hide">${returnDate}</td><td class="mobile-hide">${fmtDT(e.ts)}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('reserveTable');
@@ -342,7 +352,7 @@ async function renderReturnTable(){
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,qty:e.qty,jobId:e.jobId,reason:e.reason,location:e.location,ts:e.ts})}'></td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td class="mobile-hide">${e.location||FALLBACK}</td><td class="mobile-hide">${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,qty:e.qty,jobId:e.jobId,reason:e.reason,location:e.location,ts:e.ts})}'></td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td class="mobile-hide">${e.location||FALLBACK}</td><td class="mobile-hide">${fmtDT(e.ts)}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('returnTable');
@@ -572,7 +582,11 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     let okAll=true;
     for(const line of lines){
       const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, location, jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, unitPrice: line.unitPrice, category: line.category});
-      if(!ok) okAll=false;
+      if(ok){
+        addItemLocally({code: line.code, name: line.name, category: line.category, unitPrice: line.unitPrice});
+      }else{
+        okAll=false;
+      }
     }
     if(!okAll) alert('Some items failed to check in');
     checkinForm.reset();
