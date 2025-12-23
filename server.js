@@ -132,6 +132,20 @@ async function getAsync(sql, params = []) {
   const result = await pool.query(sql, params);
   return result.rows[0];
 }
+async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
 
 function parseCookies(req) {
   const header = req.headers.cookie;
@@ -285,6 +299,7 @@ function statusForType(type) {
   if (type === 'out') return 'checked-out';
   if (type === 'reserve') return 'reserved';
   if (type === 'return') return 'returned';
+  if (type === 'consume') return 'consumed';
   return 'unknown';
 }
 
@@ -301,11 +316,28 @@ async function calcAvailability(code, tenantIdVal) {
         WHEN type='return' THEN qty
         WHEN type='reserve' THEN -qty
         WHEN type='out' THEN -qty
+        WHEN type='consume' THEN -qty
         ELSE 0 END
     ),0) AS available
     FROM inventory WHERE code = $1 AND tenantId=$2
   `, [code, tenantIdVal]);
   return row?.available || 0;
+}
+async function calcAvailabilityTx(client, code, tenantIdVal) {
+  const row = await client.query(`
+    SELECT COALESCE(SUM(
+      CASE 
+        WHEN type='in' THEN qty
+        WHEN type='return' THEN qty
+        WHEN type='reserve' THEN -qty
+        WHEN type='out' THEN -qty
+        WHEN type='consume' THEN -qty
+        ELSE 0 END
+    ),0) AS available
+    FROM inventory WHERE code = $1 AND tenantId=$2
+    FOR UPDATE
+  `, [code, tenantIdVal]);
+  return row.rows[0]?.available || 0;
 }
 
 async function calcOutstandingCheckout(code, jobId, tenantIdVal) {
@@ -323,6 +355,22 @@ async function calcOutstandingCheckout(code, jobId, tenantIdVal) {
   `, params);
   return Math.max(0, row?.outstanding || 0);
 }
+async function calcOutstandingCheckoutTx(client, code, jobId, tenantIdVal) {
+  const params = [code, tenantIdVal];
+  let jobClause = '';
+  if (jobId) {
+    jobClause = 'AND jobId = $3';
+    params.push(jobId);
+  } else {
+    jobClause = "AND (jobId IS NULL OR jobId = '')";
+  }
+  const row = await client.query(`
+    SELECT COALESCE(SUM(CASE WHEN type='out' THEN qty WHEN type='return' THEN -qty ELSE 0 END),0) as outstanding
+    FROM inventory WHERE code=$1 AND tenantId=$2 ${jobClause}
+    FOR UPDATE
+  `, params);
+  return Math.max(0, row.rows[0]?.outstanding || 0);
+}
 
 function requireRole(role) {
   return (req, res, next) => {
@@ -333,6 +381,90 @@ function requireRole(role) {
 }
 function tenantId(req) {
   return (req.user && (req.user.tenantid || req.user.tenantId)) || 'default';
+}
+async function loadItem(client, code, tenantIdVal) {
+  const row = await client.query('SELECT * FROM items WHERE code=$1 AND tenantId=$2', [code, tenantIdVal]);
+  return row.rows[0];
+}
+
+async function ensureItem(client, { code, name, category, unitPrice, tenantIdVal }) {
+  let item = await loadItem(client, code, tenantIdVal);
+  if (item) return item;
+  if (!name) throw new Error('unknown item code; include a name to add it');
+  const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
+  await client.query(`INSERT INTO items(code,name,category,unitPrice,tenantId)
+    VALUES($1,$2,$3,$4,$5)
+    ON CONFLICT (code) DO NOTHING`, [code, name, category || null, price, tenantIdVal]);
+  item = await loadItem(client, code, tenantIdVal);
+  return item;
+}
+
+async function getLastCheckoutTs(client, code, jobId, tenantIdVal) {
+  const params = [code, tenantIdVal];
+  let jobClause = '';
+  if (jobId) {
+    jobClause = 'AND jobId=$3';
+    params.push(jobId);
+  } else {
+    jobClause = "AND (jobId IS NULL OR jobId='')";
+  }
+  const row = await client.query(`SELECT MAX(ts) as last FROM inventory WHERE code=$1 AND tenantId=$2 AND type='out' ${jobClause}`, params);
+  return row.rows[0]?.last || null;
+}
+
+async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn }) {
+  const qtyNum = Number(qty);
+  if (!code || !qtyNum || qtyNum <= 0) throw new Error('code and positive qty required');
+  const item = await ensureItem(client, { code, name, category, unitPrice, tenantIdVal });
+  const nowTs = ts || Date.now();
+  let status = statusForType(type);
+
+  if (type === 'reserve') {
+    const avail = await calcAvailabilityTx(client, code, tenantIdVal);
+    if (qtyNum > avail) throw new Error('insufficient stock to reserve');
+  }
+  if (type === 'out') {
+    await enforceCheckoutAging(tenantIdVal);
+    const avail = await calcAvailabilityTx(client, code, tenantIdVal);
+    if (qtyNum > avail) throw new Error('insufficient stock to checkout');
+  }
+  if (type === 'return') {
+    const outstanding = await calcOutstandingCheckoutTx(client, code, jobId, tenantIdVal);
+    if (outstanding <= 0) throw new Error('no matching checkout to return');
+    if (qtyNum > outstanding) throw new Error('return exceeds outstanding checkout');
+    if (requireRecentReturn) {
+      const last = await getLastCheckoutTs(client, code, jobId, tenantIdVal);
+      if (!last || (nowTs - last) > CHECKOUT_RETURN_WINDOW_MS) throw new Error('return window exceeded (5 days)');
+    }
+  }
+  if (type === 'consume') {
+    if (!reason) throw new Error('reason required for consumption');
+    status = reason.toLowerCase().includes('lost') ? 'lost' : (reason.toLowerCase().includes('damage') ? 'damaged' : 'consumed');
+    const avail = await calcAvailabilityTx(client, code, tenantIdVal);
+    if (qtyNum > avail) throw new Error('insufficient stock to consume');
+  }
+
+  const entry = {
+    id: newId(),
+    code,
+    name: item?.name || name,
+    qty: qtyNum,
+    location,
+    jobId,
+    notes,
+    reason,
+    returnDate,
+    ts: nowTs,
+    type,
+    status,
+    userEmail,
+    userName,
+    tenantId: tenantIdVal
+  };
+  await client.query(`INSERT INTO inventory(id,code,name,qty,location,jobId,notes,reason,returnDate,ts,type,status,userEmail,userName,tenantId)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+    [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.jobId, entry.notes, entry.reason, entry.returnDate, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId]);
+  return entry;
 }
 
 // INVENTORY
@@ -348,43 +480,27 @@ app.get('/api/inventory', async (req, res) => {
 app.post('/api/inventory', async (req, res) => {
   try {
     const { code, name, category, unitPrice, qty, location, jobId, notes, ts } = req.body;
-    const qtyNum = Number(qty);
-    if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
-    const exists = await itemExists(code, t);
-    if (!exists) {
-      if (!name) return res.status(400).json({ error: 'unknown item code; include a name to add it' });
-      const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
-      await runAsync(`INSERT INTO items(code,name,category,unitPrice,tenantId)
-        VALUES($1,$2,$3,$4,$5)
-        ON CONFLICT (code) DO NOTHING`, [code, name, category || null, price, t]);
-    }
-    const entry = { id: newId(), code, name, qty: qtyNum, location, jobId, notes, ts: ts || Date.now(), type: 'in', status: statusForType('in'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
-    await runAsync(`INSERT INTO inventory(id,code,name,qty,location,jobId,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.jobId, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { code, qty: qtyNum, jobId, location } });
+    const entry = await withTransaction(async (client) => {
+      return processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { code, qty, jobId, location } });
     res.status(201).json(entry);
-  } catch (e) { res.status(500).json({ error: 'server error' }); }
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
 app.post('/api/inventory-checkout', async (req, res) => {
   try {
     const { code, jobId, qty, reason, notes, ts } = req.body;
-    const qtyNum = Number(qty);
-    if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
-    await enforceCheckoutAging(t);
-    if (!(await itemExists(code, t))) return res.status(400).json({ error: 'unknown item code' });
-    const available = await calcAvailability(code, t);
-    if (qtyNum > available) return res.status(400).json({ error: 'insufficient stock', available });
-    const tsNow = ts || Date.now();
-    const due = tsNow + CHECKOUT_RETURN_WINDOW_MS;
-    const entry = { id: newId(), code, jobId, qty: qtyNum, reason, notes, ts: tsNow, returnDate: new Date(due).toISOString(), type: 'out', status: statusForType('out'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
-    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,notes,returnDate,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.notes, entry.returnDate, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty: qtyNum, jobId } });
+    const entry = await withTransaction(async (client) => {
+      const tsNow = ts || Date.now();
+      const due = tsNow + CHECKOUT_RETURN_WINDOW_MS;
+      return processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty, jobId } });
     res.status(201).json(entry);
-  } catch (e) { res.status(500).json({ error: 'server error' }); }
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
 app.delete('/api/inventory', async (req, res) => {
@@ -414,18 +530,14 @@ app.get('/api/inventory-reserve', async (req, res) => {
 app.post('/api/inventory-reserve', async (req, res) => {
   try {
     const { code, jobId, qty, returnDate, notes, ts } = req.body;
-    const qtyNum = Number(qty);
-    if (!code || !jobId || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code, jobId and positive qty required' });
+    if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const t = tenantId(req);
-    if (!(await itemExists(code, t))) return res.status(400).json({ error: 'unknown item code' });
-    const available = await calcAvailability(code, t);
-    if (qtyNum > available) return res.status(400).json({ error: 'insufficient stock', available });
-    const entry = { id: newId(), code, jobId, qty: qtyNum, returnDate, notes, ts: ts || Date.now(), type: 'reserve', status: statusForType('reserve'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
-    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,returnDate,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [entry.id, entry.code, entry.jobId, entry.qty, entry.returnDate, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty: qtyNum, jobId, returnDate } });
+    const entry = await withTransaction(async (client) => {
+      return processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty, jobId, returnDate } });
     res.status(201).json(entry);
-  } catch (e) { res.status(500).json({ error: 'server error' }); }
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
 app.delete('/api/inventory-reserve', async (req, res) => {
@@ -445,19 +557,13 @@ app.get('/api/inventory-return', async (req, res) => {
 app.post('/api/inventory-return', async (req, res) => {
   try {
     const { code, jobId, qty, reason, location, notes, ts } = req.body;
-    const qtyNum = Number(qty);
-    if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
-    if (!(await itemExists(code, t))) return res.status(400).json({ error: 'unknown item code' });
-    const outstanding = await calcOutstandingCheckout(code, jobId, t);
-    if (outstanding <= 0) return res.status(400).json({ error: 'no matching checkout to return' });
-    if (qtyNum > outstanding) return res.status(400).json({ error: 'return exceeds outstanding checkout', outstanding });
-    const entry = { id: newId(), code, jobId, qty: qtyNum, reason, location, notes, ts: ts || Date.now(), type: 'return', status: statusForType('return'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
-    await runAsync(`INSERT INTO inventory(id,code,jobId,qty,reason,location,notes,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [entry.id, entry.code, entry.jobId, entry.qty, entry.reason, entry.location, entry.notes, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, t]);
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.return', details: { code, qty: qtyNum, jobId, reason } });
+    const entry = await withTransaction(async (client) => {
+      return processInventoryEvent(client, { type: 'return', code, jobId, qty, reason, location, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t, requireRecentReturn: true });
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.return', details: { code, qty, jobId, reason } });
     res.status(201).json(entry);
-  } catch (e) { res.status(500).json({ error: 'server error' }); }
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
 app.delete('/api/inventory-return', async (req, res) => {
@@ -465,6 +571,20 @@ app.delete('/api/inventory-return', async (req, res) => {
     await runAsync("DELETE FROM inventory WHERE type='return' AND tenantId=$1", [tenantId(req)]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+// CONSUME / LOST / DAMAGED (admin-only)
+app.post('/api/inventory-consume', requireRole('admin'), async (req, res) => {
+  try {
+    const { code, qty, reason, notes, ts } = req.body;
+    if (!reason) return res.status(400).json({ error: 'reason required' });
+    const t = tenantId(req);
+    const entry = await withTransaction(async (client) => {
+      return processInventoryEvent(client, { type: 'consume', code, qty, reason, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty, reason } });
+    res.status(201).json(entry);
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
 // ITEMS
@@ -688,16 +808,16 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
-    const exists = await itemExists(code, t);
-    if (!exists) {
-      await runAsync('INSERT INTO items(code,name,category,unitPrice,description,tenantId) VALUES($1,$2,$3,$4,$5,$6)', [code, name || code, '', null, '', t]);
-    }
-    const entry = { id: newId(), code, name, qty: qtyNum, eta, notes, jobId, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
-    await runAsync(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [entry.id, entry.code, entry.name, entry.qty, entry.eta, entry.notes, entry.jobId, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId]);
+    const entry = await withTransaction(async (client) => {
+      await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
+      const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+      await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId]);
+      return ev;
+    });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta } });
     res.status(201).json(entry);
-  } catch (e) { res.status(500).json({ error: 'server error' }); }
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
 // METRICS
