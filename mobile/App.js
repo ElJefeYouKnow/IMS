@@ -8,7 +8,7 @@ export default function App(){
   const [user, setUser] = useState(FALLBACK_USER);
   return (
     <SafeAreaView style={styles.container}>
-      {!user ? <LoginScreen onLogin={setUser} /> : <Dashboard user={user} />}
+      {!user ? <LoginScreen onLogin={setUser} /> : <Dashboard user={user} onLogout={()=>setUser(null)} />}
     </SafeAreaView>
   );
 }
@@ -43,11 +43,12 @@ function LoginScreen({ onLogin }){
   );
 }
 
-function Dashboard({ user }){
+function Dashboard({ user, onLogout }){
   const [metrics,setMetrics]=useState(null);
   const [lowStock,setLowStock]=useState([]);
   const [activity,setActivity]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [now,setNow]=useState(new Date());
   const isAdmin = user.role === 'admin';
   useEffect(()=>{
     let mounted=true;
@@ -70,10 +71,22 @@ function Dashboard({ user }){
     })();
     return ()=>{mounted=false;};
   },[user]);
+  useEffect(()=>{
+    const id = setInterval(()=>setNow(new Date()), 1000);
+    return ()=>clearInterval(id);
+  },[]);
   if(loading) return <ActivityIndicator style={{marginTop:40}} />;
   return (
     <View style={{flex:1}}>
-      <Text style={styles.title}>{isAdmin ? 'Admin' : 'Employee'} Dashboard</Text>
+      <View style={styles.topRow}>
+        <Text style={styles.title}>{isAdmin ? 'Admin' : 'Employee'} Dashboard</Text>
+        <View style={styles.topRight}>
+          <Text style={styles.clock}>{now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</Text>
+          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
       {metrics && (
         <View style={styles.metricsRow}>
           <Metric label="Available" value={metrics.availableUnits}/>
@@ -125,6 +138,11 @@ const styles = StyleSheet.create({
   container:{flex:1,padding:16,backgroundColor:'#0b1020'},
   card:{backgroundColor:'#111827',padding:16,borderRadius:12},
   title:{fontSize:22,fontWeight:'700',color:'#fff',marginBottom:12},
+  topRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:12},
+  topRight:{flexDirection:'row',alignItems:'center',gap:10},
+  clock:{color:'#cbd5f5',fontWeight:'700'},
+  logoutBtn:{paddingVertical:8,paddingHorizontal:12,borderRadius:8,borderWidth:1,borderColor:'#374151',backgroundColor:'#111827'},
+  logoutText:{color:'#fca5a5',fontWeight:'700'},
   subtitle:{fontSize:18,fontWeight:'600',color:'#cbd5f5',marginTop:16,marginBottom:6},
   input:{backgroundColor:'#1f2937',color:'#fff',padding:12,borderRadius:8,marginBottom:10},
   button:{backgroundColor:'#4f46e5',padding:14,borderRadius:10,alignItems:'center'},
