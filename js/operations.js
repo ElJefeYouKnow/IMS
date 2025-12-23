@@ -168,6 +168,9 @@ async function refreshReturnDropdown(select){
 async function loadCheckins(){
   return await utils.fetchJsonSafe('/api/inventory?type=in', {}, []) || [];
 }
+async function loadOrders(){
+  return await utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []) || [];
+}
 
 async function renderCheckinTable(){
   const tbody=document.querySelector('#checkinTable tbody');tbody.innerHTML='';
@@ -345,6 +348,24 @@ async function renderReturnTable(){
   wireSelectAll('returnTable');
 }
 
+function setMetric(id,val){
+  const el = document.getElementById(id);
+  if(el) el.textContent = val ?? '-';
+}
+
+async function updateOpsMetrics(){
+  const metrics = await utils.fetchJsonSafe('/api/metrics', {}, {});
+  if(metrics){
+    setMetric('ops-available', metrics.availableUnits);
+    setMetric('ops-reserved', metrics.reservedUnits);
+    setMetric('ops-out', metrics.txLast7 ?? '—');
+  }
+  const checkouts = await loadCheckouts();
+  const returns = await loadReturns();
+  const outstanding = getOutstandingCheckouts(checkouts, returns);
+  setMetric('ops-due', outstanding.length);
+}
+
 async function addReturn(e){
   try{
     const r = await fetch('/api/inventory-return',{
@@ -436,6 +457,7 @@ function switchMode(mode){
 document.addEventListener('DOMContentLoaded', async ()=>{
   await loadItems();
   await loadJobOptions();
+  updateOpsMetrics();
   const initialMode = new URLSearchParams(window.location.search).get('mode') || 'checkin';
   if(window.utils && utils.setupLogout) utils.setupLogout();
   
@@ -454,6 +476,26 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(btn) btn.addEventListener('click', ()=> addLine(prefix));
   });
   switchMode(initialMode);
+
+  // Bulk paste for check-in
+  const bulkBtn = document.getElementById('checkin-bulk-apply');
+  if(bulkBtn){
+    bulkBtn.addEventListener('click', ()=>{
+      const text = document.getElementById('checkin-bulk').value.trim();
+      if(!text) return;
+      const lines = text.split('\n').map(l=> l.split(','));
+      const container = document.getElementById('checkin-lines');
+      lines.forEach(parts=>{
+        const [code, qty, name] = parts.map(p=> (p||'').trim());
+        if(!code || !qty) return;
+        addLine('checkin');
+        const row = container.lastElementChild;
+        row.querySelector('input[name="code"]').value = code;
+        row.querySelector('input[name="qty"]').value = qty;
+        row.querySelector('input[name="name"]').value = name || '';
+      });
+    });
+  }
   
   
   // Mode switching

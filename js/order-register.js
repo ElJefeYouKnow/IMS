@@ -79,6 +79,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const msg=document.getElementById('orderMsg');
   const clearBtn=document.getElementById('orderClearBtn');
   const addAnotherBtn = document.getElementById('orderAddAnother');
+  const stickJob = document.getElementById('order-stick-job');
   loadJobs();
   loadItems();
   renderRecentOrders();
@@ -119,11 +120,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
       }
       msg.style.color='#15803d';msg.textContent='Order registered';
       await renderRecentOrders();
+      const keepJob = stickJob?.checked;
       if(clearAll){
         form.reset();document.getElementById('orderQty').value='1';
         nameInput.dataset.existing='false';
       }else{
         codeInput.value=''; document.getElementById('orderQty').value='1'; nameInput.value=''; codeInput.focus();
+      }
+      if(keepJob){
+        document.getElementById('orderJob').value = jobId;
       }
       return true;
     }catch(e){
@@ -139,5 +144,23 @@ document.addEventListener('DOMContentLoaded', ()=>{
   addAnotherBtn.addEventListener('click', async ()=>{
     await submitOrder(false);
   });
+  const bulkBtn = document.getElementById('order-bulk-apply');
+  if(bulkBtn){
+    bulkBtn.addEventListener('click', async ()=>{
+      const text = document.getElementById('order-bulk').value.trim();
+      if(!text){ msg.textContent=''; return; }
+      const lines = text.split('\n').map(l=> l.split(','));
+      for(const parts of lines){
+        const [code,name,qty,eta,jobId] = parts.map(p=> (p||'').trim());
+        if(!code || !qty){ msg.style.color='#b91c1c'; msg.textContent=`Line skipped: code/qty required (${parts.join(',')})`; continue; }
+        document.getElementById('orderCode').value = code;
+        document.getElementById('orderName').value = name || '';
+        document.getElementById('orderQty').value = qty;
+        if(eta) document.getElementById('orderEta').value = eta;
+        document.getElementById('orderJob').value = jobId || (stickJob?.checked ? document.getElementById('orderJob').value : '');
+        await submitOrder(true);
+      }
+    });
+  }
   clearBtn.addEventListener('click',()=>{form.reset();msg.textContent='';document.getElementById('orderQty').value='1';});
 });

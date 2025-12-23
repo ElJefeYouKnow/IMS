@@ -64,9 +64,18 @@
                 <option value="">General Inventory</option>
               </select>
             </label>
+            <label style="max-width:220px;display:flex;align-items:center;gap:6px;margin-top:22px;">
+              <input type="checkbox" id="order-stick-job" style="width:auto;"> Keep last job for next entry
+            </label>
           </div>
           <div class="form-row">
             <label style="flex:1">Notes<textarea id="orderNotes" rows="2"></textarea></label>
+          </div>
+          <div class="form-row">
+            <label style="flex:1">Bulk paste (code,name,qty,eta,job)
+              <textarea id="order-bulk" rows="2" placeholder="ABC123,Widgets,2,2025-01-10,JOB-1&#10;XYZ9,,5,2025-01-11,"></textarea>
+            </label>
+            <button id="order-bulk-apply" type="button" class="muted" style="margin-top:22px;">Register from Paste</button>
           </div>
           <div class="form-row">
             <button type="submit">Register Order</button>
