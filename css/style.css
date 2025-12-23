@@ -47,6 +47,9 @@ table{width:100%;border-collapse:collapse}
 thead th{text-align:left;padding:8px;color:var(--muted);font-size:0.85rem}
 tbody td{padding:10px;border-top:1px solid #eef2f7}
 .clock{font-size:0.9rem;color:var(--muted)}
+.clock-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);padding:6px 10px;border-radius:10px;box-shadow:0 6px 16px rgba(0,0,0,0.12)}
+.clock-label{color:#cbd5f5;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
+.clock-value{color:#fff;font-weight:800;font-size:14px}
 .dark thead th{color:#cbd5f5}
 .dark tbody td{color:#fff;border-top:1px solid #1f2937}
 

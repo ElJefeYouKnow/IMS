@@ -81,7 +81,10 @@ function Dashboard({ user, onLogout }){
       <View style={styles.topRow}>
         <Text style={styles.title}>{isAdmin ? 'Admin' : 'Employee'} Dashboard</Text>
         <View style={styles.topRight}>
-          <Text style={styles.clock}>{now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</Text>
+          <View style={styles.clockPill}>
+            <Text style={styles.clockLabel}>Now</Text>
+            <Text style={styles.clock}>{now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</Text>
+          </View>
           <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
@@ -140,7 +143,9 @@ const styles = StyleSheet.create({
   title:{fontSize:22,fontWeight:'700',color:'#fff',marginBottom:12},
   topRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:12},
   topRight:{flexDirection:'row',alignItems:'center',gap:10},
-  clock:{color:'#cbd5f5',fontWeight:'700'},
+  clockPill:{flexDirection:'row',alignItems:'center',gap:6,backgroundColor:'#111827',paddingVertical:6,paddingHorizontal:10,borderRadius:10,borderWidth:1,borderColor:'#1f2937'},
+  clockLabel:{color:'#9ca3af',fontSize:11,fontWeight:'700',letterSpacing:0.5,textTransform:'uppercase'},
+  clock:{color:'#e5e7eb',fontWeight:'800',fontSize:16},
   logoutBtn:{paddingVertical:8,paddingHorizontal:12,borderRadius:8,borderWidth:1,borderColor:'#374151',backgroundColor:'#111827'},
   logoutText:{color:'#fca5a5',fontWeight:'700'},
   subtitle:{fontSize:18,fontWeight:'600',color:'#cbd5f5',marginTop:16,marginBottom:6},
