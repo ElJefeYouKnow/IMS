@@ -117,9 +117,14 @@
         </section>
 
         <section class="card">
-          <h3>Recent Check-Ins</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <h3 style="margin:0;">Recent Check-Ins</h3>
+            <div style="display:flex;gap:8px;">
+              <button id="checkin-export-selected" class="muted" type="button">Export Selected</button>
+            </div>
+          </div>
           <table id="checkinTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Location</th><th>Job ID</th><th>When</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="checkinTable"></th><th>Code</th><th>Name</th><th>Qty</th><th>Location</th><th>Job ID</th><th>When</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -156,9 +161,14 @@
         </section>
 
         <section class="card">
-          <h3>Recent Checkouts</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <h3 style="margin:0;">Recent Checkouts</h3>
+            <div style="display:flex;gap:8px;">
+              <button id="checkout-export-selected" class="muted" type="button">Export Selected</button>
+            </div>
+          </div>
           <table id="checkoutTable">
-            <thead><tr><th>Code</th><th>Job ID</th><th>Qty</th><th>When</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="checkoutTable"></th><th>Code</th><th>Job ID</th><th>Qty</th><th>When</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -198,9 +208,14 @@
         </section>
 
         <section class="card">
-          <h3>Active Reservations</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <h3 style="margin:0;">Active Reservations</h3>
+            <div style="display:flex;gap:8px;">
+              <button id="reserve-export-selected" class="muted" type="button">Export Selected</button>
+            </div>
+          </div>
           <table id="reserveTable">
-            <thead><tr><th>Code</th><th>Job ID</th><th>Qty</th><th>Expected Return</th><th>Reserved On</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="reserveTable"></th><th>Code</th><th>Job ID</th><th>Qty</th><th>Expected Return</th><th>Reserved On</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -260,9 +275,14 @@
         </section>
 
         <section class="card">
-          <h3>Recent Returns</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <h3 style="margin:0;">Recent Returns</h3>
+            <div style="display:flex;gap:8px;">
+              <button id="return-export-selected" class="muted" type="button">Export Selected</button>
+            </div>
+          </div>
           <table id="returnTable">
-            <thead><tr><th>Code</th><th>Qty</th><th>From Job</th><th>Reason</th><th>Location</th><th>When</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="returnTable"></th><th>Code</th><th>Qty</th><th>From Job</th><th>Reason</th><th>Location</th><th>When</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>

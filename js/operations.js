@@ -130,6 +130,14 @@ function getOutstandingCheckouts(checkouts, returns){
     .map(([key,v])=>({key, outstanding:v.qty, entry:v.entry}));
 }
 
+function wireSelectAll(tableId){
+  const master = document.querySelector(`input[data-select-all="${tableId}"]`);
+  if(!master) return;
+  master.addEventListener('change', ()=>{
+    document.querySelectorAll(`#${tableId} tbody .row-select`).forEach(cb=> cb.checked = master.checked);
+  });
+}
+
 async function refreshReturnDropdown(select){
   const checkouts = await loadCheckouts();
   const returns = await loadReturns();
@@ -166,15 +174,17 @@ async function renderCheckinTable(){
   const entries = await loadCheckins();
   if(!entries.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No check-ins yet</td>`;
+    tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No check-ins yet</td>`;
     tbody.appendChild(tr);
+    wireSelectAll('checkinTable');
     return;
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${e.code}</td><td>${e.name||''}</td><td>${e.qty}</td><td>${e.location||''}</td><td>${e.jobId||FALLBACK}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,name:e.name,qty:e.qty,location:e.location,jobId:e.jobId,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${e.qty}</td><td>${e.location||''}</td><td>${e.jobId||FALLBACK}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
     tbody.appendChild(tr);
   });
+  wireSelectAll('checkinTable');
 }
 
 async function addCheckin(e){
@@ -209,15 +219,17 @@ async function renderCheckoutTable(){
   const entries = await loadCheckouts();
   if(!entries.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="4" style="text-align:center;color:#6b7280;">No check-outs yet</td>`;
+    tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No check-outs yet</td>`;
     tbody.appendChild(tr);
+    wireSelectAll('checkoutTable');
     return;
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${e.code}</td><td>${e.jobId||FALLBACK}</td><td>${e.qty}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,ts:e.ts})}'></td><td>${e.code}</td><td>${e.jobId||FALLBACK}</td><td>${e.qty}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
     tbody.appendChild(tr);
   });
+  wireSelectAll('checkoutTable');
 }
 
 async function addCheckout(e){
@@ -241,6 +253,28 @@ async function clearCheckouts(){
 function exportCheckoutCSV(){
   exportCSV('checkout');
 }
+function getSelectedPayloads(tableId){
+  const rows = document.querySelectorAll(`#${tableId} tbody .row-select:checked`);
+  const out = [];
+  rows.forEach(cb=>{
+    try{
+      const data = JSON.parse(cb.dataset.payload || '{}');
+      out.push(data);
+    }catch(e){}
+  });
+  return out;
+}
+function exportSelected(tableId, headers, mapFn, filename){
+  const selected = getSelectedPayloads(tableId);
+  if(!selected.length){ alert('Select at least one row first'); return; }
+  const rows = selected.map(mapFn);
+  const csv=[headers.join(','),...rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(','))].join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=filename || 'export.csv';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
 
 // ===== RESERVE MODE =====
 async function loadReservations(){
@@ -252,16 +286,18 @@ async function renderReserveTable(){
   const entries = await loadReservations();
   if(!entries.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No reservations yet</td>`;
+    tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No reservations yet</td>`;
     tbody.appendChild(tr);
+    wireSelectAll('reserveTable');
     return;
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
     const returnDate = e.returnDate ? new Date(e.returnDate).toLocaleDateString() : FALLBACK;
-    tr.innerHTML=`<td>${e.code}</td><td>${e.jobId}</td><td>${e.qty}</td><td>${returnDate}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,returnDate:e.returnDate,ts:e.ts})}'></td><td>${e.code}</td><td>${e.jobId}</td><td>${e.qty}</td><td>${returnDate}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
     tbody.appendChild(tr);
   });
+  wireSelectAll('reserveTable');
 }
 
 async function addReservation(e){
@@ -296,15 +332,17 @@ async function renderReturnTable(){
   const entries = await loadReturns();
   if(!entries.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No returns yet</td>`;
+    tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No returns yet</td>`;
     tbody.appendChild(tr);
+    wireSelectAll('returnTable');
     return;
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td>${e.location||FALLBACK}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,qty:e.qty,jobId:e.jobId,reason:e.reason,location:e.location,ts:e.ts})}'></td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td>${e.location||FALLBACK}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
     tbody.appendChild(tr);
   });
+  wireSelectAll('returnTable');
 }
 
 async function addReturn(e){
@@ -388,7 +426,7 @@ function switchMode(mode){
   
   // Remove active from all buttons
   document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
-  
+
   // Show selected mode
   document.getElementById(`${mode}-mode`).classList.add('active');
   document.querySelector(`[data-mode="${mode}"]`).classList.add('active');
@@ -429,7 +467,33 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       }
     });
   });
-  
+
+  // Export selected buttons
+  const checkinSelBtn = document.getElementById('checkin-export-selected');
+  if(checkinSelBtn){
+    checkinSelBtn.addEventListener('click', ()=>{
+      exportSelected('checkinTable', ['code','name','qty','location','jobId','timestamp'], r=>[r.code,r.name||'',r.qty||'',r.location||'',r.jobId||'', r.ts ? new Date(r.ts).toISOString() : ''], 'checkin-selected.csv');
+    });
+  }
+  const checkoutSelBtn = document.getElementById('checkout-export-selected');
+  if(checkoutSelBtn){
+    checkoutSelBtn.addEventListener('click', ()=>{
+      exportSelected('checkoutTable', ['code','jobId','qty','timestamp'], r=>[r.code,r.jobId||'',r.qty||'', r.ts ? new Date(r.ts).toISOString() : ''], 'checkout-selected.csv');
+    });
+  }
+  const reserveSelBtn = document.getElementById('reserve-export-selected');
+  if(reserveSelBtn){
+    reserveSelBtn.addEventListener('click', ()=>{
+      exportSelected('reserveTable', ['code','jobId','qty','returnDate','timestamp'], r=>[r.code,r.jobId||'',r.qty||'', r.returnDate||'', r.ts ? new Date(r.ts).toISOString() : ''], 'reserve-selected.csv');
+    });
+  }
+  const returnSelBtn = document.getElementById('return-export-selected');
+  if(returnSelBtn){
+    returnSelBtn.addEventListener('click', ()=>{
+      exportSelected('returnTable', ['code','qty','jobId','reason','location','timestamp'], r=>[r.code,r.qty||'',r.jobId||'',r.reason||'',r.location||'', r.ts ? new Date(r.ts).toISOString() : ''], 'return-selected.csv');
+    });
+  }
+
   // ===== RETURN CHECKOUT LOADER (manual refresh option) =====
   const returnLoadBtn = document.getElementById('return-loadCheckoutBtn');
   if(returnLoadBtn){
