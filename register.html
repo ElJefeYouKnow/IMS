@@ -25,21 +25,21 @@
         <button type="button" data-mode="admin">Admin</button>
       </div>
       <p id="reg-subtitle" style="color:#6b7280;margin-top:0;margin-bottom:16px;">Register to start using the app.</p>
-      <form id="registerForm" class="inventory-form">
+      <form id="registerForm" class="inventory-form" autocomplete="off">
         <div class="form-row">
-          <label>Business Code<input id="reg-tenant" required placeholder="Your business code"></label>
+          <label>Business Code<input id="reg-tenant" required placeholder="Your business code" autocomplete="off"></label>
         </div>
         <div class="form-row">
-          <label>Name<input id="reg-name" required></label>
+          <label>Name<input id="reg-name" required autocomplete="off"></label>
         </div>
         <div class="form-row">
-          <label>Email<input id="reg-email" type="email" required></label>
+          <label>Email<input id="reg-email" type="email" required autocomplete="off"></label>
         </div>
         <div class="form-row">
-          <label>Password<input id="reg-password" type="password" required></label>
+          <label>Password<input id="reg-password" type="password" required autocomplete="new-password"></label>
         </div>
         <div class="form-row" id="admin-key-row" style="display:none;">
-          <label>Admin Key<input id="reg-adminkey" type="password" placeholder="Admin signup key"></label>
+          <label>Admin Key<input id="reg-adminkey" type="password" placeholder="Admin signup key" autocomplete="off"></label>
         </div>
         <div class="form-row">
           <button type="submit">Register</button>

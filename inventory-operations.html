@@ -92,7 +92,7 @@
       
       <div id="checkin-mode" class="mode-content active">
         <section class="card inventory-card">
-          <form id="checkinForm" class="inventory-form">
+          <form id="checkinForm" class="inventory-form" autocomplete="off">
             <div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                 <strong>Line Items</strong>
@@ -148,7 +148,7 @@
       <div id="checkout-mode" class="mode-content">
         <section class="card inventory-card">
           <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Pick items from inventory for a job. Track the job and notes.</p>
-          <form id="checkoutForm" class="inventory-form">
+          <form id="checkoutForm" class="inventory-form" autocomplete="off">
             <div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                 <strong>Pick Items</strong>
@@ -192,7 +192,7 @@
       <div id="reserve-mode" class="mode-content">
         <section class="card inventory-card">
           <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Allocate inventory to a specific job (removes from available stock). Set an expected return date if the inventory may come back.</p>
-          <form id="reserveForm" class="inventory-form">
+          <form id="reserveForm" class="inventory-form" autocomplete="off">
             <div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                 <strong>Line Items</strong>
@@ -239,7 +239,7 @@
       <div id="return-mode" class="mode-content">
         <section class="card inventory-card">
           <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Return inventory that was previously checked out back to general stock.</p>
-          <form id="returnForm" class="inventory-form">
+          <form id="returnForm" class="inventory-form" autocomplete="off">
             <div class="form-row" style="align-items: center; gap: 8px;">
               <label style="flex: 1;">Select from Recent Checkouts
                 <select id="return-fromCheckout" style="width: 100%;">

@@ -23,21 +23,21 @@
     <div class="auth-card">
       <h1>Create Your Business</h1>
       <p class="hint">Set a unique business code and your admin account. You’ll use this code on the login screen.</p>
-      <form id="tenantForm" class="inventory-form">
+      <form id="tenantForm" class="inventory-form" autocomplete="off">
         <div class="form-row">
-          <label>Business Name<input id="tenant-name" required></label>
+          <label>Business Name<input id="tenant-name" required autocomplete="off"></label>
         </div>
         <div class="form-row">
-          <label>Business Code<input id="tenant-code" required placeholder="letters/numbers only"></label>
+          <label>Business Code<input id="tenant-code" required placeholder="letters/numbers only" autocomplete="off"></label>
         </div>
         <div class="form-row">
-          <label>Admin Name<input id="admin-name" required></label>
+          <label>Admin Name<input id="admin-name" required autocomplete="off"></label>
         </div>
         <div class="form-row">
-          <label>Admin Email<input id="admin-email" type="email" required></label>
+          <label>Admin Email<input id="admin-email" type="email" required autocomplete="off"></label>
         </div>
         <div class="form-row">
-          <label>Admin Password<input id="admin-password" type="password" required></label>
+          <label>Admin Password<input id="admin-password" type="password" required autocomplete="new-password"></label>
         </div>
         <div class="form-row">
           <button type="submit">Create Business</button>
