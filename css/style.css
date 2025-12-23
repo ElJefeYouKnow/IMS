@@ -55,15 +55,13 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
 
 /* Mobile-friendly nav + layout */
 .mobile-nav{display:none}
-.bottom-nav{position:sticky;bottom:0;left:0;right:0;background:linear-gradient(120deg,#0a1b2b,#0f7a57);color:#fff;z-index:50;border-top:2px solid rgba(255,255,255,0.14);box-shadow:0 -8px 24px rgba(0,0,0,0.28);display:none;padding:8px 10px}
-.bottom-nav .nav-toggle{width:100%;background:rgba(255,255,255,0.1);color:#fff;font-weight:800;padding:12px 14px;border:none;cursor:pointer;letter-spacing:0.3px;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,0.22)}
+.bottom-nav{position:sticky;bottom:0;left:0;right:0;background:rgba(9,14,26,0.92);backdrop-filter:blur(10px);color:#fff;z-index:60;border-top:1px solid rgba(255,255,255,0.1);box-shadow:0 -10px 30px rgba(0,0,0,0.35);display:none;padding:10px 12px;border-radius:18px 18px 0 0}
+.bottom-nav .nav-toggle{width:100%;background:linear-gradient(135deg,#0f7a57,#14a26d);color:#fff;font-weight:800;padding:12px 14px;border:none;cursor:pointer;letter-spacing:0.3px;border-radius:14px;box-shadow:0 10px 24px rgba(20,162,109,0.35)}
 .bottom-nav .nav-items{display:flex;gap:10px;align-items:center;overflow-x:auto;padding:10px 6px;background:transparent}
-.bottom-nav a{color:rgba(255,255,255,0.95);text-decoration:none;font-size:0.95rem;padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.12);white-space:nowrap;display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);backdrop-filter:blur(4px)}
+.bottom-nav a{color:rgba(255,255,255,0.95);text-decoration:none;font-size:0.95rem;padding:12px 14px;border-radius:14px;border:1px solid rgba(255,255,255,0.1);white-space:nowrap;display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.05);box-shadow:0 8px 18px rgba(0,0,0,0.2)}
 .bottom-nav a[data-role]{display:none}
 .bottom-nav a:not([data-role]){display:inline-flex}
-.bottom-nav a.active{background:rgba(15,122,87,0.22);border-color:rgba(15,122,87,0.4)}
-.bottom-nav.collapsed .nav-items{display:none}
-.bottom-nav a.active{background:rgba(15,122,87,0.22);border-color:rgba(15,122,87,0.4)}
+.bottom-nav a.active{background:linear-gradient(135deg,#0f7a57,#0a1b2b);border-color:rgba(255,255,255,0.2);box-shadow:0 12px 24px rgba(0,0,0,0.35)}
 .bottom-nav.collapsed .nav-items{display:none}
 .sticky-actions{position:sticky;bottom:20px;background:var(--card);padding:8px 0;z-index:10}
 .dark .sticky-actions{background:#111827}
@@ -77,6 +75,7 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
   .main{padding:12px;padding-bottom:100px}
   .bottom-nav{display:block!important}
   .widgets{grid-template-columns:1fr}
+  .mobile-hide{display:none}
 }
 
 /* Inventory page tweaks */

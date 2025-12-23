@@ -222,14 +222,14 @@ async function renderCheckoutTable(){
   const entries = await loadCheckouts();
   if(!entries.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No check-outs yet</td>`;
+    tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No check-outs yet</td>`;
     tbody.appendChild(tr);
     wireSelectAll('checkoutTable');
     return;
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,ts:e.ts})}'></td><td>${e.code}</td><td>${e.jobId||FALLBACK}</td><td>${e.qty}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,name:e.name,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${e.jobId||FALLBACK}</td><td>${e.qty}</td><td class="mobile-hide">${new Date(e.ts).toLocaleString()}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('checkoutTable');
@@ -297,7 +297,7 @@ async function renderReserveTable(){
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
     const returnDate = e.returnDate ? new Date(e.returnDate).toLocaleDateString() : FALLBACK;
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,returnDate:e.returnDate,ts:e.ts})}'></td><td>${e.code}</td><td>${e.jobId}</td><td>${e.qty}</td><td>${returnDate}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,returnDate:e.returnDate,ts:e.ts})}'></td><td>${e.code}</td><td>${e.jobId}</td><td>${e.qty}</td><td class="mobile-hide">${returnDate}</td><td class="mobile-hide">${new Date(e.ts).toLocaleString()}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('reserveTable');
@@ -342,7 +342,7 @@ async function renderReturnTable(){
   }
   entries.slice().reverse().forEach(e=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,qty:e.qty,jobId:e.jobId,reason:e.reason,location:e.location,ts:e.ts})}'></td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td>${e.location||FALLBACK}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,qty:e.qty,jobId:e.jobId,reason:e.reason,location:e.location,ts:e.ts})}'></td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td class="mobile-hide">${e.location||FALLBACK}</td><td class="mobile-hide">${new Date(e.ts).toLocaleString()}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('returnTable');
@@ -460,6 +460,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   updateOpsMetrics();
   const initialMode = new URLSearchParams(window.location.search).get('mode') || 'checkin';
   if(window.utils && utils.setupLogout) utils.setupLogout();
+  // Hide admin-only tab for non-admin users
+  const sessionUser = utils.getSession?.();
+  if(sessionUser && sessionUser.role !== 'admin'){
+    const reserveTab = document.querySelector('.mode-btn[data-mode="reserve"]');
+    const reserveContent = document.getElementById('reserve-mode');
+    if(reserveTab) reserveTab.style.display='none';
+    if(reserveContent) reserveContent.remove();
+    if(initialMode === 'reserve') switchMode('checkin');
+  }
   
   // Load all tables initially
   await renderCheckinTable();

@@ -84,7 +84,7 @@
         <div class="mode-tabs">
           <button class="mode-btn active" data-mode="checkin">Check-In</button>
           <button class="mode-btn" data-mode="checkout">Pick Items (Check-Out)</button>
-          <button class="mode-btn" data-mode="reserve">Reserve</button>
+          <button class="mode-btn" data-mode="reserve" data-role="admin">Reserve (Admin)</button>
           <button class="mode-btn" data-mode="return">Return</button>
         </div>
       </section>
@@ -182,7 +182,7 @@
             </div>
           </div>
           <table id="checkoutTable">
-            <thead><tr><th><input type="checkbox" data-select-all="checkoutTable"></th><th>Code</th><th>Job ID</th><th>Qty</th><th>When</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="checkoutTable"></th><th>Code</th><th>Name</th><th>Job ID</th><th>Qty</th><th class="mobile-hide">When</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -229,7 +229,7 @@
             </div>
           </div>
           <table id="reserveTable">
-            <thead><tr><th><input type="checkbox" data-select-all="reserveTable"></th><th>Code</th><th>Job ID</th><th>Qty</th><th>Expected Return</th><th>Reserved On</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="reserveTable"></th><th>Code</th><th>Job ID</th><th>Qty</th><th class="mobile-hide">Expected Return</th><th class="mobile-hide">Reserved On</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -296,7 +296,7 @@
             </div>
           </div>
           <table id="returnTable">
-            <thead><tr><th><input type="checkbox" data-select-all="returnTable"></th><th>Code</th><th>Qty</th><th>From Job</th><th>Reason</th><th>Location</th><th>When</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="returnTable"></th><th>Code</th><th>Qty</th><th>From Job</th><th>Reason</th><th class="mobile-hide">Location</th><th class="mobile-hide">When</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
