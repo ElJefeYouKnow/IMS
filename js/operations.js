@@ -250,12 +250,15 @@ async function addCheckout(e){
     const r = await fetch('/api/inventory-checkout',{
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(e)
     });
+    const data = await r.json().catch(()=>({}));
     if(r.ok){
       await renderCheckoutTable();
-      return true;
+      return { ok:true };
     }
-  }catch(e){}
-  return false;
+    return { ok:false, error: data.error || 'Checkout failed' };
+  }catch(err){
+    return { ok:false, error: err.message || 'Checkout failed' };
+  }
 }
 
 async function clearCheckouts(){
@@ -614,11 +617,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(missing){ alert(`Item ${missing.code} does not exist. Check it in first or add via check-in.`); return; }
     
     let okAll=true;
+    const errors=[];
     for(const line of lines){
-      const ok = await addCheckout({code: line.code, jobId, qty: line.qty, notes, ts: Date.now(), type: 'out', userEmail: user?.email, userName: user?.name});
-      if(!ok) okAll=false;
+      const res = await addCheckout({code: line.code, jobId, qty: line.qty, notes, ts: Date.now(), type: 'out', userEmail: user?.email, userName: user?.name});
+      if(!res.ok){
+        okAll=false;
+        if(res.error) errors.push(`${line.code}: ${res.error}`);
+      }
     }
-    if(!okAll) alert('Some items failed to check out');
+    if(!okAll) alert(errors.join('\n') || 'Some items failed to check out');
     checkoutForm.reset();
     resetLines('checkout');
     ensureJobOption(jobId);
