@@ -20,35 +20,124 @@ async function loadJobs(){
   }catch(e){}
 }
 
+let itemsCache = [];
+async function loadItems(){
+  try{
+    itemsCache = await utils.fetchJsonSafe('/api/items', {}, []) || [];
+  }catch(e){}
+}
+
+function fillNameIfKnown(codeInput, nameInput){
+  const val = codeInput.value.trim();
+  if(!val) return;
+  const match = itemsCache.find(i=> i.code.toLowerCase() === val.toLowerCase());
+  if(match){
+    nameInput.value = match.name || '';
+    nameInput.dataset.existing = 'true';
+  }else{
+    nameInput.dataset.existing = 'false';
+  }
+}
+
+function setEtaDays(days){
+  const eta = document.getElementById('orderEta');
+  const d = new Date();
+  d.setDate(d.getDate()+days);
+  eta.value = d.toISOString().slice(0,10);
+}
+
+function setEtaNextMonday(){
+  const eta = document.getElementById('orderEta');
+  const d = new Date();
+  const day = d.getDay();
+  const add = ((8 - day) % 7) || 7;
+  d.setDate(d.getDate()+add);
+  eta.value = d.toISOString().slice(0,10);
+}
+
+async function renderRecentOrders(){
+  const tbody = document.querySelector('#recentOrdersTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  const orders = await utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []) || [];
+  const recent = orders.sort((a,b)=> (b.ts||0)-(a.ts||0)).slice(0,8);
+  if(!recent.length){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No orders yet</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  recent.forEach(o=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.qty}</td><td>${o.jobId||'General'}</td><td>${o.eta||''}</td><td>${o.ts ? new Date(o.ts).toLocaleString() : ''}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
 document.addEventListener('DOMContentLoaded', ()=>{
   const form=document.getElementById('orderForm');
   const msg=document.getElementById('orderMsg');
   const clearBtn=document.getElementById('orderClearBtn');
+  const addAnotherBtn = document.getElementById('orderAddAnother');
   loadJobs();
-  form.addEventListener('submit', async ev=>{
-    ev.preventDefault();
+  loadItems();
+  renderRecentOrders();
+
+  const codeInput=document.getElementById('orderCode');
+  const nameInput=document.getElementById('orderName');
+  codeInput.addEventListener('blur', ()=> fillNameIfKnown(codeInput, nameInput));
+  codeInput.addEventListener('change', ()=> fillNameIfKnown(codeInput, nameInput));
+
+  const presets = document.querySelectorAll('#etaPresets button');
+  presets.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(btn.dataset.nextMonday) setEtaNextMonday();
+      else setEtaDays(Number(btn.dataset.days||0));
+    });
+  });
+
+  async function submitOrder(clearAll){
     msg.textContent='';
     const session=getSession();
-    if(!session || session.role!=='admin'){msg.style.color='#b91c1c';msg.textContent='Admin only';return;}
-    const code=document.getElementById('orderCode').value.trim();
-    const name=document.getElementById('orderName').value.trim();
+    if(!session || session.role!=='admin'){msg.style.color='#b91c1c';msg.textContent='Admin only';return false;}
+    const code=codeInput.value.trim();
+    const name=nameInput.value.trim();
     const qty=parseInt(document.getElementById('orderQty').value,10)||0;
     const eta=document.getElementById('orderEta').value;
     const jobId=document.getElementById('orderJob').value.trim();
     const notes=document.getElementById('orderNotes').value.trim();
-    if(!code||qty<=0){msg.style.color='#b91c1c';msg.textContent='Code and positive quantity required';return;}
+    const known = itemsCache.find(i=> i.code.toLowerCase() === code.toLowerCase());
+    if(!code||qty<=0){msg.style.color='#b91c1c';msg.textContent='Code and positive quantity required';return false;}
+    if(!known && !name){msg.style.color='#b91c1c';msg.textContent='Name is required for new codes';return false;}
+    if(!eta){msg.style.color='#b91c1c';msg.textContent='ETA is required';return false;}
     try{
       const r=await fetch('/api/inventory-order',{method:'POST',headers:{'Content-Type':'application/json','x-admin-role':session.role},body:JSON.stringify({code,name,qty,eta,notes,jobId,userEmail:session.email,userName:session.name})});
       if(!r.ok){
         const data=await r.json().catch(()=>({error:'Failed'}));
         msg.style.color='#b91c1c';msg.textContent=data.error||'Failed to register order';
-        return;
+        return false;
       }
       msg.style.color='#15803d';msg.textContent='Order registered';
-      form.reset();document.getElementById('orderQty').value='1';
+      await renderRecentOrders();
+      if(clearAll){
+        form.reset();document.getElementById('orderQty').value='1';
+        nameInput.dataset.existing='false';
+      }else{
+        codeInput.value=''; document.getElementById('orderQty').value='1'; nameInput.value=''; codeInput.focus();
+      }
+      return true;
     }catch(e){
       msg.style.color='#b91c1c';msg.textContent='Failed to register order';
+      return false;
     }
+  }
+
+  form.addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    await submitOrder(true);
+  });
+  addAnotherBtn.addEventListener('click', async ()=>{
+    await submitOrder(false);
   });
   clearBtn.addEventListener('click',()=>{form.reset();msg.textContent='';document.getElementById('orderQty').value='1';});
 });

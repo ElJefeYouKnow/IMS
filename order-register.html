@@ -46,11 +46,17 @@
         <form id="orderForm" class="inventory-form">
           <div class="form-row">
             <label>Item Code<input id="orderCode" required placeholder="SKU/part"></label>
-            <label>Item Name<input id="orderName" placeholder="Optional name"></label>
+            <label>Item Name<input id="orderName" placeholder="Required for new codes"></label>
           </div>
           <div class="form-row">
             <label>Quantity<input id="orderQty" type="number" min="1" value="1" required></label>
             <label>Expected Arrival<input id="orderEta" type="date"></label>
+          </div>
+          <div class="form-row" id="etaPresets" style="gap:8px;">
+            <button type="button" class="muted" data-days="0">Today</button>
+            <button type="button" class="muted" data-days="1">+1 day</button>
+            <button type="button" class="muted" data-days="3">+3 days</button>
+            <button type="button" class="muted" data-next-monday="true">Next Monday</button>
           </div>
           <div class="form-row">
             <label>Assign to Job (optional)
@@ -64,10 +70,19 @@
           </div>
           <div class="form-row">
             <button type="submit">Register Order</button>
+            <button id="orderAddAnother" type="button" class="muted">Register &amp; Add Another</button>
             <button id="orderClearBtn" type="button" class="muted">Clear</button>
           </div>
           <div id="orderMsg" style="font-size:0.9rem;"></div>
         </form>
+      </section>
+
+      <section class="card">
+        <h3>Recently Registered Orders</h3>
+        <table id="recentOrdersTable">
+          <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Job</th><th>ETA</th><th>When</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </section>
     </main>
   </div>
