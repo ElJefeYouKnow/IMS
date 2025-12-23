@@ -324,20 +324,17 @@ async function calcAvailability(code, tenantIdVal) {
   return row?.available || 0;
 }
 async function calcAvailabilityTx(client, code, tenantIdVal) {
-  const row = await client.query(`
-    SELECT COALESCE(SUM(
-      CASE 
-        WHEN type='in' THEN qty
-        WHEN type='return' THEN qty
-        WHEN type='reserve' THEN -qty
-        WHEN type='out' THEN -qty
-        WHEN type='consume' THEN -qty
-        ELSE 0 END
-    ),0) AS available
-    FROM inventory WHERE code = $1 AND tenantId=$2
-    FOR UPDATE
-  `, [code, tenantIdVal]);
-  return row.rows[0]?.available || 0;
+  const rows = await client.query(
+    `SELECT id,type,qty FROM inventory WHERE code = $1 AND tenantId=$2 FOR UPDATE`,
+    [code, tenantIdVal]
+  );
+  return (rows.rows || []).reduce((sum,r)=>{
+    const t = r.type;
+    const q = Number(r.qty)||0;
+    if(t==='in' || t==='return') return sum + q;
+    if(t==='reserve' || t==='out' || t==='consume') return sum - q;
+    return sum;
+  },0);
 }
 
 async function calcOutstandingCheckout(code, jobId, tenantIdVal) {
@@ -364,12 +361,17 @@ async function calcOutstandingCheckoutTx(client, code, jobId, tenantIdVal) {
   } else {
     jobClause = "AND (jobId IS NULL OR jobId = '')";
   }
-  const row = await client.query(`
-    SELECT COALESCE(SUM(CASE WHEN type='out' THEN qty WHEN type='return' THEN -qty ELSE 0 END),0) as outstanding
-    FROM inventory WHERE code=$1 AND tenantId=$2 ${jobClause}
-    FOR UPDATE
-  `, params);
-  return Math.max(0, row.rows[0]?.outstanding || 0);
+  const rows = await client.query(
+    `SELECT id,type,qty FROM inventory WHERE code=$1 AND tenantId=$2 ${jobClause} FOR UPDATE`,
+    params
+  );
+  const outstanding = (rows.rows || []).reduce((sum,r)=>{
+    const q = Number(r.qty)||0;
+    if(r.type==='out') return sum + q;
+    if(r.type==='return') return sum - q;
+    return sum;
+  },0);
+  return Math.max(0, outstanding);
 }
 
 function requireRole(role) {
