@@ -280,6 +280,8 @@ async function initDb() {
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_items_code_tenant ON items(code, tenantId)');
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_code_tenant ON jobs(code, tenantId)');
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_tenant ON users(email, tenantId)');
+  await runAsync('ALTER TABLE items DROP CONSTRAINT IF EXISTS items_pkey');
+  await runAsync('ALTER TABLE items ADD CONSTRAINT items_pkey PRIMARY KEY (code, tenantId)');
   // Backfill missing items per tenant for existing inventory rows to satisfy FK
   await runAsync(`
     INSERT INTO items(code,name,category,description,tenantId)
@@ -287,6 +289,7 @@ async function initDb() {
     FROM inventory i
     LEFT JOIN items it ON it.code = i.code AND it.tenantId = i.tenantId
     WHERE it.code IS NULL
+    ON CONFLICT (code, tenantId) DO NOTHING
   `);
   await runAsync('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_code_fkey');
   await runAsync('ALTER TABLE inventory ADD CONSTRAINT inventory_code_fk FOREIGN KEY (code, tenantId) REFERENCES items(code, tenantId)');
