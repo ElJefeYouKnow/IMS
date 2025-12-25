@@ -616,6 +616,22 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(confirm('Clear all check-out entries?')) await clearCheckouts();
   });
   document.getElementById('checkout-exportBtn').addEventListener('click', exportCheckoutCSV);
+  const devBtn = document.getElementById('devResetBtn');
+  const sessionDev = utils.getSession?.();
+  if(devBtn && sessionDev && sessionDev.email === 'dev@example.com'){
+    devBtn.style.display = 'inline-block';
+    devBtn.addEventListener('click', async ()=>{
+      const token = prompt('Enter dev reset token to TRUNCATE all data. This is destructive.');
+      if(!token) return;
+      if(!confirm('Are you sure? This clears all data.')) return;
+      const res = await fetch('/api/dev/reset',{method:'POST',headers:{'Content-Type':'application/json','x-dev-reset':token}});
+      if(res.ok){ alert('Reset complete. Reloading.'); window.location.reload(); }
+      else{
+        const data = await res.json().catch(()=>({error:'Reset failed'}));
+        alert(data.error || 'Reset failed');
+      }
+    });
+  }
   
   // ===== RESERVE FORM =====
   const reserveForm = document.getElementById('reserveForm');

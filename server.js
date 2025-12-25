@@ -20,6 +20,9 @@ const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true'; // set true in produ
 const loginAttempts = new Map(); // email -> {count, lockUntil}
 const AUDIT_ACTIONS = ['auth.login', 'auth.register', 'inventory.in', 'inventory.out', 'inventory.reserve', 'inventory.return', 'inventory.order', 'items.create', 'items.update', 'items.delete'];
 const CHECKOUT_RETURN_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
+const DEV_EMAIL = process.env.DEV_DEFAULT_EMAIL || 'dev@example.com';
+const DEV_PASSWORD = process.env.DEV_DEFAULT_PASSWORD || 'DevPass123!';
+const DEV_RESET_TOKEN = process.env.DEV_RESET_TOKEN || 'reset-all-data-now';
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -317,8 +320,6 @@ async function initDb() {
     console.log('Seeded default tenant + admin: admin@example.com / ChangeMe123! (change after login).');
   }
   // Ensure a dev convenience account exists (defaults can be overridden via env)
-  const DEV_EMAIL = process.env.DEV_DEFAULT_EMAIL || 'dev@example.com';
-  const DEV_PASSWORD = process.env.DEV_DEFAULT_PASSWORD || 'DevPass123!';
   const devExists = await getAsync('SELECT id FROM users WHERE email=$1 AND tenantId=$2', [DEV_EMAIL, 'default']);
   if (!devExists) {
     const { salt, hash } = await hashPassword(DEV_PASSWORD);
@@ -859,6 +860,38 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
+});
+
+// DEV RESET (destructive, dev-only)
+app.post('/api/dev/reset', requireAuth, async (req, res) => {
+  try {
+    const token = req.headers['x-dev-reset'];
+    const callerEmail = (req.user.email || '').toLowerCase();
+    if (callerEmail !== DEV_EMAIL.toLowerCase()) return res.status(403).json({ error: 'forbidden' });
+    if (!token || token !== DEV_RESET_TOKEN) return res.status(401).json({ error: 'invalid token' });
+
+    await withTransaction(async (client) => {
+      await client.query('TRUNCATE inventory');
+      await client.query('TRUNCATE audit_events');
+      await client.query('TRUNCATE items');
+      await client.query('TRUNCATE jobs');
+      await client.query('TRUNCATE users');
+      await client.query("DELETE FROM tenants WHERE id <> 'default'");
+      await client.query(`INSERT INTO tenants(id,code,name,createdAt) VALUES('default','default','Default Tenant',$1)
+        ON CONFLICT (id) DO NOTHING`, [Date.now()]);
+      const adminPwd = 'ChangeMe123!';
+      const adminHash = await hashPassword(adminPwd);
+      const devHash = await hashPassword(DEV_PASSWORD);
+      await client.query('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+        [newId(), 'admin@example.com', 'Admin', 'admin', adminHash.salt, adminHash.hash, Date.now(), 'default']);
+      await client.query('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+        [newId(), DEV_EMAIL, 'Dev', 'admin', devHash.salt, devHash.hash, Date.now(), 'default']);
+    });
+    sessions.clear();
+    res.json({ status: 'ok', message: 'Database truncated. Default admin and dev users reseeded.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'reset failed' });
+  }
 });
 
 // METRICS
