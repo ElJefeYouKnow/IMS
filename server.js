@@ -276,6 +276,14 @@ async function initDb() {
   )`);
   await runAsync('CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_events(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_events(ts)');
+  // Multi-tenant safety: unique per tenant and FKs
+  await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_items_code_tenant ON items(code, tenantId)');
+  await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_code_tenant ON jobs(code, tenantId)');
+  await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_tenant ON users(email, tenantId)');
+  await runAsync('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_code_fkey');
+  await runAsync('ALTER TABLE inventory ADD CONSTRAINT inventory_code_fk FOREIGN KEY (code, tenantId) REFERENCES items(code, tenantId)');
+  await runAsync('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_jobid_fkey');
+  await runAsync('ALTER TABLE inventory ADD CONSTRAINT inventory_jobid_fk FOREIGN KEY (jobId, tenantId) REFERENCES jobs(code, tenantId) ON UPDATE CASCADE ON DELETE SET NULL');
 
   const row = await getAsync('SELECT COUNT(*) as c FROM users');
   if (row?.c === 0) {
@@ -605,9 +613,9 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
     const exists = await itemExists(code, t);
     const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
     if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [oldCode, t]);
-    await runAsync(`INSERT INTO items(code,name,category,unitPrice,description)
+    await runAsync(`INSERT INTO items(code,name,category,unitPrice,description,tenantId)
       VALUES($1,$2,$3,$4,$5,$6)
-      ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tenantId=EXCLUDED.tenantId`,
+      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tenantId=EXCLUDED.tenantId`,
       [code, name, category, price, description, t]);
     await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: { code } });
     res.status(201).json({ code, name, category, unitPrice: price, description, tenantId: t });
@@ -789,9 +797,8 @@ app.post('/api/jobs', requireRole('admin'), async (req, res) => {
     const { code, name, scheduleDate } = req.body;
     if (!code) return res.status(400).json({ error: 'code required' });
     const t = tenantId(req);
-    await runAsync(`INSERT INTO jobs(code,name,scheduleDate) VALUES($1,$2,$3)
-      ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, scheduleDate=EXCLUDED.scheduleDate`, [code, name || '', scheduleDate || null]);
-    await runAsync('UPDATE jobs SET tenantId=$1 WHERE code=$2', [t, code]);
+    await runAsync(`INSERT INTO jobs(code,name,scheduleDate,tenantId) VALUES($1,$2,$3,$4)
+      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, scheduleDate=EXCLUDED.scheduleDate`, [code, name || '', scheduleDate || null, t]);
     res.status(201).json({ code, name: name || '', scheduleDate: scheduleDate || null, tenantId: t });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
