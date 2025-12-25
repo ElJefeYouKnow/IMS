@@ -316,6 +316,17 @@ async function initDb() {
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
     console.log('Seeded default tenant + admin: admin@example.com / ChangeMe123! (change after login).');
   }
+  // Ensure a dev convenience account exists (defaults can be overridden via env)
+  const DEV_EMAIL = process.env.DEV_DEFAULT_EMAIL || 'dev@example.com';
+  const DEV_PASSWORD = process.env.DEV_DEFAULT_PASSWORD || 'DevPass123!';
+  const devExists = await getAsync('SELECT id FROM users WHERE email=$1 AND tenantId=$2', [DEV_EMAIL, 'default']);
+  if (!devExists) {
+    const { salt, hash } = await hashPassword(DEV_PASSWORD);
+    const devUser = { id: newId(), email: DEV_EMAIL, name: 'Dev', role: 'admin', salt, hash, createdAt: Date.now(), tenantId: 'default' };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+      [devUser.id, devUser.email, devUser.name, devUser.role, devUser.salt, devUser.hash, devUser.createdAt, devUser.tenantId]);
+    console.log(`Seeded dev account: ${DEV_EMAIL} / ${DEV_PASSWORD}`);
+  }
 }
 initDb().catch(err => {
   console.error('DB init failed', err);
