@@ -65,8 +65,7 @@
           <h3 style="margin-bottom:8px;">Operations Control</h3>
           <ul class="ops-list">
             <li>Check-In: log arrivals or new on-the-fly purchases (requires name for new codes).</li>
-            <li>Pick (Check-Out): draws from available after reservations, auto-sets 5-day due.</li>
-            <li>Reserve: holds stock for a job; remove from available until released.</li>
+            <li>Pick (Check-Out): draws from available; auto-sets 5-day due.</li>
             <li>Return: allowed within 5 days of checkout; enforces outstanding limits.</li>
           </ul>
         </section>
@@ -84,7 +83,6 @@
         <div class="mode-tabs">
           <button class="mode-btn active" data-mode="checkin">Check-In</button>
           <button class="mode-btn" data-mode="checkout">Pick Items (Check-Out)</button>
-          <button class="mode-btn" data-mode="reserve" data-role="admin">Reserve (Admin)</button>
           <button class="mode-btn" data-mode="return">Return</button>
         </div>
       </section>
@@ -183,53 +181,6 @@
           </div>
           <table id="checkoutTable">
             <thead><tr><th><input type="checkbox" data-select-all="checkoutTable"></th><th>Code</th><th>Name</th><th>Job ID</th><th>Qty</th><th class="mobile-hide">When</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </section>
-      </div>
-
-      <!-- RESERVE MODE -->
-      <div id="reserve-mode" class="mode-content">
-        <section class="card inventory-card">
-          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Allocate inventory to a specific job (removes from available stock). Set an expected return date if the inventory may come back.</p>
-          <form id="reserveForm" class="inventory-form" autocomplete="off">
-            <div>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                <strong>Line Items</strong>
-                <button id="reserve-addLine" type="button" class="muted">Add Line</button>
-              </div>
-              <div id="reserve-lines" class="line-items"></div>
-            </div>
-            <div class="form-row">
-              <label>Job Name/ID
-                <select id="reserve-jobId" required>
-                  <option value="">Select job...</option>
-                </select>
-              </label>
-            </div>
-            <div class="form-row">
-              <label>Expected Return Date<input id="reserve-returnDate" type="date"></label>
-            </div>
-            <div class="form-row">
-              <label style="flex:1">Notes<textarea id="reserve-notes" rows="2" placeholder="Optional notes"></textarea></label>
-            </div>
-            <div class="form-row sticky-actions">
-              <button id="reserveBtn" type="submit">Reserve</button>
-              <button id="reserve-clearBtn" type="button" class="muted">Clear All</button>
-              <button id="reserve-exportBtn" type="button" class="muted">Export CSV</button>
-            </div>
-          </form>
-        </section>
-
-        <section class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <h3 style="margin:0;">Active Reservations</h3>
-            <div style="display:flex;gap:8px;">
-              <button id="reserve-export-selected" class="muted" type="button">Export Selected</button>
-            </div>
-          </div>
-          <table id="reserveTable">
-            <thead><tr><th><input type="checkbox" data-select-all="reserveTable"></th><th>Code</th><th>Job ID</th><th>Qty</th><th class="mobile-hide">Expected Return</th><th class="mobile-hide">Reserved On</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>

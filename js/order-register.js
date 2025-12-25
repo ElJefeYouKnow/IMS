@@ -4,23 +4,26 @@ function getSession(){
   try{return JSON.parse(localStorage.getItem(SESSION_KEY)||'null');}catch(e){return null;}
 }
 
+let itemsCache = [];
+
 async function loadJobs(){
   try{
     const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
-    const sel = document.getElementById('orderJob');
-    const current = sel.value;
-    sel.innerHTML = '<option value="">General Inventory</option>';
-    (jobs||[]).forEach(j=>{
-      const opt = document.createElement('option');
-      opt.value = j.code;
-      opt.textContent = j.code;
-      sel.appendChild(opt);
+    const selects = ['orderJob','reserve-jobId'].map(id=> document.getElementById(id)).filter(Boolean);
+    selects.forEach(sel=>{
+      const current = sel.value;
+      sel.innerHTML = '<option value="">General Inventory</option>';
+      (jobs||[]).forEach(j=>{
+        const opt = document.createElement('option');
+        opt.value = j.code;
+        opt.textContent = j.code;
+        sel.appendChild(opt);
+      });
+      if(current) sel.value = current;
     });
-    if(current) sel.value = current;
   }catch(e){}
 }
 
-let itemsCache = [];
 async function loadItems(){
   try{
     itemsCache = await utils.fetchJsonSafe('/api/items', {}, []) || [];
@@ -74,15 +77,27 @@ async function renderRecentOrders(){
   });
 }
 
-document.addEventListener('DOMContentLoaded', ()=>{
+function initTabs(){
+  const tabs = document.querySelectorAll('.mode-btn');
+  tabs.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      tabs.forEach(b=> b.classList.remove('active'));
+      btn.classList.add('active');
+      const mode = btn.dataset.mode;
+      document.querySelectorAll('.mode-content').forEach(div=> div.classList.remove('active'));
+      const tgt = document.getElementById(`${mode}-mode`);
+      if(tgt) tgt.classList.add('active');
+    });
+  });
+}
+
+function initOrders(){
   const form=document.getElementById('orderForm');
   const msg=document.getElementById('orderMsg');
   const clearBtn=document.getElementById('orderClearBtn');
   const addAnotherBtn = document.getElementById('orderAddAnother');
   const stickJob = document.getElementById('order-stick-job');
-  loadJobs();
-  loadItems();
-  renderRecentOrders();
+  if(!form) return;
 
   const codeInput=document.getElementById('orderCode');
   const nameInput=document.getElementById('orderName');
@@ -163,4 +178,91 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
   }
   clearBtn.addEventListener('click',()=>{form.reset();msg.textContent='';document.getElementById('orderQty').value='1';});
+}
+
+function initReserve(){
+  const reserveLines = document.getElementById('reserve-lines');
+  if(!reserveLines) return;
+  function addReserveLine(){
+    const codeId = `reserve-code-${Math.random().toString(16).slice(2,8)}`;
+    const qtyId = `reserve-qty-${Math.random().toString(16).slice(2,8)}`;
+    const row = document.createElement('div');
+    row.className = 'form-row line-row';
+    row.innerHTML = `
+      <label>Item Code<input id="${codeId}" name="code" required placeholder="SKU/part"></label>
+      <label style="max-width:120px;">Qty<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
+      <button type="button" class="muted remove-line">Remove</button>
+    `;
+    reserveLines.appendChild(row);
+    row.querySelector('.remove-line').addEventListener('click', ()=>{ row.remove(); if(!reserveLines.querySelector('.line-row')) addReserveLine(); });
+  }
+  function gatherReserve(){
+    const rows = [...reserveLines.querySelectorAll('.line-row')];
+    const out=[];
+    rows.forEach(r=>{
+      const code=r.querySelector('input[name="code"]')?.value.trim()||'';
+      const qty=parseInt(r.querySelector('input[name="qty"]')?.value||'0',10)||0;
+      if(code && qty>0) out.push({code,qty});
+    });
+    return out;
+  }
+  addReserveLine();
+  const addBtn = document.getElementById('reserve-addLine');
+  if(addBtn) addBtn.addEventListener('click', addReserveLine);
+  const reserveForm = document.getElementById('reserveForm');
+  const reserveMsg = document.getElementById('reserveMsg');
+  const reserveTable = document.querySelector('#reserveTable tbody');
+  async function renderReserves(){
+    if(!reserveTable) return;
+    reserveTable.innerHTML='';
+    const rows = await utils.fetchJsonSafe('/api/inventory-reserve', {}, []) || [];
+    if(!rows.length){
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No reservations</td>`;
+      reserveTable.appendChild(tr);
+      return;
+    }
+    rows.slice().reverse().forEach(e=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${e.code}</td><td>${e.jobId||''}</td><td>${e.qty}</td><td class="mobile-hide">${e.returnDate||''}</td><td class="mobile-hide">${e.ts ? new Date(e.ts).toLocaleString() : ''}</td>`;
+      reserveTable.appendChild(tr);
+    });
+  }
+  reserveForm?.addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    reserveMsg.textContent='';
+    const session=getSession();
+    if(!session || session.role!=='admin'){reserveMsg.style.color='#b91c1c';reserveMsg.textContent='Admin only';return;}
+    const jobId=document.getElementById('reserve-jobId').value.trim();
+    const returnDate=document.getElementById('reserve-returnDate').value;
+    const notes=document.getElementById('reserve-notes').value.trim();
+    const lines=gatherReserve();
+    if(!jobId){reserveMsg.style.color='#b91c1c';reserveMsg.textContent='Job is required';return;}
+    if(!lines.length){reserveMsg.style.color='#b91c1c';reserveMsg.textContent='Add at least one line';return;}
+    let okAll=true;
+    for(const line of lines){
+      const r=await fetch('/api/inventory-reserve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:line.code,jobId,qty:line.qty,returnDate,notes,userEmail:session.email,userName:session.name})});
+      if(!r.ok){
+        const data=await r.json().catch(()=>({error:'Failed'}));
+        okAll=false;
+        reserveMsg.style.color='#b91c1c';
+        reserveMsg.textContent=data.error||'Failed to reserve';
+        break;
+      }
+    }
+    if(okAll){
+      reserveMsg.style.color='#15803d';reserveMsg.textContent='Reserved';
+      reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); renderReserves();
+    }
+  });
+  renderReserves();
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  loadJobs();
+  loadItems();
+  renderRecentOrders();
+  initTabs();
+  initOrders();
+  initReserve();
 });

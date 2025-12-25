@@ -33,7 +33,7 @@ async function loadJobOptions(){
 }
 
 function applyJobOptions(){
-  const ids = ['checkin-jobId','checkout-jobId','reserve-jobId','return-jobId'];
+  const ids = ['checkin-jobId','checkout-jobId','return-jobId'];
   ids.forEach(id=>{
     const sel = document.getElementById(id);
     if(!sel) return;
@@ -61,7 +61,6 @@ function addLine(prefix){
   const codeId = `${prefix}-code-${uid()}`;
   const nameId = `${prefix}-name-${uid()}`;
   const categoryId = `${prefix}-category-${uid()}`;
-  const priceId = `${prefix}-price-${uid()}`;
   const qtyId = `${prefix}-qty-${uid()}`;
   const suggId = `${codeId}-s`;
   const row = document.createElement('div');
@@ -73,7 +72,6 @@ function addLine(prefix){
     </label>
     <label>Item Name<input id="${nameId}" name="name" placeholder="Enter name if new"></label>
     <label>Category<input id="${categoryId}" name="category" placeholder="Category / type"></label>
-    <label>Unit Price<input id="${priceId}" name="price" type="number" step="0.01" placeholder="0.00"></label>
     <label style="max-width:120px;">Qty<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
     <button type="button" class="muted remove-line">Remove</button>
   `;
@@ -107,12 +105,9 @@ function gatherLines(prefix){
     const code = r.querySelector('input[name="code"]')?.value.trim() || '';
     const name = r.querySelector('input[name="name"]')?.value.trim() || '';
     const category = r.querySelector('input[name="category"]')?.value.trim() || '';
-    const unitPriceRaw = r.querySelector('input[name="price"]')?.value.trim();
-    const parsedPrice = unitPriceRaw ? Number(unitPriceRaw) : null;
-    const unitPrice = parsedPrice !== null && !Number.isNaN(parsedPrice) ? parsedPrice : null;
     const qty = parseInt(r.querySelector('input[name="qty"]')?.value || '0', 10) || 0;
     if(code && qty>0){
-      items.push({code,name,category,unitPrice,qty});
+      items.push({code,name,category,qty});
     }
   });
   return items;
@@ -473,15 +468,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   updateOpsMetrics();
   const initialMode = new URLSearchParams(window.location.search).get('mode') || 'checkin';
   if(window.utils && utils.setupLogout) utils.setupLogout();
-  // Hide admin-only tab for non-admin users
-  const sessionUser = utils.getSession?.();
-  if(sessionUser && sessionUser.role !== 'admin'){
-    const reserveTab = document.querySelector('.mode-btn[data-mode="reserve"]');
-    const reserveContent = document.getElementById('reserve-mode');
-    if(reserveTab) reserveTab.style.display='none';
-    if(reserveContent) reserveContent.remove();
-    if(initialMode === 'reserve') switchMode('checkin');
-  }
+  // adjust available modes based on DOM
+  const availableModes = ['checkin','checkout','return'].filter(m=> document.getElementById(`${m}-mode`));
   
   // Load all tables initially
   await renderCheckinTable();
@@ -491,9 +479,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   // Initialize line items
   resetLines('checkin');
   resetLines('checkout');
-  resetLines('reserve');
   resetLines('return');
-  ['checkin','checkout','reserve','return'].forEach(prefix=>{
+  ['checkin','checkout','return'].forEach(prefix=>{
     const btn = document.getElementById(`${prefix}-addLine`);
     if(btn) btn.addEventListener('click', ()=> addLine(prefix));
   });
@@ -545,12 +532,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       exportSelected('checkoutTable', ['code','jobId','qty','timestamp'], r=>[r.code,r.jobId||'',r.qty||'', r.ts ? new Date(r.ts).toISOString() : ''], 'checkout-selected.csv');
     });
   }
-  const reserveSelBtn = document.getElementById('reserve-export-selected');
-  if(reserveSelBtn){
-    reserveSelBtn.addEventListener('click', ()=>{
-      exportSelected('reserveTable', ['code','jobId','qty','returnDate','timestamp'], r=>[r.code,r.jobId||'',r.qty||'', r.returnDate||'', r.ts ? new Date(r.ts).toISOString() : ''], 'reserve-selected.csv');
-    });
-  }
   const returnSelBtn = document.getElementById('return-export-selected');
   if(returnSelBtn){
     returnSelBtn.addEventListener('click', ()=>{
@@ -584,9 +565,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(missingName){ alert(`Item ${missingName.code} is new. Add a name before checking in.`); return; }
     let okAll=true;
     for(const line of lines){
-      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, location, jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, unitPrice: line.unitPrice, category: line.category});
+      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, location, jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, category: line.category});
       if(ok){
-        addItemLocally({code: line.code, name: line.name, category: line.category, unitPrice: line.unitPrice});
+        addItemLocally({code: line.code, name: line.name, category: line.category});
       }else{
         okAll=false;
       }
