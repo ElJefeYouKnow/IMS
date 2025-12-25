@@ -282,8 +282,8 @@ async function initDb() {
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_tenant ON users(email, tenantId)');
   // Backfill missing items per tenant for existing inventory rows to satisfy FK
   await runAsync(`
-    INSERT INTO items(code,name,category,unitPrice,description,tenantId)
-    SELECT DISTINCT i.code, COALESCE(i.name, i.code), '', NULL::numeric, '', i.tenantId
+    INSERT INTO items(code,name,category,description,tenantId)
+    SELECT DISTINCT i.code, COALESCE(i.name, i.code), '', '', i.tenantId
     FROM inventory i
     LEFT JOIN items it ON it.code = i.code AND it.tenantId = i.tenantId
     WHERE it.code IS NULL
