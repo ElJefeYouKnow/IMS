@@ -5,6 +5,7 @@ let currentEditId = null;
 async function loadItems(){
   try{
     const r = await fetch('/api/items',{credentials:'include'});
+    if(r.status === 401){ window.location.href='login.html'; return []; }
     if(r.ok) return await r.json();
   }catch(e){}
   return [];
@@ -97,6 +98,10 @@ document.addEventListener('DOMContentLoaded',()=>{
     utils.applyNavVisibility?.();
     utils.setupLogout?.();
   }
+  // Verify server session is still valid
+  fetch('/api/auth/me',{credentials:'include'})
+    .then(r=>{ if(r.status===401) window.location.href='login.html'; return r; })
+    .catch(()=>{});
   renderTable();
   const searchBox = document.getElementById('searchBox');
   if(searchBox) searchBox.addEventListener('input', renderTable);
