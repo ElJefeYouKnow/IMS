@@ -121,7 +121,13 @@
         document.body.classList.add('role-none');
         return;
       }
+      const role = (user.role || '').toLowerCase();
+      const tenant = (user.tenantId || user.tenantid || '').toLowerCase();
+      const isDev = role === 'dev' || tenant === 'dev';
       if(user.role === 'admin') document.body.classList.add('role-admin'); else document.body.classList.add('role-employee');
+      document.querySelectorAll('[data-dev-only]').forEach(el=>{
+        el.style.display = isDev ? '' : 'none';
+      });
     },
     buildMobileNav(){
       if(document.querySelector('.bottom-nav')) return;
