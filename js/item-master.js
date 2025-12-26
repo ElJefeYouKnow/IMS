@@ -4,7 +4,7 @@ let currentEditId = null;
 
 async function loadItems(){
   try{
-    const r = await fetch('/api/items');
+    const r = await fetch('/api/items',{credentials:'include'});
     if(r.ok) return await r.json();
   }catch(e){}
   return [];
@@ -36,16 +36,22 @@ async function renderTable(){
 async function addItem(item){
   try{
     const r = await fetch('/api/items',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)
+      method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(item)
     });
+    if(r.status === 401){ alert('Unauthorized. Please log in as admin.'); return false; }
+    if(r.status === 403){ alert('Forbidden. Admin only.'); return false; }
     if(r.ok) return true;
+    const data = await r.json().catch(()=>({}));
+    alert(data.error || 'Failed to save item');
   }catch(e){}
   return false;
 }
 
 async function deleteItemApi(code){
   try{
-    const r = await fetch(`/api/items/${code}`,{method:'DELETE'});
+    const r = await fetch(`/api/items/${code}`,{method:'DELETE',credentials:'include'});
+    if(r.status === 401){ alert('Unauthorized. Please log in as admin.'); return false; }
+    if(r.status === 403){ alert('Forbidden. Admin only.'); return false; }
     if(r.ok) return true;
   }catch(e){}
   return false;
@@ -83,6 +89,14 @@ function clearForm(){
 }
 
 document.addEventListener('DOMContentLoaded',()=>{
+  if(window.utils){
+    if(!utils.requireSession?.()) return;
+    utils.requireRole?.('admin');
+    utils.wrapFetchWithRole?.();
+    utils.applyStoredTheme?.();
+    utils.applyNavVisibility?.();
+    utils.setupLogout?.();
+  }
   renderTable();
   const searchBox = document.getElementById('searchBox');
   if(searchBox) searchBox.addEventListener('input', renderTable);
