@@ -51,8 +51,12 @@
         window.location.href = 'login.html';
         return;
       }
-      if ((user.role || '').toLowerCase() !== 'dev') {
-        alert('Access denied: dev only');
+      const tenantId = (user.tenantId || user.tenantid || '').toLowerCase();
+      const role = (user.role || '').toLowerCase();
+      const isDevTenant = tenantId === 'dev';
+      const isDevRole = role === 'dev';
+      if (!isDevTenant && !isDevRole) {
+        alert('Access denied: dev tenant only');
         window.location.href = 'dashboard.html';
         return;
       }
@@ -62,6 +66,10 @@
       utils.setupLogout?.();
 
       document.getElementById('devResetBtn').addEventListener('click', async () => {
+        if (!isDevRole) {
+          alert('Only the dev account can run a full reset.');
+          return;
+        }
         const token = prompt('Enter dev reset token (this will wipe all data).');
         if (!token) return;
         if (!confirm('This will TRUNCATE all data for this environment. Continue?')) return;
