@@ -108,6 +108,11 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
 
 .tab-btn{background:#f1f5f9;border:1px solid #e2e8f0;color:#0a1b2b;font-weight:700}
 .tab-btn.active{background:linear-gradient(135deg,#0a1b2b,#0f7a57);color:#fff;border-color:rgba(255,255,255,0.3);box-shadow:0 10px 24px rgba(10,27,43,0.2)}
+.mode-tabs{display:flex;gap:8px;margin:0 0 6px 0}
+.mode-btn{flex:1;padding:10px 12px;border-radius:12px;border:1px solid #e2e8f0;background:#f8fafc;color:#0a1b2b;font-weight:800;cursor:pointer;box-shadow:0 6px 16px rgba(15,27,43,0.08);transition:all .15s ease}
+.mode-btn.active{background:linear-gradient(135deg,#0a1b2b,#0f7a57);color:#fff;border-color:rgba(255,255,255,0.28);box-shadow:0 10px 24px rgba(10,27,43,0.22)}
+.mode-content{display:none}
+.mode-content.active{display:block}
 
 /* Role visibility helpers */
 body.role-admin .sidebar a[data-role='admin']{display:flex}
