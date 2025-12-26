@@ -99,6 +99,7 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
 .compact .form-row{gap:6px}
 .compact .line-items{gap:6px}
 .suggestions{position:absolute;top:100%;left:0;background:#fff;border:1px solid #e6edf3;border-radius:6px;max-height:200px;overflow-y:auto;z-index:10;width:100%;min-width:200px;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
+.with-suggest{position:relative;display:block}
 .form-row label{display:flex;flex-direction:column;flex:1;font-size:0.9rem}
 .form-row input,.form-row textarea,.form-row select{padding:8px;border-radius:6px;border:1px solid #e6edf3}
 .inventory-form button{padding:10px 12px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-weight:700;box-shadow:0 8px 16px rgba(15,122,87,0.25)}
