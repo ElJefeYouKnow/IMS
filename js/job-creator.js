@@ -1,6 +1,7 @@
 async function loadJobs(){
   try{
     const r = await fetch('/api/jobs',{credentials:'include'});
+    if(r.status === 401){ window.location.href='login.html'; return []; }
     if(r.ok) return await r.json();
   }catch(e){}
   return [];
@@ -9,6 +10,7 @@ async function loadJobs(){
 async function saveJob(job){
   try{
     const r = await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(job)});
+    if(r.status === 401){ return { ok:false, error:'Unauthorized. Please log in again.' }; }
     if(!r.ok){
       const data = await r.json().catch(()=>({}));
       return { ok:false, error: data.error || r.statusText || 'Failed to save job' };
@@ -20,6 +22,7 @@ async function saveJob(job){
 async function deleteJobApi(code){
   try{
     const r = await fetch(`/api/jobs/${code}`,{method:'DELETE',credentials:'include'});
+    if(r.status === 401){ window.location.href='login.html'; return false; }
     return r.ok;
   }catch(e){return false;}
 }
