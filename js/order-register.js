@@ -108,6 +108,13 @@ function initOrders(){
   const nameInput=document.getElementById('orderName');
   codeInput.addEventListener('blur', ()=> fillNameIfKnown(codeInput, nameInput));
   codeInput.addEventListener('change', ()=> fillNameIfKnown(codeInput, nameInput));
+  // suggestions dropdown
+  utils.attachItemLookup?.({
+    getItems: ()=>itemsCache,
+    codeInputId:'orderCode',
+    nameInputId:'orderName',
+    suggestionsId:'orderCodeSuggest'
+  });
 
   const presets = document.querySelectorAll('#etaPresets button');
   presets.forEach(btn=>{

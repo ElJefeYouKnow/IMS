@@ -54,10 +54,13 @@
           <section class="card inventory-card">
             <p class="muted-text">Admin-only: log items that have been ordered but not yet received.</p>
             <form id="orderForm" class="inventory-form" autocomplete="off">
-              <div class="form-row">
-                <label>Item Code<input id="orderCode" required placeholder="SKU/part"></label>
-                <label>Item Name<input id="orderName" placeholder="Required for new codes"></label>
-              </div>
+            <div class="form-row">
+              <label>Item Code
+                <input id="orderCode" required placeholder="SKU/part">
+                <div id="orderCodeSuggest" class="suggestions"></div>
+              </label>
+              <label>Item Name<input id="orderName" placeholder="Required for new codes"></label>
+            </div>
               <div class="form-row">
                 <label>Quantity<input id="orderQty" type="number" min="1" value="1" required></label>
                 <label>Expected Arrival<input id="orderEta" type="date"></label>
