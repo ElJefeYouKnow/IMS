@@ -11,10 +11,10 @@ async function saveJob(job){
     const r = await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(job)});
     if(!r.ok){
       const data = await r.json().catch(()=>({}));
-      throw new Error(data.error || 'Failed to save job');
+      return { ok:false, error: data.error || r.statusText || 'Failed to save job' };
     }
-    return true;
-  }catch(e){return false;}
+    return { ok:true };
+  }catch(e){return { ok:false, error: e.message || 'Failed to save job' };}
 }
 
 async function deleteJobApi(code){
@@ -68,9 +68,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const name=document.getElementById('jobName').value.trim();
     const scheduleDate=document.getElementById('jobDate').value;
     if(!code){alert('Job code required');return}
-    const ok = await saveJob({code,name,scheduleDate});
-    if(!ok) alert('Failed to save job (check permissions or server)');
-    else{
+    const result = await saveJob({code,name,scheduleDate});
+    if(!result.ok){
+      alert(result.error || 'Failed to save job (check permissions or server)');
+    } else {
       form.reset();
       await renderJobs();
     }
