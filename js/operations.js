@@ -86,7 +86,6 @@ function addLine(prefix){
     codeInputId: codeId,
     nameInputId: nameId,
     categoryInputId: categoryId,
-    priceInputId: priceId,
     suggestionsId: suggId
   });
 }
@@ -293,7 +292,9 @@ async function loadReservations(){
 }
 
 async function renderReserveTable(){
-  const tbody=document.querySelector('#reserveTable tbody');tbody.innerHTML='';
+  const tbody=document.querySelector('#reserveTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML='';
   const entries = await loadReservations();
   if(!entries.length){
     const tr=document.createElement('tr');
@@ -448,17 +449,19 @@ async function exportCSV(mode){
 // ===== MODE SWITCHING =====
 function switchMode(mode){
   // Hide all modes
-  document.getElementById('checkin-mode').classList.remove('active');
-  document.getElementById('checkout-mode').classList.remove('active');
-  document.getElementById('reserve-mode').classList.remove('active');
-  document.getElementById('return-mode').classList.remove('active');
+  ['checkin','checkout','reserve','return'].forEach(m=>{
+    const el = document.getElementById(`${m}-mode`);
+    if(el) el.classList.remove('active');
+  });
   
   // Remove active from all buttons
   document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
 
   // Show selected mode
-  document.getElementById(`${mode}-mode`).classList.add('active');
-  document.querySelector(`[data-mode="${mode}"]`).classList.add('active');
+  const target = document.getElementById(`${mode}-mode`);
+  if(target) target.classList.add('active');
+  const btn = document.querySelector(`[data-mode="${mode}"]`);
+  if(btn) btn.classList.add('active');
 }
 
 // ===== DOM READY =====
@@ -633,36 +636,39 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     });
   }
   
-  // ===== RESERVE FORM =====
+  // ===== RESERVE FORM (if present) =====
   const reserveForm = document.getElementById('reserveForm');
-  reserveForm.addEventListener('submit', async ev=>{
-    ev.preventDefault();
-    const lines = gatherLines('reserve');
-    const jobId = document.getElementById('reserve-jobId').value.trim();
-    const returnDate = document.getElementById('reserve-returnDate').value;
-    const notes = document.getElementById('reserve-notes').value.trim();
-    const user = getSessionUser();
+  if(reserveForm){
+    reserveForm.addEventListener('submit', async ev=>{
+      ev.preventDefault();
+      const lines = gatherLines('reserve');
+      const jobId = document.getElementById('reserve-jobId').value.trim();
+      const returnDate = document.getElementById('reserve-returnDate').value;
+      const notes = document.getElementById('reserve-notes').value.trim();
+      const user = getSessionUser();
+      
+      if(!jobId){alert('Job ID required'); return;}
+      if(!lines.length){alert('Add at least one line with code and quantity'); return;}
+      const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
+      if(missing){ alert(`Item ${missing.code} does not exist. Check it in first or add via check-in.`); return; }
+      
+      let okAll=true;
+      for(const line of lines){
+        const ok = await addReservation({code: line.code, jobId, qty: line.qty, returnDate, notes, ts: Date.now(), type: 'reserve', userEmail: user?.email, userName: user?.name});
+        if(!ok) okAll=false;
+      }
+      if(!okAll) alert('Some items failed to reserve');
+      reserveForm.reset();
+      resetLines('reserve');
+      ensureJobOption(jobId);
+    });
     
-    if(!jobId){alert('Job ID required'); return;}
-    if(!lines.length){alert('Add at least one line with code and quantity'); return;}
-    const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
-    if(missing){ alert(`Item ${missing.code} does not exist. Check it in first or add via check-in.`); return; }
-    
-    let okAll=true;
-    for(const line of lines){
-      const ok = await addReservation({code: line.code, jobId, qty: line.qty, returnDate, notes, ts: Date.now(), type: 'reserve', userEmail: user?.email, userName: user?.name});
-      if(!ok) okAll=false;
-    }
-    if(!okAll) alert('Some items failed to reserve');
-    reserveForm.reset();
-    resetLines('reserve');
-    ensureJobOption(jobId);
-  });
-  
-  document.getElementById('reserve-clearBtn').addEventListener('click', async ()=>{
-    if(confirm('Clear all reservations?')) await clearReservations();
-  });
-  document.getElementById('reserve-exportBtn').addEventListener('click', exportReserveCSV);
+    const reserveClearBtn = document.getElementById('reserve-clearBtn');
+    reserveClearBtn?.addEventListener('click', async ()=>{
+      if(confirm('Clear all reservations?')) await clearReservations();
+    });
+    document.getElementById('reserve-exportBtn')?.addEventListener('click', exportReserveCSV);
+  }
   
   // ===== RETURN FORM =====
   const returnForm = document.getElementById('returnForm');
