@@ -63,7 +63,12 @@ async function renderRecentOrders(){
   if(!tbody) return;
   tbody.innerHTML = '';
   const orders = await utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []) || [];
-  const recent = orders.sort((a,b)=> (b.ts||0)-(a.ts||0)).slice(0,8);
+  const filter = (document.getElementById('orderFilter')?.value || '').toLowerCase();
+  const filtered = orders.filter(o=>{
+    const job = (o.jobId||'').toLowerCase();
+    return !filter || o.code.toLowerCase().includes(filter) || job.includes(filter);
+  });
+  const recent = filtered.sort((a,b)=> (b.ts||0)-(a.ts||0)).slice(0,12);
   if(!recent.length){
     const tr=document.createElement('tr');
     tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No orders yet</td>`;
@@ -183,6 +188,8 @@ function initOrders(){
         await renderRecentOrders();
       }catch(e){ msg.style.color='#b91c1c'; msg.textContent='Bulk failed'; }
     });
+    const clearBulk = document.getElementById('order-bulk-clear');
+    clearBulk?.addEventListener('click', ()=>{ document.getElementById('order-bulk').value=''; });
   }
   clearBtn.addEventListener('click',()=>{form.reset();msg.textContent='';document.getElementById('orderQty').value='1';});
 }
@@ -219,17 +226,22 @@ function initReserve(){
   const reserveForm = document.getElementById('reserveForm');
   const reserveMsg = document.getElementById('reserveMsg');
   const reserveTable = document.querySelector('#reserveTable tbody');
-  async function renderReserves(){
+async function renderReserves(){
     if(!reserveTable) return;
     reserveTable.innerHTML='';
     const rows = await utils.fetchJsonSafe('/api/inventory-reserve', {}, []) || [];
-    if(!rows.length){
+    const filter = (document.getElementById('reserveFilter')?.value || '').toLowerCase();
+    const filtered = rows.filter(r=>{
+      const job=(r.jobId||'').toLowerCase();
+      return !filter || r.code.toLowerCase().includes(filter) || job.includes(filter);
+    });
+    if(!filtered.length){
       const tr=document.createElement('tr');
       tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No reservations</td>`;
       reserveTable.appendChild(tr);
       return;
     }
-    rows.slice().reverse().forEach(e=>{
+    filtered.slice().reverse().forEach(e=>{
       const tr=document.createElement('tr');
       tr.innerHTML=`<td>${e.code}</td><td>${e.jobId||''}</td><td>${e.qty}</td><td class="mobile-hide">${e.returnDate||''}</td><td class="mobile-hide">${e.ts ? new Date(e.ts).toLocaleString() : ''}</td>`;
       reserveTable.appendChild(tr);
@@ -264,6 +276,9 @@ function initReserve(){
   });
   renderReserves();
 
+  const reserveFilter = document.getElementById('reserveFilter');
+  reserveFilter?.addEventListener('input', renderReserves);
+
   // Bulk reserve paste (code,qty per line)
   const reserveBulkBtn = document.getElementById('reserve-bulk-apply');
   const reserveBulkArea = document.getElementById('reserve-bulk');
@@ -294,6 +309,8 @@ function initReserve(){
         reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); reserveBulkArea.value=''; renderReserves();
       }catch(e){reserveMsg.style.color='#b91c1c';reserveMsg.textContent='Bulk reserve failed';}
     });
+    const clearReserveBulk = document.getElementById('reserve-bulk-clear');
+    clearReserveBulk?.addEventListener('click', ()=>{ reserveBulkArea.value=''; });
   }
 }
 
@@ -304,4 +321,5 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initTabs();
   initOrders();
   initReserve();
+  document.getElementById('orderFilter')?.addEventListener('input', renderRecentOrders);
 });

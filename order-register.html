@@ -42,7 +42,7 @@
         <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
-      <section class="card" style="margin-bottom:12px;">
+      <section class="card" style="margin-bottom:12px;position:sticky;top:0;z-index:5;">
         <div class="mode-tabs">
           <button class="mode-btn active" data-mode="order">Register Order</button>
           <button class="mode-btn" data-mode="reserve">Allocate to Job (Reserve)</button>
@@ -50,110 +50,128 @@
       </section>
 
       <div id="order-mode" class="mode-content active">
-        <section class="card inventory-card">
-          <p style="color:#6b7280;margin-top:0;">Admin-only: log items that have been ordered but not yet received.</p>
-          <form id="orderForm" class="inventory-form" autocomplete="off">
-            <div class="form-row">
-              <label>Item Code<input id="orderCode" required placeholder="SKU/part"></label>
-              <label>Item Name<input id="orderName" placeholder="Required for new codes"></label>
-            </div>
-            <div class="form-row">
-              <label>Quantity<input id="orderQty" type="number" min="1" value="1" required></label>
-              <label>Expected Arrival<input id="orderEta" type="date"></label>
-            </div>
-            <div class="form-row" id="etaPresets" style="gap:8px;">
-              <button type="button" class="muted" data-days="0">Today</button>
-              <button type="button" class="muted" data-days="1">+1 day</button>
-              <button type="button" class="muted" data-days="3">+3 days</button>
-              <button type="button" class="muted" data-next-monday="true">Next Monday</button>
-            </div>
-            <div class="form-row">
-              <label>Assign to Job (optional)
-                <select id="orderJob">
-                  <option value="">General Inventory</option>
-                </select>
-              </label>
-              <label style="max-width:220px;display:flex;align-items:center;gap:6px;margin-top:22px;">
-                <input type="checkbox" id="order-stick-job" style="width:auto;"> Keep last job for next entry
-              </label>
-            </div>
-            <div class="form-row">
-              <label style="flex:1">Notes<textarea id="orderNotes" rows="2"></textarea></label>
-            </div>
-            <div class="form-row">
-              <label style="flex:1">Quick bulk paste (code,name,qty,eta,job)
-                <textarea id="order-bulk" rows="3" placeholder="ABC123,Widgets,2,2025-01-10,JOB-1&#10;XYZ9,,5,2025-01-11,"></textarea>
-              </label>
-              <button id="order-bulk-apply" type="button" class="muted" style="margin-top:22px;">Submit bulk</button>
-            </div>
-            <div class="form-row">
-              <button type="submit">Register Order</button>
-              <button id="orderAddAnother" type="button" class="muted">Register &amp; Add Another</button>
-              <button id="orderClearBtn" type="button" class="muted">Clear</button>
-            </div>
-            <div id="orderMsg" style="font-size:0.9rem;"></div>
-          </form>
-        </section>
+        <div class="page-grid">
+          <section class="card inventory-card">
+            <p class="muted-text">Admin-only: log items that have been ordered but not yet received.</p>
+            <form id="orderForm" class="inventory-form" autocomplete="off">
+              <div class="form-row">
+                <label>Item Code<input id="orderCode" required placeholder="SKU/part"></label>
+                <label>Item Name<input id="orderName" placeholder="Required for new codes"></label>
+              </div>
+              <div class="form-row">
+                <label>Quantity<input id="orderQty" type="number" min="1" value="1" required></label>
+                <label>Expected Arrival<input id="orderEta" type="date"></label>
+              </div>
+              <div class="form-row" id="etaPresets" style="gap:8px;">
+                <button type="button" class="muted" data-days="0">Today</button>
+                <button type="button" class="muted" data-days="1">+1 day</button>
+                <button type="button" class="muted" data-days="3">+3 days</button>
+                <button type="button" class="muted" data-next-monday="true">Next Monday</button>
+              </div>
+              <div class="form-row">
+                <label>Assign to Job (optional)
+                  <select id="orderJob">
+                    <option value="">General Inventory</option>
+                  </select>
+                </label>
+                <label style="max-width:220px;display:flex;align-items:center;gap:6px;margin-top:22px;">
+                  <input type="checkbox" id="order-stick-job" style="width:auto;"> Keep last job for next entry
+                </label>
+              </div>
+              <div class="form-row">
+                <label style="flex:1">Notes<textarea id="orderNotes" rows="2"></textarea></label>
+              </div>
+              <div class="form-row bulk-box">
+                <label style="flex:1">Quick bulk paste (code,name,qty,eta,job)
+                  <textarea id="order-bulk" rows="3" placeholder="ABC123,Widgets,2,2025-01-10,JOB-1&#10;XYZ9,,5,2025-01-11,"></textarea>
+                </label>
+                <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
+                  <button id="order-bulk-apply" type="button" class="muted" style="margin-top:22px;">Submit bulk</button>
+                  <button id="order-bulk-clear" type="button" class="muted">Clear bulk</button>
+                </div>
+              </div>
+              <div class="form-row sticky-actions-mobile">
+                <button type="submit">Register Order</button>
+                <button id="orderAddAnother" type="button" class="muted">Register &amp; Add Another</button>
+                <button id="orderClearBtn" type="button" class="muted">Clear</button>
+              </div>
+              <div id="orderMsg" style="font-size:0.9rem;"></div>
+            </form>
+          </section>
 
-        <section class="card">
-          <h3>Recently Registered Orders</h3>
-          <table id="recentOrdersTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Job</th><th>ETA</th><th>When</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </section>
+          <section class="card">
+            <div class="data-toolbar">
+              <input id="orderFilter" placeholder="Filter by job/code" />
+              <span class="badge info">Inbound</span>
+            </div>
+            <h3>Recently Registered Orders</h3>
+            <table id="recentOrdersTable">
+              <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Job</th><th>ETA</th><th>When</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </section>
+        </div>
       </div>
 
       <div id="reserve-mode" class="mode-content">
-        <section class="card inventory-card">
-          <p style="color:#6b7280;margin-top:0;">Admin-only: allocate stock to a job (removes from available until released).</p>
-          <form id="reserveForm" class="inventory-form" autocomplete="off">
-            <div>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                <strong>Line Items</strong>
-                <button id="reserve-addLine" type="button" class="muted">Add Line</button>
+        <div class="page-grid">
+          <section class="card inventory-card">
+            <p class="muted-text">Admin-only: allocate stock to a job (removes from available until released).</p>
+            <form id="reserveForm" class="inventory-form" autocomplete="off">
+              <div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                  <strong>Line Items</strong>
+                  <button id="reserve-addLine" type="button" class="muted">Add Line</button>
+                </div>
+                <div id="reserve-lines" class="line-items"></div>
               </div>
-              <div id="reserve-lines" class="line-items"></div>
+              <div class="form-row">
+                <label>Job Name/ID
+                  <select id="reserve-jobId" required>
+                    <option value="">Select job...</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label>Expected Return Date<input id="reserve-returnDate" type="date"></label>
+              </div>
+              <div class="form-row">
+                <label style="flex:1">Notes<textarea id="reserve-notes" rows="2" placeholder="Optional notes"></textarea></label>
+              </div>
+              <div class="form-row sticky-actions-mobile">
+                <button id="reserveBtn" type="submit">Reserve</button>
+                <button id="reserve-clearBtn" type="button" class="muted">Clear</button>
+              </div>
+              <div id="reserveMsg" style="font-size:0.9rem;"></div>
+            </form>
+          </section>
+
+          <section class="card">
+            <div class="data-toolbar">
+              <input id="reserveFilter" placeholder="Filter by job/code" />
+              <span class="badge warn">Reserved</span>
             </div>
-            <div class="form-row">
-              <label>Job Name/ID
-                <select id="reserve-jobId" required>
-                  <option value="">Select job...</option>
-                </select>
+            <h3>Active Reservations</h3>
+            <table id="reserveTable">
+              <thead><tr><th>Code</th><th>Job</th><th>Qty</th><th class="mobile-hide">Expected Return</th><th class="mobile-hide">Reserved On</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </section>
+
+          <section class="card">
+            <h3>Bulk Reserve (paste)</h3>
+            <p class="muted" style="margin-top:-2px;">Format: code,qty per line. Uses selected job above.</p>
+            <div class="form-row bulk-box">
+              <label style="flex:1">Lines
+                <textarea id="reserve-bulk" rows="3" placeholder="ABC123,2&#10;XYZ9,5"></textarea>
               </label>
+              <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
+                <button id="reserve-bulk-apply" type="button" class="muted" style="margin-top:22px;">Reserve bulk</button>
+                <button id="reserve-bulk-clear" type="button" class="muted">Clear bulk</button>
+              </div>
             </div>
-            <div class="form-row">
-              <label>Expected Return Date<input id="reserve-returnDate" type="date"></label>
-            </div>
-            <div class="form-row">
-              <label style="flex:1">Notes<textarea id="reserve-notes" rows="2" placeholder="Optional notes"></textarea></label>
-            </div>
-            <div class="form-row">
-              <button id="reserveBtn" type="submit">Reserve</button>
-              <button id="reserve-clearBtn" type="button" class="muted">Clear</button>
-            </div>
-            <div id="reserveMsg" style="font-size:0.9rem;"></div>
-          </form>
-        </section>
-
-        <section class="card">
-          <h3>Active Reservations</h3>
-          <table id="reserveTable">
-            <thead><tr><th>Code</th><th>Job</th><th>Qty</th><th class="mobile-hide">Expected Return</th><th class="mobile-hide">Reserved On</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </section>
-
-        <section class="card">
-          <h3>Bulk Reserve (paste)</h3>
-          <p class="muted" style="margin-top:-2px;">Format: code,qty per line. Uses selected job above.</p>
-          <div class="form-row">
-            <label style="flex:1">Lines
-              <textarea id="reserve-bulk" rows="3" placeholder="ABC123,2&#10;XYZ9,5"></textarea>
-            </label>
-            <button id="reserve-bulk-apply" type="button" class="muted" style="margin-top:22px;">Reserve bulk</button>
-          </div>
-        </section>
+          </section>
+        </div>
       </div>
     </main>
   </div>
