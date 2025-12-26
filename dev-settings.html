@@ -31,6 +31,11 @@
         </div>
         <div class="card-body">
           <p>Use these controls only in the dev tenant. Production data must never be cleared here.</p>
+          <div class="form-row">
+            <label>Dev token
+              <input id="devToken" type="password" placeholder="optional override token" />
+            </label>
+          </div>
           <div class="action-row">
             <div>
               <h3>Hard Reset (truncate)</h3>
@@ -77,6 +82,43 @@
           <button id="deleteTenantBtn" class="btn danger">Delete tenant</button>
         </div>
       </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h2>Tenants</h2>
+            <p class="muted">List all tenants (dev view only).</p>
+          </div>
+          <button id="loadTenantsBtn" class="btn ghost">Refresh</button>
+        </div>
+        <div class="card-body">
+          <table class="data-table" id="tenantsTable">
+            <thead><tr><th>Code</th><th>Name</th><th>ID</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h2>Users by tenant</h2>
+            <p class="muted">View users for a specific tenant code.</p>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="form-row">
+            <label>Tenant code
+              <input id="listUsersTenant" placeholder="tenant code" />
+            </label>
+            <button id="loadUsersBtn" class="btn ghost">Load users</button>
+          </div>
+          <table class="data-table" id="usersTable">
+            <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Tenant</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -103,6 +145,9 @@
 
       utils.setupLogout?.();
 
+      const tokenInput = document.getElementById('devToken');
+      const getToken = () => (tokenInput?.value || '').trim();
+
       document.getElementById('devResetBtn').addEventListener('click', async () => {
         const token = prompt('Enter dev reset token (this will wipe all data).');
         if (!token) return;
@@ -112,7 +157,8 @@
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-dev-reset': token
+              'x-dev-reset': token,
+              'x-dev-token': getToken()
             }
           });
           if (res.ok) {
@@ -141,7 +187,7 @@
         try {
           const res = await fetch('/api/dev/delete-user', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-dev-token': getToken() },
             body: JSON.stringify({ tenantCode: tcode, email })
           });
           const data = await res.json().catch(()=>({}));
@@ -161,7 +207,7 @@
         try {
           const res = await fetch('/api/dev/delete-tenant', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-dev-token': getToken() },
             body: JSON.stringify({ tenantCode: tcode })
           });
           const data = await res.json().catch(()=>({}));
@@ -169,6 +215,46 @@
           alert('Tenant deleted.');
         } catch (err) {
           alert('Delete failed: ' + err.message);
+        }
+      });
+      const tenantsTableBody = document.querySelector('#tenantsTable tbody');
+      document.getElementById('loadTenantsBtn').addEventListener('click', async ()=>{
+        tenantsTableBody.innerHTML = '<tr><td colspan="3">Loading...</td></tr>';
+        try{
+          const res = await fetch('/api/dev/tenants', { headers: { 'x-dev-token': getToken() }});
+          const data = await res.json().catch(()=>[]);
+          if(!res.ok) return alert(data.error || 'Load failed');
+          tenantsTableBody.innerHTML = '';
+          data.forEach(t=>{
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${t.code}</td><td>${t.name}</td><td>${t.id}</td>`;
+            tenantsTableBody.appendChild(tr);
+          });
+          if(!data.length) tenantsTableBody.innerHTML = '<tr><td colspan="3">None</td></tr>';
+        }catch(err){
+          tenantsTableBody.innerHTML = '<tr><td colspan="3">Error</td></tr>';
+        }
+      });
+
+      const usersTableBody = document.querySelector('#usersTable tbody');
+      const listUsersTenant = document.getElementById('listUsersTenant');
+      document.getElementById('loadUsersBtn').addEventListener('click', async ()=>{
+        const tcode = listUsersTenant.value.trim();
+        if(!tcode) return alert('Tenant code required');
+        usersTableBody.innerHTML = '<tr><td colspan="4">Loading...</td></tr>';
+        try{
+          const res = await fetch('/api/dev/users?tenantCode='+encodeURIComponent(tcode), { headers: { 'x-dev-token': getToken() }});
+          const data = await res.json().catch(()=>[]);
+          if(!res.ok) return alert(data.error || 'Load failed');
+          usersTableBody.innerHTML = '';
+          data.forEach(u=>{
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${u.email}</td><td>${u.name||''}</td><td>${u.role}</td><td>${u.tenantid||u.tenantId}</td>`;
+            usersTableBody.appendChild(tr);
+          });
+          if(!data.length) usersTableBody.innerHTML = '<tr><td colspan="4">None</td></tr>';
+        }catch(err){
+          usersTableBody.innerHTML = '<tr><td colspan="4">Error</td></tr>';
         }
       });
     });
