@@ -165,16 +165,23 @@ function initOrders(){
       const text = document.getElementById('order-bulk').value.trim();
       if(!text){ msg.textContent=''; return; }
       const lines = text.split('\n').map(l=> l.split(','));
+      const orders = [];
       for(const parts of lines){
         const [code,name,qty,eta,jobId] = parts.map(p=> (p||'').trim());
-        if(!code || !qty){ msg.style.color='#b91c1c'; msg.textContent=`Line skipped: code/qty required (${parts.join(',')})`; continue; }
-        document.getElementById('orderCode').value = code;
-        document.getElementById('orderName').value = name || '';
-        document.getElementById('orderQty').value = qty;
-        if(eta) document.getElementById('orderEta').value = eta;
-        document.getElementById('orderJob').value = jobId || (stickJob?.checked ? document.getElementById('orderJob').value : '');
-        await submitOrder(true);
+        if(!code || !qty){ continue; }
+        orders.push({ code, name, qty:Number(qty), eta, jobId });
       }
+      if(!orders.length){ msg.style.color='#b91c1c'; msg.textContent='No valid lines found'; return; }
+      const session=getSession();
+      if(!session || session.role!=='admin'){msg.style.color='#b91c1c';msg.textContent='Admin only';return;}
+      try{
+        const r = await fetch('/api/inventory-order/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orders,userEmail:session.email,userName:session.name})});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok){ msg.style.color='#b91c1c'; msg.textContent=data.error||'Bulk failed'; return; }
+        msg.style.color='#15803d'; msg.textContent=`Registered ${data.count} orders`;
+        form.reset(); document.getElementById('orderQty').value='1'; document.getElementById('order-bulk').value='';
+        await renderRecentOrders();
+      }catch(e){ msg.style.color='#b91c1c'; msg.textContent='Bulk failed'; }
     });
   }
   clearBtn.addEventListener('click',()=>{form.reset();msg.textContent='';document.getElementById('orderQty').value='1';});
@@ -256,6 +263,38 @@ function initReserve(){
     }
   });
   renderReserves();
+
+  // Bulk reserve paste (code,qty per line)
+  const reserveBulkBtn = document.getElementById('reserve-bulk-apply');
+  const reserveBulkArea = document.getElementById('reserve-bulk');
+  if(reserveBulkBtn && reserveBulkArea){
+    reserveBulkBtn.addEventListener('click', async ()=>{
+      reserveMsg.textContent='';
+      const session=getSession();
+      if(!session || session.role!=='admin'){reserveMsg.style.color='#b91c1c';reserveMsg.textContent='Admin only';return;}
+      const jobId=document.getElementById('reserve-jobId').value.trim();
+      if(!jobId){reserveMsg.style.color='#b91c1c';reserveMsg.textContent='Job is required';return;}
+      const returnDate=document.getElementById('reserve-returnDate').value;
+      const notes=document.getElementById('reserve-notes').value.trim();
+      const text = reserveBulkArea.value.trim();
+      if(!text){reserveMsg.textContent='';return;}
+      const lines = text.split('\n').map(l=> l.split(','));
+      const payload = [];
+      for(const parts of lines){
+        const [code,qty] = parts.map(p=> (p||'').trim());
+        if(!code || !qty) continue;
+        payload.push({code, qty:Number(qty)});
+      }
+      if(!payload.length){reserveMsg.style.color='#b91c1c';reserveMsg.textContent='No valid lines';return;}
+      try{
+        const r = await fetch('/api/inventory-reserve/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId,returnDate,notes,lines:payload,userEmail:session.email,userName:session.name})});
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok){reserveMsg.style.color='#b91c1c';reserveMsg.textContent=data.error||'Bulk reserve failed';return;}
+        reserveMsg.style.color='#15803d';reserveMsg.textContent=`Reserved ${data.count} lines`;
+        reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); reserveBulkArea.value=''; renderReserves();
+      }catch(e){reserveMsg.style.color='#b91c1c';reserveMsg.textContent='Bulk reserve failed';}
+    });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', ()=>{

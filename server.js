@@ -634,6 +634,31 @@ app.post('/api/inventory-reserve', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
+// Bulk reserve to minimize clicks (admin only)
+app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) => {
+  try {
+    const { jobId, returnDate, notes, lines } = req.body || {};
+    if (!jobId) return res.status(400).json({ error: 'jobId required' });
+    const entries = Array.isArray(lines) ? lines : [];
+    if (!entries.length) return res.status(400).json({ error: 'lines array required' });
+    const t = tenantId(req);
+    const results = [];
+    await withTransaction(async (client) => {
+      for (const line of entries) {
+        const code = (line?.code || '').trim();
+        const qty = Number(line?.qty || 0);
+        if (!code || qty <= 0) throw new Error(`Invalid line for code ${code || ''}`);
+        const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts: line?.ts || Date.now(), userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+        results.push(ev);
+      }
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { lines: results.length, jobId } });
+    res.status(201).json({ count: results.length, reserves: results });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
 app.delete('/api/inventory-reserve', async (req, res) => {
   try {
     await runAsync("DELETE FROM inventory WHERE type='reserve' AND tenantId=$1", [tenantId(req)]);
@@ -929,6 +954,32 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
+});
+
+// Bulk order placement (admin)
+app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => {
+  try {
+    const lines = Array.isArray(req.body?.orders) ? req.body.orders : [];
+    if (!lines.length) return res.status(400).json({ error: 'orders array required' });
+    const t = tenantId(req);
+    const results = [];
+    await withTransaction(async (client) => {
+      for (const line of lines) {
+        const { code, name, qty, eta, notes, ts, jobId } = line || {};
+        const qtyNum = Number(qty);
+        if (!code || !qtyNum || qtyNum <= 0) throw new Error(`Invalid order line for code ${code || ''}`);
+        await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
+        const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+        await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId]);
+        results.push(ev);
+      }
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { lines: results.length } });
+    res.status(201).json({ count: results.length, orders: results });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
 });
 
 // DEV RESET (destructive, dev-only)
