@@ -304,6 +304,16 @@ async function initDb() {
     WHERE it.code IS NULL
     ON CONFLICT (code, tenantId) DO NOTHING
   `);
+  // Normalize empty jobId to NULL to satisfy FK checks
+  await runAsync(`UPDATE inventory SET jobId = NULL WHERE jobId IS NULL OR jobId = ''`);
+  // Backfill any jobs referenced by inventory rows
+  await runAsync(`
+    INSERT INTO jobs(code,name,scheduleDate,tenantId)
+    SELECT DISTINCT inv.jobId, inv.jobId, NULL, inv.tenantId
+    FROM inventory inv
+    WHERE inv.jobId IS NOT NULL AND inv.jobId <> ''
+    ON CONFLICT (code, tenantId) DO NOTHING
+  `);
   await runAsync('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_code_fkey');
   await runAsync(`DO $$
   BEGIN
