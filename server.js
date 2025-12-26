@@ -441,6 +441,16 @@ function requireRole(role) {
     next();
   };
 }
+function isDevUser(user) {
+  const role = (user?.role || '').toLowerCase();
+  const email = normalizeEmail(user?.email || '');
+  return role === 'dev' || email === DEV_EMAIL.toLowerCase();
+}
+function requireDev(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+  if (!isDevUser(req.user)) return res.status(403).json({ error: 'forbidden' });
+  next();
+}
 function tenantId(req) {
   return (req.user && (req.user.tenantid || req.user.tenantId)) || 'default';
 }
@@ -915,11 +925,9 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
 });
 
 // DEV RESET (destructive, dev-only)
-app.post('/api/dev/reset', requireAuth, async (req, res) => {
+app.post('/api/dev/reset', requireDev, async (req, res) => {
   try {
     const token = req.headers['x-dev-reset'];
-    const callerEmail = (req.user.email || '').toLowerCase();
-    if (callerEmail !== DEV_EMAIL.toLowerCase()) return res.status(403).json({ error: 'forbidden' });
     if (!token || token !== DEV_RESET_TOKEN) return res.status(401).json({ error: 'invalid token' });
 
     await withTransaction(async (client) => {
@@ -943,6 +951,52 @@ app.post('/api/dev/reset', requireAuth, async (req, res) => {
     res.json({ status: 'ok', message: 'Database truncated. Default admin and dev users reseeded.' });
   } catch (e) {
     res.status(500).json({ error: e.message || 'reset failed' });
+  }
+});
+
+// DEV: delete a specific user within a tenant
+app.post('/api/dev/delete-user', requireDev, async (req, res) => {
+  try {
+    const { tenantCode, email } = req.body || {};
+    const tCode = normalizeTenantCode(tenantCode);
+    const emailNorm = normalizeEmail(email);
+    if (!tCode || !emailNorm) return res.status(400).json({ error: 'tenantCode and email required' });
+    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [tCode]);
+    if (!tenant) return res.status(404).json({ error: 'tenant not found' });
+    const user = await getAsync('SELECT * FROM users WHERE tenantId=$1 AND LOWER(email)=LOWER($2)', [tenant.id, emailNorm]);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+    await withTransaction(async (client) => {
+      await client.query('DELETE FROM inventory WHERE tenantId=$1 AND LOWER(userEmail)=LOWER($2)', [tenant.id, emailNorm]);
+      await client.query('DELETE FROM audit_events WHERE tenantId=$1 AND userId=$2', [tenant.id, user.id]);
+      await client.query('DELETE FROM users WHERE tenantId=$1 AND id=$2', [tenant.id, user.id]);
+    });
+    res.json({ status: 'ok', deletedUser: user.email, tenant: tenant.code });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'delete failed' });
+  }
+});
+
+// DEV: delete an entire tenant and all related data
+app.post('/api/dev/delete-tenant', requireDev, async (req, res) => {
+  try {
+    const { tenantCode } = req.body || {};
+    const tCode = normalizeTenantCode(tenantCode);
+    if (!tCode) return res.status(400).json({ error: 'tenantCode required' });
+    const protectedTenants = new Set(['default', normalizeTenantCode(DEV_TENANT_CODE)]);
+    if (protectedTenants.has(tCode)) return res.status(400).json({ error: 'cannot delete protected tenant' });
+    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [tCode]);
+    if (!tenant) return res.status(404).json({ error: 'tenant not found' });
+    await withTransaction(async (client) => {
+      await client.query('DELETE FROM inventory WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM audit_events WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM users WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM tenants WHERE id=$1', [tenant.id]);
+    });
+    res.json({ status: 'ok', deletedTenant: tenant.code });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'delete failed' });
   }
 });
 
