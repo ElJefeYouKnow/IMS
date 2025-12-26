@@ -20,8 +20,10 @@ const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true'; // set true in produ
 const loginAttempts = new Map(); // email -> {count, lockUntil}
 const AUDIT_ACTIONS = ['auth.login', 'auth.register', 'inventory.in', 'inventory.out', 'inventory.reserve', 'inventory.return', 'inventory.order', 'items.create', 'items.update', 'items.delete'];
 const CHECKOUT_RETURN_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
-const DEV_EMAIL = process.env.DEV_DEFAULT_EMAIL || 'dev@example.com';
-const DEV_PASSWORD = process.env.DEV_DEFAULT_PASSWORD || 'DevPass123!';
+const DEV_EMAIL = process.env.DEV_DEFAULT_EMAIL || 'Dev@ManageX.com';
+const DEV_PASSWORD = process.env.DEV_DEFAULT_PASSWORD || 'Dev123!';
+const DEV_TENANT_CODE = process.env.DEV_TENANT_CODE || 'dev';
+const DEV_TENANT_ID = process.env.DEV_TENANT_ID || DEV_TENANT_CODE;
 const DEV_RESET_TOKEN = process.env.DEV_RESET_TOKEN || 'reset-all-data-now';
 
 const app = express();
@@ -339,15 +341,7 @@ async function initDb() {
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
     console.log('Seeded default tenant + admin: admin@example.com / ChangeMe123! (change after login).');
   }
-  // Ensure a dev convenience account exists (defaults can be overridden via env)
-  const devExists = await getAsync('SELECT id FROM users WHERE email=$1 AND tenantId=$2', [DEV_EMAIL, 'default']);
-  if (!devExists) {
-    const { salt, hash } = await hashPassword(DEV_PASSWORD);
-    const devUser = { id: newId(), email: DEV_EMAIL, name: 'Dev', role: 'dev', salt, hash, createdAt: Date.now(), tenantId: 'default' };
-    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-      [devUser.id, devUser.email, devUser.name, devUser.role, devUser.salt, devUser.hash, devUser.createdAt, devUser.tenantId]);
-    console.log(`Seeded dev account: ${DEV_EMAIL} / ${DEV_PASSWORD}`);
-  }
+  await ensureDevAccount();
 }
 initDb().catch(err => {
   console.error('DB init failed', err);
@@ -475,6 +469,21 @@ async function getLastCheckoutTs(client, code, jobId, tenantIdVal) {
   }
   const row = await client.query(`SELECT MAX(ts) as last FROM inventory WHERE code=$1 AND tenantId=$2 AND type='out' ${jobClause}`, params);
   return row.rows[0]?.last || null;
+}
+
+async function ensureDevAccount() {
+  // Upsert the dev account into the dev tenant, resetting password and role each start for consistency.
+  const code = normalizeTenantCode(DEV_TENANT_CODE);
+  const tenantId = DEV_TENANT_ID || code;
+  await runAsync(`INSERT INTO tenants(id,code,name,createdAt)
+    VALUES($1,$2,$3,$4)
+    ON CONFLICT (id) DO UPDATE SET code=EXCLUDED.code, name=EXCLUDED.name`,
+    [tenantId, code, 'Dev Tenant', Date.now()]);
+  const { salt, hash } = await hashPassword(DEV_PASSWORD);
+  await runAsync(`INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+    ON CONFLICT (email, tenantId) DO UPDATE SET role='dev', salt=EXCLUDED.salt, hash=EXCLUDED.hash, name=EXCLUDED.name`,
+    [newId(), DEV_EMAIL, 'Dev', 'dev', salt, hash, Date.now(), tenantId]);
 }
 
 async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn }) {
@@ -744,30 +753,35 @@ app.post('/api/auth/login', async (req, res) => {
     const { email, password, tenantCode } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'email and password required' });
     const normalizedTenant = normalizeTenantCode(tenantCode);
+    const isDevEmail = (email || '').toLowerCase() === DEV_EMAIL.toLowerCase();
     const attemptKey = `${email}:${normalizedTenant}`;
     const attempt = loginAttempts.get(attemptKey) || { count: 0, lockUntil: 0 };
-    if (attempt.lockUntil > Date.now()) return res.status(429).json({ error: 'account locked, try later' });
+    if (!isDevEmail && attempt.lockUntil > Date.now()) return res.status(429).json({ error: 'account locked, try later' });
 
     const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [normalizedTenant]);
     if (!tenant) return res.status(400).json({ error: 'Business code not found' });
 
     const user = await getAsync('SELECT * FROM users WHERE email=$1 AND tenantId=$2', [email, tenant.id]);
     if (!user) {
-      attempt.count += 1;
-      if (attempt.count >= MAX_ATTEMPTS) {
-        attempt.lockUntil = Date.now() + LOCK_MS;
-        attempt.count = 0;
+      if (!isDevEmail) {
+        attempt.count += 1;
+        if (attempt.count >= MAX_ATTEMPTS) {
+          attempt.lockUntil = Date.now() + LOCK_MS;
+          attempt.count = 0;
+        }
+        loginAttempts.set(attemptKey, attempt);
       }
-      loginAttempts.set(attemptKey, attempt);
       return res.status(401).json({ error: 'Email not found for this business' });
     }
     if (!verifyPassword(password, user.salt, user.hash)) {
-      attempt.count += 1;
-      if (attempt.count >= MAX_ATTEMPTS) {
-        attempt.lockUntil = Date.now() + LOCK_MS;
-        attempt.count = 0;
+      if (!isDevEmail) {
+        attempt.count += 1;
+        if (attempt.count >= MAX_ATTEMPTS) {
+          attempt.lockUntil = Date.now() + LOCK_MS;
+          attempt.count = 0;
+        }
+        loginAttempts.set(attemptKey, attempt);
       }
-      loginAttempts.set(attemptKey, attempt);
       return res.status(401).json({ error: 'Incorrect password' });
     }
     loginAttempts.delete(attemptKey);
@@ -836,6 +850,14 @@ app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
       [email || user.email, name ?? user.name, role || user.role, salt, hash, id, t]);
     const updated = await getAsync('SELECT * FROM users WHERE id=$1 AND tenantId=$2', [id, t]);
     res.json(safeUser(updated));
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.delete('/api/users/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    await runAsync('DELETE FROM users WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
