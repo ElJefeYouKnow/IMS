@@ -444,7 +444,8 @@ function requireRole(role) {
 function isDevUser(user) {
   const role = (user?.role || '').toLowerCase();
   const email = normalizeEmail(user?.email || '');
-  return role === 'dev' || email === DEV_EMAIL.toLowerCase();
+  const tenant = normalizeTenantCode(user?.tenantid || user?.tenantId || '');
+  return role === 'dev' || email === DEV_EMAIL.toLowerCase() || tenant === normalizeTenantCode(DEV_TENANT_CODE);
 }
 function requireDev(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'unauthorized' });

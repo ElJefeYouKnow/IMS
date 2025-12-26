@@ -92,7 +92,8 @@
       const role = (user.role || '').toLowerCase();
       const isDevTenant = tenantId === 'dev';
       const isDevRole = role === 'dev';
-      if (!isDevTenant && !isDevRole) {
+      const hasDevAccess = isDevTenant || isDevRole;
+      if (!hasDevAccess) {
         alert('Access denied: dev tenant only');
         window.location.href = 'dashboard.html';
         return;
@@ -103,10 +104,6 @@
       utils.setupLogout?.();
 
       document.getElementById('devResetBtn').addEventListener('click', async () => {
-        if (!isDevRole) {
-          alert('Only the dev account can run a full reset.');
-          return;
-        }
         const token = prompt('Enter dev reset token (this will wipe all data).');
         if (!token) return;
         if (!confirm('This will TRUNCATE all data for this environment. Continue?')) return;
@@ -136,54 +133,44 @@
       const delUserTenant = document.getElementById('delUserTenant');
       const delUserEmail = document.getElementById('delUserEmail');
       delUserTenant.value = tenantId || 'dev';
-      if (!isDevRole) {
-        deleteUserBtn.disabled = true;
-        deleteUserBtn.textContent = 'Dev only';
-      } else {
-        deleteUserBtn.addEventListener('click', async () => {
-          const tcode = delUserTenant.value.trim();
-          const email = delUserEmail.value.trim();
-          if (!tcode || !email) return alert('Tenant code and email required');
-          if (!confirm(`Delete user ${email} in tenant ${tcode}? This cannot be undone.`)) return;
-          try {
-            const res = await fetch('/api/dev/delete-user', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ tenantCode: tcode, email })
-            });
-            const data = await res.json().catch(()=>({}));
-            if (!res.ok) return alert(data.error || 'Delete failed');
-            alert('User deleted.');
-          } catch (err) {
-            alert('Delete failed: ' + err.message);
-          }
-        });
-      }
+      deleteUserBtn.addEventListener('click', async () => {
+        const tcode = delUserTenant.value.trim();
+        const email = delUserEmail.value.trim();
+        if (!tcode || !email) return alert('Tenant code and email required');
+        if (!confirm(`Delete user ${email} in tenant ${tcode}? This cannot be undone.`)) return;
+        try {
+          const res = await fetch('/api/dev/delete-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantCode: tcode, email })
+          });
+          const data = await res.json().catch(()=>({}));
+          if (!res.ok) return alert(data.error || 'Delete failed');
+          alert('User deleted.');
+        } catch (err) {
+          alert('Delete failed: ' + err.message);
+        }
+      });
 
       const deleteTenantBtn = document.getElementById('deleteTenantBtn');
       const delTenantCode = document.getElementById('delTenantCode');
-      if (!isDevRole) {
-        deleteTenantBtn.disabled = true;
-        deleteTenantBtn.textContent = 'Dev only';
-      } else {
-        deleteTenantBtn.addEventListener('click', async () => {
-          const tcode = delTenantCode.value.trim();
-          if (!tcode) return alert('Tenant code required');
-          if (!confirm(`Delete tenant ${tcode} and ALL its data? This cannot be undone.`)) return;
-          try {
-            const res = await fetch('/api/dev/delete-tenant', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ tenantCode: tcode })
-            });
-            const data = await res.json().catch(()=>({}));
-            if (!res.ok) return alert(data.error || 'Delete failed');
-            alert('Tenant deleted.');
-          } catch (err) {
-            alert('Delete failed: ' + err.message);
-          }
-        });
-      }
+      deleteTenantBtn.addEventListener('click', async () => {
+        const tcode = delTenantCode.value.trim();
+        if (!tcode) return alert('Tenant code required');
+        if (!confirm(`Delete tenant ${tcode} and ALL its data? This cannot be undone.`)) return;
+        try {
+          const res = await fetch('/api/dev/delete-tenant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantCode: tcode })
+          });
+          const data = await res.json().catch(()=>({}));
+          if (!res.ok) return alert(data.error || 'Delete failed');
+          alert('Tenant deleted.');
+        } catch (err) {
+          alert('Delete failed: ' + err.message);
+        }
+      });
     });
   </script>
 </body>
