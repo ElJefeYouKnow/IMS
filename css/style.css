@@ -43,6 +43,15 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neu
 .value{font-size:1.8rem;font-weight:800;margin-top:8px;color:#0f7a57;letter-spacing:0.2px}
 .dark .value{color:#5eead4}
 .panel{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.quick-actions .card-header{margin-bottom:10px}
+.quick-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.action-tile{display:block;padding:14px;border-radius:12px;border:1px solid var(--line);background:linear-gradient(135deg,rgba(15,122,87,0.1),rgba(10,27,43,0.1));text-decoration:none;color:inherit;box-shadow:0 10px 26px rgba(15,27,43,0.12);transition:transform .15s ease, box-shadow .15s ease}
+.action-tile:hover{transform:translateY(-2px);box-shadow:0 14px 32px rgba(15,27,43,0.18)}
+.tile-title{font-weight:800;font-size:1rem;color:#0a1b2b}
+.tile-sub{color:var(--muted);font-size:0.9rem}
+.dark .action-tile{border-color:#12233a;background:linear-gradient(135deg,rgba(15,122,87,0.18),rgba(10,27,43,0.22));color:#e5e7eb}
+.table-card table{font-size:0.9rem}
+.table-card td,.table-card th{padding:8px}
 .chart-card,.table-card{background:var(--card);padding:14px;border-radius:10px;border:1px solid var(--line);box-shadow:0 6px 24px rgba(15,27,43,0.06)}
 table{width:100%;border-collapse:collapse}
 thead th{text-align:left;padding:8px;color:var(--muted);font-size:0.85rem}

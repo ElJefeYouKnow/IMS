@@ -1,5 +1,6 @@
 const FALLBACK = 'N/A';
 const LOW_STOCK_THRESHOLD = 5;
+const RETURN_WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
 
 function updateClock(){document.getElementById('clock').textContent=new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
 function fmtDT(val){ return (window.utils && utils.formatDateTime) ? utils.formatDateTime(val) : (val ? new Date(val).toLocaleString() : ''); }
@@ -42,6 +43,46 @@ function renderActivity(entries){
   recent.forEach(e=>{
     const tr=document.createElement('tr');
     tr.innerHTML=`<td>${label[e.type]||e.type}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${fmtDT(e.ts)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderOverdue(entries){
+  const tbody = document.querySelector('#overdueTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  const now = Date.now();
+  const overdue = (entries||[]).filter(e=> e.type==='out' && e.ts && (now - Number(utils.parseTs?.(e.ts) || e.ts)) > RETURN_WINDOW_MS);
+  const top = overdue.sort((a,b)=> (a.ts||0)-(b.ts||0)).slice(0,8);
+  if(!top.length){
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#6b7280;">None overdue</td></tr>`;
+    return;
+  }
+  top.forEach(e=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||'—'}</td><td>${fmtDT(e.ts)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderOrdered(entries){
+  const tbody = document.querySelector('#orderedTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  const orders = (entries||[]).filter(e=> e.type==='ordered');
+  const top = orders.sort((a,b)=>{
+    const aEta = utils.parseTs?.(a.eta) ?? utils.parseTs?.(a.ts) ?? 0;
+    const bEta = utils.parseTs?.(b.eta) ?? utils.parseTs?.(b.ts) ?? 0;
+    return aEta - bEta;
+  }).slice(0,8);
+  if(!top.length){
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#6b7280;">No inbound orders</td></tr>`;
+    return;
+  }
+  top.forEach(e=>{
+    const eta = e.eta ? fmtDT(e.eta) : (e.ts ? fmtDT(e.ts) : '');
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${e.code}</td><td>${e.qty}</td><td>${eta || '—'}</td><td>${e.jobId||'—'}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -91,12 +132,15 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   setValue('lowStockCount', metrics.lowStockCount);
   setValue('activeJobs', metrics.activeJobs);
   setValue('txLast7', metrics.txLast7);
-  const [lowStock, activity] = await Promise.all([
+  const [lowStock, activity, inventory] = await Promise.all([
     utils.fetchJsonSafe('/api/low-stock', {}, []),
-    utils.fetchJsonSafe('/api/recent-activity?limit=12', {}, [])
+    utils.fetchJsonSafe('/api/recent-activity?limit=12', {}, []),
+    utils.fetchJsonSafe('/api/inventory', {}, [])
   ]);
   renderLowStock(lowStock || [], {});
   renderActivity(activity || []);
   drawChart(activity || []);
+  renderOverdue(inventory || []);
+  renderOrdered(inventory || []);
   if(window.utils && utils.setupLogout) utils.setupLogout();
 });

@@ -70,6 +70,30 @@
         </div>
       </section>
 
+      <section class="card quick-actions">
+        <div class="card-header">
+          <h3>Quick Actions</h3>
+        </div>
+        <div class="quick-grid">
+          <a class="action-tile" href="inventory-operations.html">
+            <div class="tile-title">Check-in / Pick</div>
+            <div class="tile-sub">Move items fast</div>
+          </a>
+          <a class="action-tile" href="order-register.html">
+            <div class="tile-title">Orders &amp; Reserves</div>
+            <div class="tile-sub">Place/allocate stock</div>
+          </a>
+          <a class="action-tile" href="item-master.html">
+            <div class="tile-title">Item Master</div>
+            <div class="tile-sub">Edit catalog</div>
+          </a>
+          <a class="action-tile" href="job-creator.html">
+            <div class="tile-title">Jobs</div>
+            <div class="tile-sub">Schedule &amp; manage</div>
+          </a>
+        </div>
+      </section>
+
       <section class="panel">
         <div class="chart-card">
           <h3>Weekly Activity</h3>
@@ -80,6 +104,23 @@
           <h3>Low Stock Alerts</h3>
           <table id="lowStockTable">
             <thead><tr><th>Code</th><th>Name</th><th>Available</th><th>Reserved</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="table-card">
+          <h3>Overdue Check-Outs</h3>
+          <table id="overdueTable">
+            <thead><tr><th>Code</th><th>Qty</th><th>Job</th><th>Out Since</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="table-card">
+          <h3>Inbound / Ordered</h3>
+          <table id="orderedTable">
+            <thead><tr><th>Code</th><th>Qty</th><th>ETA</th><th>Job</th></tr></thead>
             <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </div>
