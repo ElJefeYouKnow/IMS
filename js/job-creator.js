@@ -9,7 +9,11 @@ async function loadJobs(){
 async function saveJob(job){
   try{
     const r = await fetch('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(job)});
-    return r.ok;
+    if(!r.ok){
+      const data = await r.json().catch(()=>({}));
+      throw new Error(data.error || 'Failed to save job');
+    }
+    return true;
   }catch(e){return false;}
 }
 
@@ -48,6 +52,14 @@ async function renderJobs(){
 }
 
 document.addEventListener('DOMContentLoaded', ()=>{
+  if(window.utils){
+    if(!utils.requireSession?.()) return;
+    utils.requireRole?.('admin');
+    utils.wrapFetchWithRole?.();
+    utils.applyStoredTheme?.();
+    utils.applyNavVisibility?.();
+    utils.setupLogout?.();
+  }
   renderJobs();
   const form=document.getElementById('jobForm');
   form.addEventListener('submit', async ev=>{
@@ -57,7 +69,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const scheduleDate=document.getElementById('jobDate').value;
     if(!code){alert('Job code required');return}
     const ok = await saveJob({code,name,scheduleDate});
-    if(!ok) alert('Failed to save job');
+    if(!ok) alert('Failed to save job (check permissions or server)');
     else{
       form.reset();
       await renderJobs();
