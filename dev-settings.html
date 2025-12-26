@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dev Settings</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="page">
+  <div class="page-shell">
+    <header class="page-header">
+      <div class="header-title">
+        <div class="pill pill-strong">Dev Controls</div>
+        <h1>Developer Settings</h1>
+        <p class="muted">For dev tenant only. Destructive tools live here.</p>
+      </div>
+      <div class="header-actions">
+        <button id="logoutBtn" class="btn ghost">Logout</button>
+      </div>
+    </header>
+
+    <main class="content-grid">
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <p class="muted">Signed in as</p>
+            <h2 id="devUserEmail">—</h2>
+            <p class="muted">Tenant: <span id="devTenant">—</span></p>
+          </div>
+          <div class="pill pill-info">Dev role</div>
+        </div>
+        <div class="card-body">
+          <p>Use these controls only in the dev tenant. Production data must never be cleared here.</p>
+          <div class="action-row">
+            <div>
+              <h3>Hard Reset (truncate)</h3>
+              <p class="muted">Clears all data, reseeds admin + dev users. Requires reset token.</p>
+            </div>
+            <button id="devResetBtn" class="btn danger">Run dev reset</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const user = utils.getSession();
+      if (!user) {
+        window.location.href = 'login.html';
+        return;
+      }
+      if ((user.role || '').toLowerCase() !== 'dev') {
+        alert('Access denied: dev only');
+        window.location.href = 'dashboard.html';
+        return;
+      }
+      document.getElementById('devUserEmail').textContent = user.email || 'Unknown';
+      document.getElementById('devTenant').textContent = user.tenantId || 'dev';
+
+      utils.setupLogout?.();
+
+      document.getElementById('devResetBtn').addEventListener('click', async () => {
+        const token = prompt('Enter dev reset token (this will wipe all data).');
+        if (!token) return;
+        if (!confirm('This will TRUNCATE all data for this environment. Continue?')) return;
+        try {
+          const res = await fetch('/api/dev/reset', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-dev-reset': token
+            }
+          });
+          if (res.ok) {
+            alert('Reset complete. You will be logged out.');
+            localStorage.removeItem('sessionUser');
+            await fetch('/api/auth/logout',{method:'POST'}).catch(()=>{});
+            window.location.href='login.html';
+          } else {
+            const data = await res.json().catch(() => ({ error: 'Reset failed' }));
+            alert(data.error || 'Reset failed');
+          }
+        } catch (err) {
+          alert('Reset failed: ' + err.message);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
