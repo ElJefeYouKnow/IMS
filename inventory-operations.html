@@ -45,9 +45,9 @@
         <a  href="employee-dashboard.html" data-role="employee">Dashboard</a>
         <a class="active" href="inventory-operations.html">Operations</a>
       <a href="inventory-list.html">Inventory</a>
-      <a href="job-report.html">Job Report</a>
+        <a href="job-report.html">Project Report</a>
       <a href="item-master.html" data-role="admin">Item Master</a>
-      <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="job-creator.html" data-role="admin">Project Manager</a>
       <a href="order-register.html" data-role="admin">Orders</a>
       <a href="settings.html" data-role="admin">Settings</a>
       <a href="settings-employee.html" data-role="employee">Settings</a>
@@ -69,7 +69,7 @@
           <h3 style="margin-bottom:8px;">Operations Control</h3>
           <ul class="ops-list">
             <li>Check-In: log arrivals or new on-the-fly purchases (requires name for new codes).</li>
-            <li>Pick (Check-Out): draws from available; auto-sets 5-day due.</li>
+            <li>Pick (Check-Out): draws from available; auto-sets 5-day due for the project.</li>
             <li>Return: allowed within 5 days of checkout; enforces outstanding limits.</li>
           </ul>
         </section>
@@ -103,13 +103,13 @@
               <div id="checkin-lines" class="line-items"></div>
             </div>
             <div class="form-row">
-              <label>Job ID
+              <label>Project ID
                 <select id="checkin-jobId">
                   <option value="">General Inventory</option>
                 </select>
               </label>
               <label style="max-width:220px;display:flex;align-items:center;gap:6px;margin-top:22px;">
-                <input type="checkbox" id="checkin-stick" style="width:auto;"> Keep job/location for new lines
+                <input type="checkbox" id="checkin-stick" style="width:auto;"> Keep project/location for new lines
               </label>
             </div>
             <div class="form-row">
@@ -140,7 +140,7 @@
             </div>
           </div>
           <table id="checkinTable">
-            <thead><tr><th><input type="checkbox" data-select-all="checkinTable"></th><th>Code</th><th>Name</th><th>Qty</th><th>Location</th><th>Job ID</th><th>When</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="checkinTable"></th><th>Code</th><th>Name</th><th>Qty</th><th>Location</th><th>Project ID</th><th>When</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -149,7 +149,7 @@
       <!-- CHECK-OUT MODE -->
       <div id="checkout-mode" class="mode-content">
         <section class="card inventory-card">
-          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Pick items from inventory for a job. Track the job and notes.</p>
+          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Pick items from inventory for a project. Track the project and notes.</p>
           <form id="checkoutForm" class="inventory-form" autocomplete="off">
             <div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -159,9 +159,9 @@
               <div id="checkout-lines" class="line-items"></div>
             </div>
             <div class="form-row">
-              <label>Job ID
+              <label>Project ID
                 <select id="checkout-jobId" required>
-                  <option value="">Select job...</option>
+                  <option value="">Select project...</option>
                 </select>
               </label>
             </div>
@@ -184,7 +184,7 @@
             </div>
           </div>
           <table id="checkoutTable">
-            <thead><tr><th><input type="checkbox" data-select-all="checkoutTable"></th><th>Code</th><th>Name</th><th>Job ID</th><th>Qty</th><th class="mobile-hide">When</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="checkoutTable"></th><th>Code</th><th>Name</th><th>Project ID</th><th>Qty</th><th class="mobile-hide">When</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -213,9 +213,9 @@
               <div id="return-lines" class="line-items"></div>
             </div>
             <div class="form-row">
-              <label>From Job ID
+              <label>From Project ID
                 <select id="return-jobId">
-                  <option value="">Select job...</option>
+                  <option value="">Select project...</option>
                 </select>
               </label>
             </div>
@@ -251,7 +251,7 @@
             </div>
           </div>
           <table id="returnTable">
-            <thead><tr><th><input type="checkbox" data-select-all="returnTable"></th><th>Code</th><th>Qty</th><th>From Job</th><th>Reason</th><th class="mobile-hide">Location</th><th class="mobile-hide">When</th></tr></thead>
+            <thead><tr><th><input type="checkbox" data-select-all="returnTable"></th><th>Code</th><th>Qty</th><th>From Project</th><th>Reason</th><th class="mobile-hide">Location</th><th class="mobile-hide">When</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>

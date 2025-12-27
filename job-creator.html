@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Job Creator</title>
+  <title>Project Manager</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -25,9 +25,9 @@
         <a  href="employee-dashboard.html" data-role="employee">Dashboard</a>
         <a href="inventory-operations.html">Operations</a>
         <a href="inventory-list.html">Inventory</a>
-        <a href="job-report.html">Job Report</a>
+        <a href="job-report.html">Project Report</a>
         <a href="item-master.html" data-role="admin">Item Master</a>
-        <a class="active" href="job-creator.html" data-role="admin">Job Creator</a>
+        <a class="active" href="job-creator.html" data-role="admin">Project Manager</a>
         <a href="order-register.html" data-role="admin">Orders</a>
         <a href="settings.html" data-role="admin">Settings</a>
         <a href="settings-employee.html" data-role="employee">Settings</a>
@@ -37,15 +37,15 @@
 
     <main class="main">
       <header class="topbar">
-        <h1>Create / Manage Jobs</h1>
+        <h1>Project Manager</h1>
         <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
       <section class="card inventory-card">
-        <h3>Add Job</h3>
+        <h3>Add Project</h3>
         <form id="jobForm" class="inventory-form">
           <div class="form-row">
-            <label>Job Code<input id="jobCode" required placeholder="Unique job number or name"></label>
+            <label>Project Code<input id="jobCode" required placeholder="Unique project number or name"></label>
             <label>Display Name<input id="jobName" placeholder="Optional friendly name"></label>
             <label>Schedule Date<input id="jobDate" type="date"></label>
           </div>
@@ -57,7 +57,7 @@
       </section>
 
       <section class="card">
-        <h3>Jobs</h3>
+        <h3>Projects</h3>
         <table id="jobTable">
           <thead><tr><th>Code</th><th>Name</th><th>Schedule Date</th><th>Actions</th></tr></thead>
           <tbody></tbody>

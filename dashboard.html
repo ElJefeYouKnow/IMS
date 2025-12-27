@@ -28,9 +28,9 @@
         <a  href="employee-dashboard.html" data-role="employee">Dashboard</a>
         <a href="inventory-operations.html">Operations</a>
         <a href="inventory-list.html">Inventory</a>
-        <a href="job-report.html">Job Report</a>
+        <a href="job-report.html">Project Report</a>
         <a href="item-master.html" data-role="admin">Item Master</a>
-        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="job-creator.html" data-role="admin">Project Manager</a>
         <a href="order-register.html" data-role="admin">Orders</a>
         <a href="settings.html" data-role="admin">Settings</a>
         <a href="settings-employee.html" data-role="employee">Settings</a>
@@ -65,7 +65,7 @@
             <div class="tile-sub">Edit catalog</div>
           </a>
           <a class="action-tile" href="job-creator.html">
-            <div class="tile-title">Jobs</div>
+            <div class="tile-title">Projects</div>
             <div class="tile-sub">Schedule &amp; manage</div>
           </a>
         </div>
@@ -90,14 +90,14 @@
         <div class="table-card">
           <h3>Overdue Check-Outs</h3>
           <table id="overdueTable">
-            <thead><tr><th>Code</th><th>Qty</th><th>Job</th><th>Out Since</th></tr></thead>
+            <thead><tr><th>Code</th><th>Qty</th><th>Project</th><th>Out Since</th></tr></thead>
             <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </div>
         <div class="table-card">
           <h3>Inbound / Ordered</h3>
           <table id="orderedTable">
-            <thead><tr><th>Code</th><th>Qty</th><th>ETA</th><th>Job</th></tr></thead>
+            <thead><tr><th>Code</th><th>Qty</th><th>ETA</th><th>Project</th></tr></thead>
             <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </div>
@@ -106,7 +106,7 @@
       <section class="card">
         <h3>Recent Activity</h3>
         <table id="activityTable">
-          <thead><tr><th>Type</th><th>Code</th><th>Qty</th><th>Job</th><th>When</th></tr></thead>
+          <thead><tr><th>Type</th><th>Code</th><th>Qty</th><th>Project</th><th>When</th></tr></thead>
           <tbody><tr><td colspan="5" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
         </table>
       </section>

@@ -89,7 +89,8 @@ async function renderRecentOrders(){
   }
   recent.forEach(o=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.qty}</td><td>${o.jobId||'General'}</td><td>${o.eta||''}</td><td>${o.ts ? new Date(o.ts).toLocaleString() : ''}</td>`;
+    const jobLabel = o.jobId && o.jobId.trim() ? o.jobId : 'General';
+    tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.qty}</td><td>${jobLabel}</td><td>${o.eta||''}</td><td>${o.ts ? new Date(o.ts).toLocaleString() : ''}</td>`;
     tbody.appendChild(tr);
   });
 }

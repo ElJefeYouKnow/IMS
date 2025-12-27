@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Job Inventory Report</title>
+  <title>Project Inventory Report</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -25,9 +25,9 @@
         <a  href="employee-dashboard.html" data-role="employee">Dashboard</a>
         <a href="inventory-operations.html">Operations</a>
         <a href="inventory-list.html">Inventory</a>
-        <a class="active" href="job-report.html">Job Report</a>
+        <a class="active" href="job-report.html">Project Report</a>
         <a href="item-master.html" data-role="admin">Item Master</a>
-        <a href="job-creator.html" data-role="admin">Job Creator</a>
+        <a href="job-creator.html" data-role="admin">Project Manager</a>
         <a href="order-register.html" data-role="admin">Orders</a>
         <a href="settings.html" data-role="admin">Settings</a>
         <a href="settings-employee.html" data-role="employee">Settings</a>
@@ -37,17 +37,17 @@
 
     <main class="main">
       <header class="topbar">
-        <h1>Job Inventory Report</h1>
+        <h1>Project Inventory Report</h1>
         <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
       <section class="card">
         <div style="margin-bottom:12px;">
-          <input id="searchBox" type="text" placeholder="Search by job ID..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
+          <input id="searchBox" type="text" placeholder="Search by project ID..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
           <button id="exportBtn" type="button" class="muted" style="margin-left:10px;padding:8px 12px;border-radius:6px;border:1px solid #e6edf3;background:#eef2f7;">Export CSV</button>
         </div>
         <table id="jobTable">
-          <thead><tr><th>Job ID</th><th>Item Code</th><th>Checked In</th><th>Checked Out</th><th>Reserved</th><th>Net Usage</th></tr></thead>
+          <thead><tr><th>Project ID</th><th>Item Code</th><th>Checked In</th><th>Checked Out</th><th>Reserved</th><th>Net Usage</th></tr></thead>
           <tbody></tbody>
         </table>
       </section>
