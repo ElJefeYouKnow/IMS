@@ -608,7 +608,11 @@ app.post('/api/inventory', async (req, res) => {
       const checkin = await processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId: jobIdVal, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
       // If a project is selected, auto-reserve the same qty to earmark stock for that project.
       if (jobIdVal) {
-        await processInventoryEvent(client, { type: 'reserve', code, jobId: jobIdVal, qty, returnDate: null, notes: 'auto-reserve on check-in', ts: checkin.ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+        const avail = await calcAvailabilityTx(client, code, t);
+        const reserveQty = Math.min(Number(qty) || 0, Math.max(0, avail));
+        if (reserveQty > 0) {
+          await processInventoryEvent(client, { type: 'reserve', code, jobId: jobIdVal, qty: reserveQty, returnDate: null, notes: 'auto-reserve on check-in', ts: checkin.ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+        }
       }
       return checkin;
     });
