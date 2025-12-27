@@ -70,7 +70,16 @@ function renderOrdered(entries){
   if(!tbody) return;
   tbody.innerHTML = '';
   const orders = (entries||[]).filter(e=> e.type==='ordered');
-  const top = orders.sort((a,b)=>{
+  const checkins = (entries||[]).filter(e=> e.type==='in');
+  const isFulfilled = (order)=>{
+    const jobKey = (order.jobId||'').trim();
+    return checkins.some(ci=>{
+      const ciJob = (ci.jobId||'').trim();
+      return ci.code === order.code && ciJob === jobKey && (ci.ts||0) >= (order.ts||0);
+    });
+  };
+  const openOrders = orders.filter(o=> !isFulfilled(o));
+  const top = openOrders.sort((a,b)=>{
     const aEta = utils.parseTs?.(a.eta) ?? utils.parseTs?.(a.ts) ?? 0;
     const bEta = utils.parseTs?.(b.eta) ?? utils.parseTs?.(b.ts) ?? 0;
     return aEta - bEta;

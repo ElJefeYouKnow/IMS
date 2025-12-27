@@ -11,14 +11,19 @@ async function loadEntries(){
 function aggregateStock(entries){
   const stock = {};
   entries.forEach(e=>{
-    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, reserveQty: 0, lastTs: 0 };
+    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, reserveQty: 0, lastTs: 0, jobs: new Set() };
     if(e.type === 'in' || e.type === 'return') stock[e.code].inQty += e.qty;
     else if(e.type === 'out') stock[e.code].outQty += e.qty;
     else if(e.type === 'reserve') stock[e.code].reserveQty += e.qty;
+    if(e.jobId) stock[e.code].jobs.add(e.jobId);
     stock[e.code].lastTs = Math.max(stock[e.code].lastTs, e.ts || 0);
   });
   return Object.values(stock).map(s=>({
-    ...s, current: s.inQty - s.outQty - s.reserveQty, available: s.inQty - s.outQty, lastDate: s.lastTs ? new Date(s.lastTs).toLocaleString() : FALLBACK
+    ...s,
+    jobsList: s.jobs.size ? Array.from(s.jobs).sort().join(', ') : FALLBACK,
+    current: s.inQty - s.outQty - s.reserveQty,
+    available: s.inQty - s.outQty,
+    lastDate: s.lastTs ? new Date(s.lastTs).toLocaleString() : FALLBACK
   }));
 }
 
@@ -37,7 +42,7 @@ async function renderTable(){
   }
   items.forEach(item=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.inQty}</td><td>${item.outQty}</td><td>${item.reserveQty}</td><td>${item.current}</td><td>${item.lastDate}</td>`;
+    tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.jobsList}</td><td>${item.inQty}</td><td>${item.outQty}</td><td>${item.reserveQty}</td><td>${item.current}</td><td>${item.lastDate}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -58,14 +63,14 @@ document.addEventListener('DOMContentLoaded',async ()=>{
     const jobEntries = entries.filter(e=> e.jobId && e.jobId.toLowerCase().includes(jobId)).sort((a,b)=> b.ts - a.ts);
     if(!jobEntries.length){
       const tr=document.createElement('tr');
-      tr.innerHTML = `<td colspan="7" style="text-align:center;color:#6b7280;">No transactions for this job</td>`;
+      tr.innerHTML = `<td colspan="8" style="text-align:center;color:#6b7280;">No transactions for this job</td>`;
       tbody.appendChild(tr);
       return;
     }
     jobEntries.forEach(e=>{
       const tr = document.createElement('tr');
       const typeLabel = e.type === 'in' ? 'Check-In' : e.type === 'out' ? 'Check-Out' : e.type === 'return' ? 'Return' : 'Reserve';
-      tr.innerHTML = `<td>${typeLabel}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.location||e.returnDate||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td>${e.notes||FALLBACK}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
+      tr.innerHTML = `<td>${typeLabel}</td><td>${e.jobId||FALLBACK}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.location||e.returnDate||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td>${e.notes||FALLBACK}</td><td>${new Date(e.ts).toLocaleString()}</td>`;
       tbody.appendChild(tr);
     });
   });

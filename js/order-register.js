@@ -62,9 +62,21 @@ async function renderRecentOrders(){
   const tbody = document.querySelector('#recentOrdersTable tbody');
   if(!tbody) return;
   tbody.innerHTML = '';
-  const orders = await utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []) || [];
+  const [orders, inventory] = await Promise.all([
+    utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []),
+    utils.fetchJsonSafe('/api/inventory', {}, [])
+  ]);
+  const checkins = (inventory||[]).filter(e=> e.type === 'in');
+  const isFulfilled = (order)=>{
+    const jobKey = (order.jobId||'').trim();
+    return checkins.some(ci=>{
+      const ciJob = (ci.jobId||'').trim();
+      return ci.code === order.code && ciJob === jobKey && (ci.ts||0) >= (order.ts||0);
+    });
+  };
   const filter = (document.getElementById('orderFilter')?.value || '').toLowerCase();
-  const filtered = orders.filter(o=>{
+  const filtered = (orders||[]).filter(o=>{
+    if(isFulfilled(o)) return false;
     const job = (o.jobId||'').toLowerCase();
     return !filter || o.code.toLowerCase().includes(filter) || job.includes(filter);
   });
