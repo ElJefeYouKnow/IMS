@@ -11,22 +11,35 @@ async function loadEntries(){
 function aggregateStock(entries){
   const stock = {};
   entries.forEach(e=>{
-    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, reserveQty: 0, lastTs: 0, jobs: new Set() };
+    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, reserveQty: 0, lastTs: 0, jobs: new Map() };
     if(e.type === 'in' || e.type === 'return') stock[e.code].inQty += e.qty;
     else if(e.type === 'reserve_release') stock[e.code].reserveQty -= e.qty;
     else if(e.type === 'out') stock[e.code].outQty += e.qty;
     else if(e.type === 'reserve') stock[e.code].reserveQty += e.qty;
     else if(e.type === 'reserve_release') stock[e.code].reserveQty -= e.qty;
-    if(e.jobId) stock[e.code].jobs.add(e.jobId);
+    if(e.jobId){
+      if(!stock[e.code].jobs.has(e.jobId)) stock[e.code].jobs.set(e.jobId, { out: 0, reserve: 0 });
+      const job = stock[e.code].jobs.get(e.jobId);
+      if(e.type === 'out') job.out += e.qty;
+      else if(e.type === 'return') job.out -= e.qty;
+      else if(e.type === 'reserve') job.reserve += e.qty;
+      else if(e.type === 'reserve_release') job.reserve -= e.qty;
+    }
     stock[e.code].lastTs = Math.max(stock[e.code].lastTs, e.ts || 0);
   });
-  return Object.values(stock).map(s=>({
-    ...s,
-    jobsList: s.jobs.size ? Array.from(s.jobs).sort().join(', ') : FALLBACK,
-    current: s.inQty - s.outQty - s.reserveQty,
-    available: s.inQty - s.outQty,
-    lastDate: s.lastTs ? new Date(s.lastTs).toLocaleString() : FALLBACK
-  }));
+  return Object.values(stock).map(s=>{
+    const activeJobs = [];
+    for (const [jobId, stats] of s.jobs.entries()) {
+      if ((stats.out || 0) > 0 || (stats.reserve || 0) > 0) activeJobs.push(jobId);
+    }
+    return {
+      ...s,
+      jobsList: activeJobs.length ? activeJobs.sort().join(', ') : FALLBACK,
+      current: s.inQty - s.outQty - s.reserveQty,
+      available: s.inQty - s.outQty,
+      lastDate: s.lastTs ? new Date(s.lastTs).toLocaleString() : FALLBACK
+    };
+  });
 }
 
 async function renderTable(){

@@ -526,11 +526,13 @@ async function ensureDevAccount() {
 async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn }) {
   const qtyNum = Number(qty);
   if (!code || !qtyNum || qtyNum <= 0) throw new Error('code and positive qty required');
+  const jobIdVal = (jobId || '').trim() || null;
   const item = await ensureItem(client, { code, name, category, unitPrice, tenantIdVal });
   const nowTs = ts || Date.now();
   let status = statusForType(type);
 
   if (type === 'reserve') {
+    if (!jobIdVal) throw new Error('jobId required');
     const avail = await calcAvailabilityTx(client, code, tenantIdVal);
     if (qtyNum > avail) throw new Error('insufficient stock to reserve');
   }
@@ -538,22 +540,22 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
     await enforceCheckoutAging(tenantIdVal);
     const avail = await calcAvailabilityTx(client, code, tenantIdVal);
     if (qtyNum > avail) throw new Error('insufficient stock to checkout');
-    if (jobId) {
-      const reserved = await calcReservedOutstandingTx(client, code, jobId, tenantIdVal);
+    if (jobIdVal) {
+      const reserved = await calcReservedOutstandingTx(client, code, jobIdVal, tenantIdVal);
       const releaseQty = Math.min(qtyNum, reserved);
       if (releaseQty > 0) {
         await client.query(`INSERT INTO inventory(id,code,name,qty,jobId,notes,ts,type,status,userEmail,userName,tenantId)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-          [newId(), code, item?.name || name || code, releaseQty, jobId, 'auto-release on checkout', nowTs, 'reserve_release', statusForType('reserve_release'), userEmail, userName, tenantIdVal]);
+          [newId(), code, item?.name || name || code, releaseQty, jobIdVal, 'auto-release on checkout', nowTs, 'reserve_release', statusForType('reserve_release'), userEmail, userName, tenantIdVal]);
       }
     }
   }
   if (type === 'return') {
-    const outstanding = await calcOutstandingCheckoutTx(client, code, jobId, tenantIdVal);
+    const outstanding = await calcOutstandingCheckoutTx(client, code, jobIdVal, tenantIdVal);
     if (outstanding <= 0) throw new Error('no matching checkout to return');
     if (qtyNum > outstanding) throw new Error('return exceeds outstanding checkout');
     if (requireRecentReturn) {
-      const last = await getLastCheckoutTs(client, code, jobId, tenantIdVal);
+      const last = await getLastCheckoutTs(client, code, jobIdVal, tenantIdVal);
       if (!last || (nowTs - last) > CHECKOUT_RETURN_WINDOW_MS) throw new Error('return window exceeded (5 days)');
     }
   }
@@ -570,7 +572,7 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
     name: item?.name || name,
     qty: qtyNum,
     location,
-    jobId,
+    jobId: jobIdVal,
     notes,
     reason,
     returnDate,
@@ -602,7 +604,13 @@ app.post('/api/inventory', async (req, res) => {
     const { code, name, category, unitPrice, qty, location, jobId, notes, ts } = req.body;
     const t = tenantId(req);
     const entry = await withTransaction(async (client) => {
-      return processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      const jobIdVal = (jobId || '').trim() || null;
+      const checkin = await processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId: jobIdVal, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      // If a project is selected, auto-reserve the same qty to earmark stock for that project.
+      if (jobIdVal) {
+        await processInventoryEvent(client, { type: 'reserve', code, jobId: jobIdVal, qty, returnDate: null, notes: 'auto-reserve on check-in', ts: checkin.ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      }
+      return checkin;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { code, qty, jobId, location } });
     res.status(201).json(entry);
@@ -970,9 +978,10 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
+    const jobIdVal = (jobId || '').trim() || null;
     const entry = await withTransaction(async (client) => {
       await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-      const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+      const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
       await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId]);
       return ev;
@@ -994,8 +1003,9 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
         const { code, name, qty, eta, notes, ts, jobId } = line || {};
         const qtyNum = Number(qty);
         if (!code || !qtyNum || qtyNum <= 0) throw new Error(`Invalid order line for code ${code || ''}`);
+        const jobIdVal = (jobId || '').trim() || null;
         await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-        const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
+        const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
         await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId]);
         results.push(ev);
