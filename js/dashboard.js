@@ -2,6 +2,14 @@ const FALLBACK = 'N/A';
 const LOW_STOCK_THRESHOLD = 5;
 const RETURN_WINDOW_MS = 5 * 24 * 60 * 60 * 1000;
 
+function normalizeJobId(value){
+  const val = (value || '').toString().trim();
+  if(!val) return '';
+  const lowered = val.toLowerCase();
+  if(['general','general inventory','none','unassigned'].includes(lowered)) return '';
+  return val;
+}
+
 function updateClock(){document.getElementById('clock').textContent=new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
 function fmtDT(val){ return (window.utils && utils.formatDateTime) ? utils.formatDateTime(val) : (val ? new Date(val).toLocaleString() : ''); }
 
@@ -71,17 +79,32 @@ function renderOrdered(entries){
   tbody.innerHTML = '';
   const orders = (entries||[]).filter(e=> e.type==='ordered');
   const checkins = (entries||[]).filter(e=> e.type==='in');
-  const isFulfilled = (order)=>{
-    const jobKey = (order.jobId||'').trim();
-    return checkins.some(ci=>{
-      const ciJob = (ci.jobId||'').trim();
-      return ci.code === order.code && ciJob === jobKey && (ci.ts||0) >= (order.ts||0);
-    });
-  };
-  const openOrders = orders.filter(o=> !isFulfilled(o));
+  const map = new Map();
+  orders.forEach(o=>{
+    const jobId = normalizeJobId(o.jobId || '');
+    const key = `${o.code}|${jobId}`;
+    if(!map.has(key)) map.set(key, { code: o.code, jobId, ordered: 0, checkedIn: 0, eta: o.eta || '', lastOrderTs: 0 });
+    const rec = map.get(key);
+    rec.ordered += Number(o.qty || 0);
+    rec.lastOrderTs = Math.max(rec.lastOrderTs, o.ts || 0);
+    if(!rec.eta && o.eta) rec.eta = o.eta;
+  });
+  checkins.forEach(ci=>{
+    const jobId = normalizeJobId(ci.jobId || '');
+    const key = `${ci.code}|${jobId}`;
+    if(!map.has(key)) map.set(key, { code: ci.code, jobId, ordered: 0, checkedIn: 0, eta: '', lastOrderTs: 0 });
+    const rec = map.get(key);
+    rec.checkedIn += Number(ci.qty || 0);
+  });
+  const openOrders = [];
+  map.forEach(rec=>{
+    const openQty = Math.max(0, rec.ordered - rec.checkedIn);
+    if(openQty <= 0) return;
+    openOrders.push({ ...rec, openQty });
+  });
   const top = openOrders.sort((a,b)=>{
-    const aEta = utils.parseTs?.(a.eta) ?? utils.parseTs?.(a.ts) ?? 0;
-    const bEta = utils.parseTs?.(b.eta) ?? utils.parseTs?.(b.ts) ?? 0;
+    const aEta = utils.parseTs?.(a.eta) ?? utils.parseTs?.(a.lastOrderTs) ?? 0;
+    const bEta = utils.parseTs?.(b.eta) ?? utils.parseTs?.(b.lastOrderTs) ?? 0;
     return aEta - bEta;
   }).slice(0,8);
   if(!top.length){
@@ -89,9 +112,9 @@ function renderOrdered(entries){
     return;
   }
   top.forEach(e=>{
-    const eta = e.eta ? fmtDT(e.eta) : (e.ts ? fmtDT(e.ts) : '');
+    const eta = e.eta ? fmtDT(e.eta) : (e.lastOrderTs ? fmtDT(e.lastOrderTs) : '');
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${e.code}</td><td>${e.qty}</td><td>${eta || '—'}</td><td>${e.jobId||'—'}</td>`;
+    tr.innerHTML=`<td>${e.code}</td><td>${e.openQty}</td><td>${eta || FALLBACK}</td><td>${e.jobId||FALLBACK}</td>`;
     tbody.appendChild(tr);
   });
 }

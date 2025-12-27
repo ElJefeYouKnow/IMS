@@ -6,6 +6,35 @@ function getSession(){
 
 let itemsCache = [];
 
+function normalizeJobId(value){
+  const val = (value || '').toString().trim();
+  if(!val) return '';
+  const lowered = val.toLowerCase();
+  if(['general','general inventory','none','unassigned'].includes(lowered)) return '';
+  return val;
+}
+
+function buildOrderBalance(orders, inventory){
+  const map = new Map();
+  (orders||[]).forEach(o=>{
+    const jobId = normalizeJobId(o.jobId || o.jobid || '');
+    const key = `${o.code}|${jobId}`;
+    if(!map.has(key)) map.set(key, { code: o.code, jobId, name: o.name || '', ordered: 0, checkedIn: 0, eta: o.eta || '', lastOrderTs: 0 });
+    const rec = map.get(key);
+    rec.ordered += Number(o.qty || 0);
+    rec.lastOrderTs = Math.max(rec.lastOrderTs, o.ts || 0);
+    if(!rec.eta && o.eta) rec.eta = o.eta;
+  });
+  (inventory||[]).filter(e=> e.type === 'in').forEach(ci=>{
+    const jobId = normalizeJobId(ci.jobId || '');
+    const key = `${ci.code}|${jobId}`;
+    if(!map.has(key)) map.set(key, { code: ci.code, jobId, name: ci.name || '', ordered: 0, checkedIn: 0, eta: '', lastOrderTs: 0 });
+    const rec = map.get(key);
+    rec.checkedIn += Number(ci.qty || 0);
+  });
+  return map;
+}
+
 async function loadJobs(){
   try{
     const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
@@ -66,21 +95,17 @@ async function renderRecentOrders(){
     utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []),
     utils.fetchJsonSafe('/api/inventory', {}, [])
   ]);
-  const checkins = (inventory||[]).filter(e=> e.type === 'in');
-  const isFulfilled = (order)=>{
-    const jobKey = (order.jobId||'').trim();
-    return checkins.some(ci=>{
-      const ciJob = (ci.jobId||'').trim();
-      return ci.code === order.code && ciJob === jobKey && (ci.ts||0) >= (order.ts||0);
-    });
-  };
+  const balances = buildOrderBalance(orders, inventory);
   const filter = (document.getElementById('orderFilter')?.value || '').toLowerCase();
-  const filtered = (orders||[]).filter(o=>{
-    if(isFulfilled(o)) return false;
-    const job = (o.jobId||'').toLowerCase();
-    return !filter || o.code.toLowerCase().includes(filter) || job.includes(filter);
+  const rows = [];
+  balances.forEach((rec)=>{
+    const openQty = Math.max(0, rec.ordered - rec.checkedIn);
+    if(openQty <= 0) return;
+    const job = normalizeJobId(rec.jobId || '').toLowerCase();
+    if(filter && !(rec.code.toLowerCase().includes(filter) || job.includes(filter))) return;
+    rows.push({ ...rec, openQty });
   });
-  const recent = filtered.sort((a,b)=> (b.ts||0)-(a.ts||0)).slice(0,12);
+  const recent = rows.sort((a,b)=> (b.lastOrderTs||0)-(a.lastOrderTs||0)).slice(0,12);
   if(!recent.length){
     const tr=document.createElement('tr');
     tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No orders yet</td>`;
@@ -89,10 +114,10 @@ async function renderRecentOrders(){
   }
   recent.forEach(o=>{
     const tr=document.createElement('tr');
-    const jobValue = o.jobId || o.jobid || '';
+    const jobValue = o.jobId || '';
     const jobLabel = jobValue && jobValue.trim() ? jobValue : 'General';
-    const tsLabel = (window.utils && utils.formatDateTime) ? utils.formatDateTime(o.ts) : (o.ts ? new Date(o.ts).toLocaleString() : '');
-    tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.qty}</td><td>${jobLabel}</td><td>${o.eta||''}</td><td>${tsLabel}</td>`;
+    const tsLabel = (window.utils && utils.formatDateTime) ? utils.formatDateTime(o.lastOrderTs) : (o.lastOrderTs ? new Date(o.lastOrderTs).toLocaleString() : '');
+    tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.openQty}</td><td>${jobLabel}</td><td>${o.eta||''}</td><td>${tsLabel}</td>`;
     tbody.appendChild(tr);
   });
 }
