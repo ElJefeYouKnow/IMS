@@ -8,6 +8,18 @@ async function loadEntries(){
   return [];
 }
 
+function getOpenOrders(orders, inventory){
+  const checkins = (inventory||[]).filter(e=> e.type === 'in');
+  const isFulfilled = (order)=>{
+    const jobKey = (order.jobId || order.jobid || '').trim();
+    return checkins.some(ci=>{
+      const ciJob = (ci.jobId||'').trim();
+      return ci.code === order.code && ciJob === jobKey && (ci.ts||0) >= (order.ts||0);
+    });
+  };
+  return (orders||[]).filter(o=> !isFulfilled(o));
+}
+
 function aggregateStock(entries){
   const stock = {};
   entries.forEach(e=>{
@@ -39,6 +51,70 @@ function aggregateStock(entries){
       available: s.inQty - s.outQty,
       lastDate: s.lastTs ? new Date(s.lastTs).toLocaleString() : FALLBACK
     };
+  });
+}
+
+async function renderProjectSummary(){
+  const tbody = document.querySelector('#jobSummaryTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  const [inventory, orders] = await Promise.all([
+    loadEntries(),
+    utils.fetchJsonSafe('/api/inventory?type=ordered', {}, [])
+  ]);
+  const openOrders = getOpenOrders(orders, inventory);
+  const summary = {};
+
+  openOrders.forEach(o=>{
+    const jobId = (o.jobId || o.jobid || '').trim();
+    if(!jobId) return;
+    const key = `${jobId}|${o.code}`;
+    if(!summary[key]) summary[key] = { jobId, code: o.code, openOrders: 0, inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, lastTs: 0 };
+    summary[key].openOrders += Number(o.qty || 0);
+    summary[key].lastTs = Math.max(summary[key].lastTs, o.ts || 0);
+  });
+
+  (inventory||[]).forEach(e=>{
+    const jobId = (e.jobId || '').trim();
+    if(!jobId) return;
+    const key = `${jobId}|${e.code}`;
+    if(!summary[key]) summary[key] = { jobId, code: e.code, openOrders: 0, inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, lastTs: 0 };
+    if(e.type === 'in') summary[key].inQty += e.qty;
+    else if(e.type === 'out') summary[key].outQty += e.qty;
+    else if(e.type === 'return') summary[key].returnQty += e.qty;
+    else if(e.type === 'reserve') summary[key].reserveQty += e.qty;
+    else if(e.type === 'reserve_release') summary[key].reserveQty -= e.qty;
+    summary[key].lastTs = Math.max(summary[key].lastTs, e.ts || 0);
+  });
+
+  const searchVal = (document.getElementById('jobSummarySearch')?.value || '').trim().toLowerCase();
+  let items = Object.values(summary).map(s=>{
+    const checkedOut = Math.max(0, s.outQty - s.returnQty);
+    const reserved = Math.max(0, s.reserveQty);
+    const available = Math.max(0, s.inQty - checkedOut - reserved);
+    return {
+      ...s,
+      checkedOut,
+      reserved,
+      available,
+      lastDate: s.lastTs ? ((window.utils && utils.formatDateTime) ? utils.formatDateTime(s.lastTs) : new Date(s.lastTs).toLocaleString()) : FALLBACK
+    };
+  });
+
+  if(searchVal){
+    items = items.filter(i=> i.jobId.toLowerCase().includes(searchVal) || i.code.toLowerCase().includes(searchVal));
+  }
+  items.sort((a,b)=> a.jobId.localeCompare(b.jobId) || a.code.localeCompare(b.code));
+  if(!items.length){
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td colspan="8" style="text-align:center;color:#6b7280;">No project inventory yet</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  items.forEach(item=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${item.jobId}</td><td>${item.code}</td><td>${item.openOrders}</td><td>${item.inQty}</td><td>${item.reserved}</td><td>${item.checkedOut}</td><td>${item.available}</td><td>${item.lastDate}</td>`;
+    tbody.appendChild(tr);
   });
 }
 
@@ -109,43 +185,8 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   renderIncoming();
   const incomingSearchBox = document.getElementById('incomingSearchBox');
   if(incomingSearchBox) incomingSearchBox.addEventListener('input', renderIncoming);
-  
-  
-  
+
+  renderProjectSummary();
   const jobSummarySearch = document.getElementById('jobSummarySearch');
-  jobSummarySearch.addEventListener('input', async ()=>{
-    const searchVal = jobSummarySearch.value.trim().toLowerCase();
-    const tbody = document.querySelector('#jobSummaryTable tbody');
-    tbody.innerHTML = '';
-    
-    const entries = await loadEntries();
-    const jobs = {};
-    entries.forEach(e=>{
-      const jobId = e.jobId || 'Unassigned';
-      const key = `${jobId}|${e.code}`;
-      if(!jobs[key]) jobs[key] = { jobId, code: e.code, inQty: 0, outQty: 0, reserveQty: 0 };
-      if(e.type === 'in' || e.type === 'return') jobs[key].inQty += e.qty;
-      else if(e.type === 'out') jobs[key].outQty += e.qty;
-      else if(e.type === 'reserve') jobs[key].reserveQty += e.qty;
-      else if(e.type === 'reserve_release') jobs[key].reserveQty -= e.qty;
-    });
-    
-    let items = Object.values(jobs).map(j=>({
-      ...j, netUsage: j.inQty - j.outQty
-    }));
-    
-    if(searchVal) items = items.filter(i=> i.jobId.toLowerCase().includes(searchVal));
-    items.sort((a,b)=> a.jobId.localeCompare(b.jobId) || a.code.localeCompare(b.code));
-    if(!items.length){
-      const tr=document.createElement('tr');
-      tr.innerHTML = `<td colspan="6" style="text-align:center;color:#6b7280;">No job summaries yet</td>`;
-      tbody.appendChild(tr);
-      return;
-    }
-    items.forEach(item=>{
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${item.jobId}</td><td>${item.code}</td><td>${item.inQty}</td><td>${item.outQty}</td><td>${item.reserveQty}</td><td>${item.netUsage}</td>`;
-      tbody.appendChild(tr);
-    });
-  });
+  if(jobSummarySearch) jobSummarySearch.addEventListener('input', renderProjectSummary);
 });
