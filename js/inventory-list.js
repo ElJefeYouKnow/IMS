@@ -13,8 +13,10 @@ function aggregateStock(entries){
   entries.forEach(e=>{
     if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, reserveQty: 0, lastTs: 0, jobs: new Set() };
     if(e.type === 'in' || e.type === 'return') stock[e.code].inQty += e.qty;
+    else if(e.type === 'reserve_release') stock[e.code].reserveQty -= e.qty;
     else if(e.type === 'out') stock[e.code].outQty += e.qty;
     else if(e.type === 'reserve') stock[e.code].reserveQty += e.qty;
+    else if(e.type === 'reserve_release') stock[e.code].reserveQty -= e.qty;
     if(e.jobId) stock[e.code].jobs.add(e.jobId);
     stock[e.code].lastTs = Math.max(stock[e.code].lastTs, e.ts || 0);
   });
@@ -51,9 +53,21 @@ async function renderIncoming(){
   const tbody = document.querySelector('#incomingTable tbody');
   if(!tbody) return;
   tbody.innerHTML = '';
-  const orders = await utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []) || [];
+  const [orders, inventory] = await Promise.all([
+    utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []),
+    utils.fetchJsonSafe('/api/inventory', {}, [])
+  ]);
+  const checkins = (inventory||[]).filter(e=> e.type === 'in');
+  const isFulfilled = (order)=>{
+    const jobKey = (order.jobId || order.jobid || '').trim();
+    return checkins.some(ci=>{
+      const ciJob = (ci.jobId||'').trim();
+      return ci.code === order.code && ciJob === jobKey && (ci.ts||0) >= (order.ts||0);
+    });
+  };
   const search = (document.getElementById('incomingSearchBox')?.value || '').toLowerCase();
-  const filtered = orders.filter(o=>{
+  const filtered = (orders||[]).filter(o=>{
+    if(isFulfilled(o)) return false;
     const job = (o.jobId || o.jobid || '').toLowerCase();
     const code = (o.code || '').toLowerCase();
     return !search || code.includes(search) || job.includes(search);
@@ -100,6 +114,7 @@ document.addEventListener('DOMContentLoaded',async ()=>{
       if(e.type === 'in' || e.type === 'return') jobs[key].inQty += e.qty;
       else if(e.type === 'out') jobs[key].outQty += e.qty;
       else if(e.type === 'reserve') jobs[key].reserveQty += e.qty;
+      else if(e.type === 'reserve_release') jobs[key].reserveQty -= e.qty;
     });
     
     let items = Object.values(jobs).map(j=>({

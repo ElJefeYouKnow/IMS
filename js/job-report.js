@@ -12,9 +12,10 @@ function aggregateByJob(entries){
     const jobId = e.jobId || 'Unassigned';
     const key = `${jobId}|${e.code}`;
     if(!jobs[key]) jobs[key] = { jobId, code: e.code, inQty: 0, outQty: 0, reserveQty: 0 };
-    if(e.type === 'in') jobs[key].inQty += e.qty;
+    if(e.type === 'in' || e.type === 'return') jobs[key].inQty += e.qty;
     else if(e.type === 'out') jobs[key].outQty += e.qty;
     else if(e.type === 'reserve') jobs[key].reserveQty += e.qty;
+    else if(e.type === 'reserve_release') jobs[key].reserveQty -= e.qty;
   });
   return Object.values(jobs).map(j=>({
     ...j, netUsage: j.inQty - j.outQty

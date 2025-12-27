@@ -8,6 +8,7 @@ function typeLabel(t){
   if(t==='in') return 'Check-In';
   if(t==='out') return 'Check-Out';
   if(t==='reserve') return 'Reserve';
+  if(t==='reserve_release') return 'Reserve Release';
   if(t==='return') return 'Return';
   if(t==='ordered') return 'Ordered';
   return t;

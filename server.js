@@ -360,6 +360,7 @@ function statusForType(type) {
   if (type === 'in') return 'in-stock';
   if (type === 'out') return 'checked-out';
   if (type === 'reserve') return 'reserved';
+  if (type === 'reserve_release') return 'reserve-released';
   if (type === 'return') return 'returned';
   if (type === 'consume') return 'consumed';
   return 'unknown';
@@ -376,6 +377,7 @@ async function calcAvailability(code, tenantIdVal) {
       CASE 
         WHEN type='in' THEN qty
         WHEN type='return' THEN qty
+        WHEN type='reserve_release' THEN qty
         WHEN type='reserve' THEN -qty
         WHEN type='out' THEN -qty
         WHEN type='consume' THEN -qty
@@ -393,10 +395,25 @@ async function calcAvailabilityTx(client, code, tenantIdVal) {
   return (rows.rows || []).reduce((sum,r)=>{
     const t = r.type;
     const q = Number(r.qty)||0;
-    if(t==='in' || t==='return') return sum + q;
+    if(t==='in' || t==='return' || t==='reserve_release') return sum + q;
     if(t==='reserve' || t==='out' || t==='consume') return sum - q;
     return sum;
   },0);
+}
+
+async function calcReservedOutstandingTx(client, code, jobId, tenantIdVal) {
+  if(!jobId) return 0;
+  const rows = await client.query(
+    `SELECT type,qty FROM inventory WHERE code=$1 AND tenantId=$2 AND jobId=$3 FOR UPDATE`,
+    [code, tenantIdVal, jobId]
+  );
+  const reserved = (rows.rows || []).reduce((sum,r)=>{
+    const q = Number(r.qty)||0;
+    if(r.type==='reserve') return sum + q;
+    if(r.type==='reserve_release') return sum - q;
+    return sum;
+  },0);
+  return Math.max(0, reserved);
 }
 
 async function calcOutstandingCheckout(code, jobId, tenantIdVal) {
@@ -521,6 +538,15 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
     await enforceCheckoutAging(tenantIdVal);
     const avail = await calcAvailabilityTx(client, code, tenantIdVal);
     if (qtyNum > avail) throw new Error('insufficient stock to checkout');
+    if (jobId) {
+      const reserved = await calcReservedOutstandingTx(client, code, jobId, tenantIdVal);
+      const releaseQty = Math.min(qtyNum, reserved);
+      if (releaseQty > 0) {
+        await client.query(`INSERT INTO inventory(id,code,name,qty,jobId,notes,ts,type,status,userEmail,userName,tenantId)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          [newId(), code, item?.name || name || code, releaseQty, jobId, 'auto-release on checkout', nowTs, 'reserve_release', statusForType('reserve_release'), userEmail, userName, tenantIdVal]);
+      }
+    }
   }
   if (type === 'return') {
     const outstanding = await calcOutstandingCheckoutTx(client, code, jobId, tenantIdVal);
@@ -1088,21 +1114,21 @@ app.get('/api/metrics', async (req, res) => {
     const now = Date.now();
     const row = await getAsync(`
       SELECT 
-        COALESCE(SUM(CASE WHEN type='in' THEN qty WHEN type='return' THEN qty WHEN type='out' THEN -qty WHEN type='reserve' THEN -qty ELSE 0 END),0) as availableunits,
-        COALESCE(SUM(CASE WHEN type='reserve' THEN qty ELSE 0 END),0) as reservedunits,
+        COALESCE(SUM(CASE WHEN type='in' THEN qty WHEN type='return' THEN qty WHEN type='reserve_release' THEN qty WHEN type='out' THEN -qty WHEN type='reserve' THEN -qty ELSE 0 END),0) as availableunits,
+        COALESCE(SUM(CASE WHEN type='reserve' THEN qty WHEN type='reserve_release' THEN -qty ELSE 0 END),0) as reservedunits,
         COALESCE(COUNT(DISTINCT CASE WHEN jobId IS NOT NULL AND jobId != '' THEN jobId END),0) as activejobs,
         COALESCE(SUM(CASE WHEN ts >= $1 THEN 1 ELSE 0 END),0) as txlast7
       FROM inventory
     `, [now - 7 * 24 * 60 * 60 * 1000]);
     const lowRows = await allAsync(`
       SELECT i.code, i.name,
-        COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) as available,
-        COALESCE(SUM(CASE WHEN inv.type='reserve' THEN inv.qty ELSE 0 END),0) as reserve
+        COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) as available,
+        COALESCE(SUM(CASE WHEN inv.type='reserve' THEN inv.qty WHEN inv.type='reserve_release' THEN -inv.qty ELSE 0 END),0) as reserve
       FROM items i
       LEFT JOIN inventory inv ON inv.code = i.code
       GROUP BY i.code, i.name
-      HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) > 0
-        AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) <= 5
+      HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) > 0
+        AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) <= 5
       ORDER BY available ASC
       LIMIT 20
     `);
@@ -1114,13 +1140,13 @@ app.get('/api/low-stock', async (req, res) => {
   try {
     const rows = await allAsync(`
       SELECT i.code, i.name,
-        COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) as available,
-        COALESCE(SUM(CASE WHEN inv.type='reserve' THEN inv.qty ELSE 0 END),0) as reserve
+        COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) as available,
+        COALESCE(SUM(CASE WHEN inv.type='reserve' THEN inv.qty WHEN inv.type='reserve_release' THEN -inv.qty ELSE 0 END),0) as reserve
       FROM items i
       LEFT JOIN inventory inv ON inv.code = i.code
       GROUP BY i.code, i.name
-      HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) > 0
-        AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) <= 5
+      HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) > 0
+        AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) <= 5
       ORDER BY available ASC
       LIMIT 20
     `);
