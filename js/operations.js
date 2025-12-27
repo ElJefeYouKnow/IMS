@@ -591,6 +591,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       addOrderLine(sel.value);
     });
   }
+  const orderSelect = document.getElementById('checkin-orderSelect');
+  if(orderSelect){
+    orderSelect.addEventListener('change', ()=>{
+      if(!orderSelect.value) return;
+      addOrderLine(orderSelect.value);
+      orderSelect.value = '';
+    });
+  }
   const refreshOrdersBtn = document.getElementById('checkin-refreshOrders');
   if(refreshOrdersBtn){
     refreshOrdersBtn.addEventListener('click', async ()=>{
@@ -652,7 +660,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const location = document.getElementById('checkin-location').value.trim();
     const notes = document.getElementById('checkin-notes').value.trim();
     const user = getSessionUser();
-    if(!lines.length){alert('Add at least one line with code and quantity'); return;}
+    if(!lines.length){alert('Add at least one incoming order line before receiving.'); return;}
     const missingSource = lines.find(l=> !l.sourceId || !l.sourceType);
     if(missingSource){ alert('Each check-in line must be linked to an incoming order.'); return; }
     const overLimit = [...document.querySelectorAll('#checkin-lines .line-row')].find(row=>{
