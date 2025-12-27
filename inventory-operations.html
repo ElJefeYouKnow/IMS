@@ -49,6 +49,8 @@
       <a href="item-master.html" data-role="admin">Item Master</a>
         <a href="job-creator.html" data-role="admin">Project Manager</a>
       <a href="order-register.html" data-role="admin">Orders</a>
+        <a href="field-purchase.html" data-role="employee">Field Purchases</a>
+
       <a href="settings.html" data-role="admin">Settings</a>
       <a href="settings-employee.html" data-role="employee">Settings</a>
       <a href="item-history.html" data-role="admin">History</a>
@@ -68,7 +70,7 @@
         <section class="card">
           <h3 style="margin-bottom:8px;">Operations Control</h3>
           <ul class="ops-list">
-            <li>Check-In: log arrivals or new on-the-fly purchases (requires name for new codes).</li>
+            <li>Receive Orders: check-in must reference an incoming order or field purchase.</li>
             <li>Pick (Check-Out): draws from available; auto-sets 5-day due for the project.</li>
             <li>Return: allowed within 5 days of checkout; enforces outstanding limits.</li>
           </ul>
@@ -85,7 +87,7 @@
 
       <section class="card">
         <div class="mode-tabs">
-          <button class="mode-btn active" data-mode="checkin">Check-In</button>
+          <button class="mode-btn active" data-mode="checkin">Receive Orders</button>
           <button class="mode-btn" data-mode="checkout">Pick Items (Check-Out)</button>
           <button class="mode-btn" data-mode="return">Return</button>
         </div>
@@ -98,34 +100,25 @@
             <div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                 <strong>Line Items</strong>
-                <button id="checkin-addLine" type="button" class="muted">Add Line</button>
               </div>
               <div id="checkin-lines" class="line-items"></div>
             </div>
             <div class="form-row">
-              <label>Project ID
-                <select id="checkin-jobId">
-                  <option value="">General Inventory</option>
-                </select>
+              <label style="flex:1">Incoming Orders
+                <select id="checkin-orderSelect"></select>
               </label>
-              <label style="max-width:220px;display:flex;align-items:center;gap:6px;margin-top:22px;">
-                <input type="checkbox" id="checkin-stick" style="width:auto;"> Keep project/location for new lines
-              </label>
+              <button id="checkin-addOrderBtn" type="button" class="muted" style="margin-top:22px;">Add Order</button>
+              <button id="checkin-refreshOrders" type="button" class="muted" style="margin-top:22px;">Refresh</button>
             </div>
+            <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">Check-in lines must be added from incoming orders.</div>
             <div class="form-row">
               <label>Location<input id="checkin-location" placeholder="Warehouse / Shelf"></label>
-            </div>
-            <div class="form-row">
-              <label style="flex:1">Bulk paste (code,qty or code,qty,name per line)
-                <textarea id="checkin-bulk" rows="2" placeholder="ABC123,2&#10;XYZ9,5,Widgets"></textarea>
-              </label>
-              <button id="checkin-bulk-apply" type="button" class="muted" style="margin-top:22px;">Add Lines from Paste</button>
             </div>
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="checkin-notes" rows="2" placeholder="Optional notes"></textarea></label>
             </div>
             <div class="form-row sticky-actions">
-              <button id="checkinBtn" type="submit">Check In</button>
+              <button id="checkinBtn" type="submit">Receive to Inventory</button>
               <button id="checkin-clearBtn" type="button" class="muted">Clear All</button>
               <button id="checkin-exportBtn" type="button" class="muted">Export CSV</button>
             </div>

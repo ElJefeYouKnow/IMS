@@ -40,6 +40,8 @@
       <a href="item-master.html" data-role="admin">Item Master</a>
         <a href="job-creator.html" data-role="admin">Project Manager</a>
       <a href="order-register.html" data-role="admin">Orders</a>
+        <a href="field-purchase.html" data-role="employee">Field Purchases</a>
+
       <a href="settings.html" data-role="admin">Settings</a>
       <a href="settings-employee.html" data-role="employee">Settings</a>
       <a href="item-history.html" data-role="admin">History</a>
@@ -62,9 +64,10 @@
             <div style="font-size:0.95rem;opacity:0.85;">Jump straight into your daily workflows.</div>
           </div>
           <div style="display:flex;gap:8px;">
-            <a href="inventory-operations.html?mode=checkout" class="task-btn" style="background:#fff;color:#0a1b2b;box-shadow:0 10px 22px rgba(255,255,255,0.2);">Check-in / Pick</a>
+            <a href="inventory-operations.html?mode=checkout" class="task-btn" style="background:#fff;color:#0a1b2b;box-shadow:0 10px 22px rgba(255,255,255,0.2);">Receive / Pick</a>
             <a href="inventory-list.html" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Check Stock</a>
             <a href="job-report.html" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Project Activity</a>
+            <a href="field-purchase.html" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Field Purchases</a>
           </div>
         </div>
       </section>
@@ -111,6 +114,7 @@
       if(t==='out') return 'Check-Out';
       if(t==='reserve') return 'Reserve';
       if(t==='return') return 'Return';
+      if(t==='purchase') return 'Field Purchase';
       return t;
     }
     async function loadEntries(){

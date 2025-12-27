@@ -1,5 +1,7 @@
 let allItems = [];
 let jobOptions = [];
+let openOrders = [];
+let openOrdersMap = new Map();
 const FALLBACK = 'N/A';
 const MIN_LINES = 1;
 const SESSION_KEY = 'sessionUser';
@@ -7,6 +9,13 @@ const SESSION_KEY = 'sessionUser';
 function uid(){ return Math.random().toString(16).slice(2,8); }
 function getSessionUser(){
   try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; }
+}
+function normalizeJobId(value){
+  const val = (value || '').toString().trim();
+  if(!val) return '';
+  const lowered = val.toLowerCase();
+  if(['general','general inventory','none','unassigned'].includes(lowered)) return '';
+  return val;
 }
 
 // ===== SHARED UTILITIES =====
@@ -33,7 +42,7 @@ async function loadJobOptions(){
 }
 
 function applyJobOptions(){
-  const ids = ['checkin-jobId','checkout-jobId','return-jobId'];
+  const ids = ['checkout-jobId','return-jobId'];
   ids.forEach(id=>{
     const sel = document.getElementById(id);
     if(!sel) return;
@@ -63,6 +72,7 @@ function addLine(prefix){
   const categoryId = `${prefix}-category-${uid()}`;
   const qtyId = `${prefix}-qty-${uid()}`;
   const suggId = `${codeId}-s`;
+  const sourceFields = prefix === 'checkin' ? `<input type="hidden" name="sourceId"><input type="hidden" name="sourceType">` : '';
   const row = document.createElement('div');
   row.className = 'form-row line-row';
   row.innerHTML = `
@@ -74,6 +84,7 @@ function addLine(prefix){
     <label>Category<input id="${categoryId}" name="category" placeholder="Category / type"></label>
     <label style="max-width:120px;">Qty<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
     <button type="button" class="muted remove-line">Remove</button>
+    ${sourceFields}
   `;
   container.appendChild(row);
   row.querySelector('.remove-line').addEventListener('click', ()=>{
@@ -94,7 +105,7 @@ function resetLines(prefix){
   const container = document.getElementById(`${prefix}-lines`);
   if(!container) return;
   container.innerHTML = '';
-  addLine(prefix);
+  if(prefix !== 'checkin') addLine(prefix);
 }
 
 function gatherLines(prefix){
@@ -106,7 +117,10 @@ function gatherLines(prefix){
     const category = r.querySelector('input[name="category"]')?.value.trim() || '';
     const qty = parseInt(r.querySelector('input[name="qty"]')?.value || '0', 10) || 0;
     if(code && qty>0){
-      items.push({code,name,category,qty});
+      const sourceId = r.querySelector('input[name="sourceId"]')?.value || '';
+      const sourceType = r.querySelector('input[name="sourceType"]')?.value || '';
+      const jobId = r.dataset.jobId || '';
+      items.push({code,name,category,qty,sourceId,sourceType,jobId});
     }
   });
   return items;
@@ -176,6 +190,45 @@ async function loadOrders(){
   return await utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []) || [];
 }
 
+async function loadOpenOrders(){
+  const [orders, inventory] = await Promise.all([
+    loadOrders(),
+    utils.fetchJsonSafe('/api/inventory', {}, [])
+  ]);
+  const map = new Map();
+  (orders||[]).forEach(o=>{
+    const sourceId = o.sourceId || o.id;
+    const jobId = normalizeJobId(o.jobId || o.jobid || '');
+    map.set(sourceId, {
+      sourceId,
+      sourceType: 'order',
+      code: o.code,
+      name: o.name || '',
+      jobId,
+      eta: o.eta || '',
+      ordered: Number(o.qty || 0),
+      checkedIn: 0
+    });
+  });
+  (inventory||[]).filter(e=> e.type === 'in' && e.sourceId).forEach(ci=>{
+    const sourceId = ci.sourceId;
+    if(!map.has(sourceId)) return;
+    const rec = map.get(sourceId);
+    rec.checkedIn += Number(ci.qty || 0);
+  });
+  openOrders = [];
+  openOrdersMap = new Map();
+  map.forEach(rec=>{
+    const openQty = Math.max(0, rec.ordered - rec.checkedIn);
+    if(openQty <= 0) return;
+    const row = { ...rec, openQty };
+    openOrders.push(row);
+    openOrdersMap.set(rec.sourceId, row);
+  });
+  openOrders.sort((a,b)=> (a.eta || '').localeCompare(b.eta || '') || a.code.localeCompare(b.code));
+  return openOrders;
+}
+
 async function renderCheckinTable(){
   const tbody=document.querySelector('#checkinTable tbody');tbody.innerHTML='';
   const entries = await loadCheckins();
@@ -192,6 +245,45 @@ async function renderCheckinTable(){
     tbody.appendChild(tr);
   });
   wireSelectAll('checkinTable');
+}
+
+function populateOrderSelect(){
+  const sel = document.getElementById('checkin-orderSelect');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">Select incoming order...</option>';
+  if(!openOrders.length){
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No open orders';
+    sel.appendChild(opt);
+    return;
+  }
+  openOrders.forEach(o=>{
+    const jobLabel = o.jobId || 'General';
+    const etaLabel = o.eta || 'N/A';
+    const opt = document.createElement('option');
+    opt.value = o.sourceId;
+    opt.textContent = `${o.code} | ${jobLabel} | Open ${o.openQty} | ETA ${etaLabel}`;
+    sel.appendChild(opt);
+  });
+}
+
+function addOrderLine(sourceId){
+  const order = openOrdersMap.get(sourceId);
+  if(!order) return;
+  addLine('checkin');
+  const container = document.getElementById('checkin-lines');
+  const row = container.lastElementChild;
+  if(!row) return;
+  row.querySelector('input[name="code"]').value = order.code;
+  row.querySelector('input[name="name"]').value = order.name || '';
+  row.querySelector('input[name="qty"]').value = order.openQty;
+  row.querySelector('input[name="sourceId"]').value = order.sourceId;
+  row.querySelector('input[name="sourceType"]').value = order.sourceType;
+  row.dataset.jobId = order.jobId || '';
+  row.dataset.openQty = String(order.openQty);
+  row.querySelector('input[name="code"]').readOnly = true;
+  row.querySelector('input[name="name"]').readOnly = true;
 }
 
 async function addCheckin(e){
@@ -468,6 +560,8 @@ function switchMode(mode){
 document.addEventListener('DOMContentLoaded', async ()=>{
   await loadItems();
   await loadJobOptions();
+  await loadOpenOrders();
+  populateOrderSelect();
   updateOpsMetrics();
   const initialMode = new URLSearchParams(window.location.search).get('mode') || 'checkin';
   if(window.utils && utils.setupLogout) utils.setupLogout();
@@ -489,23 +583,19 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
   switchMode(initialMode);
 
-  // Bulk paste for check-in
-  const bulkBtn = document.getElementById('checkin-bulk-apply');
-  if(bulkBtn){
-    bulkBtn.addEventListener('click', ()=>{
-      const text = document.getElementById('checkin-bulk').value.trim();
-      if(!text) return;
-      const lines = text.split('\n').map(l=> l.split(','));
-      const container = document.getElementById('checkin-lines');
-      lines.forEach(parts=>{
-        const [code, qty, name] = parts.map(p=> (p||'').trim());
-        if(!code || !qty) return;
-        addLine('checkin');
-        const row = container.lastElementChild;
-        row.querySelector('input[name="code"]').value = code;
-        row.querySelector('input[name="qty"]').value = qty;
-        row.querySelector('input[name="name"]').value = name || '';
-      });
+  const addOrderBtn = document.getElementById('checkin-addOrderBtn');
+  if(addOrderBtn){
+    addOrderBtn.addEventListener('click', ()=>{
+      const sel = document.getElementById('checkin-orderSelect');
+      if(!sel || !sel.value) return;
+      addOrderLine(sel.value);
+    });
+  }
+  const refreshOrdersBtn = document.getElementById('checkin-refreshOrders');
+  if(refreshOrdersBtn){
+    refreshOrdersBtn.addEventListener('click', async ()=>{
+      await loadOpenOrders();
+      populateOrderSelect();
     });
   }
   
@@ -560,15 +650,20 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     ev.preventDefault();
     const lines = gatherLines('checkin');
     const location = document.getElementById('checkin-location').value.trim();
-    const jobId = document.getElementById('checkin-jobId').value.trim();
     const notes = document.getElementById('checkin-notes').value.trim();
     const user = getSessionUser();
     if(!lines.length){alert('Add at least one line with code and quantity'); return;}
-    const missingName = lines.find(l=> !allItems.find(i=> i.code === l.code) && !l.name);
-    if(missingName){ alert(`Item ${missingName.code} is new. Add a name before checking in.`); return; }
+    const missingSource = lines.find(l=> !l.sourceId || !l.sourceType);
+    if(missingSource){ alert('Each check-in line must be linked to an incoming order.'); return; }
+    const overLimit = [...document.querySelectorAll('#checkin-lines .line-row')].find(row=>{
+      const qty = parseInt(row.querySelector('input[name="qty"]')?.value || '0', 10) || 0;
+      const open = Number(row.dataset.openQty || 0);
+      return open > 0 && qty > open;
+    });
+    if(overLimit){ alert('Check-in quantity exceeds open order quantity.'); return; }
     let okAll=true;
     for(const line of lines){
-      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, location, jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, category: line.category});
+      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, location, jobId: line.jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, category: line.category, sourceType: line.sourceType, sourceId: line.sourceId});
       if(ok){
         addItemLocally({code: line.code, name: line.name, category: line.category});
       }else{
@@ -578,7 +673,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(!okAll) alert('Some items failed to check in');
     checkinForm.reset();
     resetLines('checkin');
-    ensureJobOption(jobId);
+    await loadOpenOrders();
+    populateOrderSelect();
   });
   
   document.getElementById('checkin-clearBtn').addEventListener('click', async ()=>{

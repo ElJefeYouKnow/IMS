@@ -29,6 +29,8 @@
       <a href="item-master.html" data-role="admin">Item Master</a>
       <a href="job-creator.html" data-role="admin">Project Manager</a>
       <a class="active" href="order-register.html" data-role="admin">Orders</a>
+        <a href="field-purchase.html" data-role="employee">Field Purchases</a>
+
       <a href="settings.html" data-role="admin">Settings</a>
       <a href="settings-employee.html" data-role="employee">Settings</a>
       <a href="item-history.html" data-role="admin">History</a>
@@ -109,7 +111,7 @@
             </div>
             <h3>Recently Registered Orders</h3>
             <table id="recentOrdersTable">
-              <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Project</th><th>ETA</th><th>When</th></tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Open Qty</th><th>Project</th><th>ETA</th><th>When</th></tr></thead>
               <tbody></tbody>
             </table>
           </section>
@@ -173,6 +175,37 @@
                 <button id="reserve-bulk-clear" type="button" class="muted">Clear bulk</button>
               </div>
             </div>
+          </section>
+
+          <section class="card">
+            <h3>Reassign Reserved Stock</h3>
+            <p class="muted" style="margin-top:-2px;">Move reserved stock between projects or back to general inventory.</p>
+            <form id="reassignForm" class="inventory-form" autocomplete="off">
+              <div class="form-row">
+                <label>Item Code<input id="reassign-code" placeholder="SKU/part" required></label>
+                <label>From Project
+                  <select id="reassign-from" required>
+                    <option value="">Select project...</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label>To Project (optional)
+                  <select id="reassign-to">
+                    <option value="">General Inventory</option>
+                  </select>
+                </label>
+                <label style="max-width:140px;">Qty<input id="reassign-qty" type="number" min="1" value="1" required></label>
+              </div>
+              <div class="form-row">
+                <label style="flex:1">Reason<textarea id="reassign-reason" rows="2" required placeholder="Why are you reassigning?"></textarea></label>
+              </div>
+              <div class="form-row sticky-actions-mobile">
+                <button id="reassignBtn" type="submit">Reassign</button>
+                <button id="reassign-clearBtn" type="button" class="muted">Clear</button>
+              </div>
+              <div id="reassignMsg" style="font-size:0.9rem;"></div>
+            </form>
           </section>
         </div>
       </div>

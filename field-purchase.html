@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Field Purchases</title>
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div>
+        <div class="brand">Inventory Management System</div>
+        <div class="subtitle">Navigation</div>
+        <div class="user-chip">
+          <div class="avatar">US</div>
+          <div>
+            <div style="font-weight:700;"><div class="user-name">User</div>
+            <div class="user-role"></div>
+            <div style="font-size:12px;opacity:0.8;"></div>
+          </div>
+        </div>
+      </div>
+      <nav>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Dashboard</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="job-report.html">Project Report</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Project Manager</a>
+        <a href="order-register.html" data-role="admin">Orders</a>
+        <a class="active" href="field-purchase.html" data-role="employee">Field Purchases</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">History</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Field Purchases</h1>
+        <div class="topbar-right">
+          <button id="logoutBtn" class="muted">Logout</button>
+        </div>
+      </header>
+
+      <section class="card inventory-card">
+        <form id="purchaseForm" class="inventory-form" autocomplete="off">
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <strong>Purchase Lines</strong>
+              <button id="purchase-addLine" type="button" class="muted">Add Line</button>
+            </div>
+            <div id="purchase-lines" class="line-items"></div>
+          </div>
+          <div class="form-row">
+            <label>Project ID
+              <select id="purchase-jobId">
+                <option value="">General Inventory</option>
+              </select>
+            </label>
+            <label>Location<input id="purchase-location" placeholder="Warehouse / Shelf"></label>
+          </div>
+          <div class="form-row">
+            <label>Vendor<input id="purchase-vendor" placeholder="Store / vendor"></label>
+            <label>Receipt #<input id="purchase-receipt" placeholder="Receipt or reference"></label>
+          </div>
+          <div class="form-row">
+            <label style="flex:1">Notes<textarea id="purchase-notes" rows="2" placeholder="Optional notes"></textarea></label>
+          </div>
+          <div class="form-row sticky-actions">
+            <button id="purchaseBtn" type="submit">Log Purchase</button>
+            <button id="purchase-clearBtn" type="button" class="muted">Clear All</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h3 style="margin:0 0 10px 0;">Recent Field Purchases</h3>
+        <table id="purchaseTable">
+          <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Project</th><th>When</th><th>Vendor</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded',()=>{
+      if(window.utils){
+        if(!utils.requireSession?.()) return;
+        utils.wrapFetchWithRole?.();
+        utils.applyStoredTheme?.();
+        utils.applyNavVisibility?.();
+        utils.setupLogout?.();
+      }
+    });
+  </script>
+  <script src="js/field-purchase.js"></script>
+</body>
+</html>

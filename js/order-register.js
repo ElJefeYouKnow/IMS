@@ -17,18 +17,18 @@ function normalizeJobId(value){
 function buildOrderBalance(orders, inventory){
   const map = new Map();
   (orders||[]).forEach(o=>{
+    const sourceId = o.sourceId || o.id;
     const jobId = normalizeJobId(o.jobId || o.jobid || '');
-    const key = `${o.code}|${jobId}`;
-    if(!map.has(key)) map.set(key, { code: o.code, jobId, name: o.name || '', ordered: 0, checkedIn: 0, eta: o.eta || '', lastOrderTs: 0 });
+    const key = sourceId;
+    if(!map.has(key)) map.set(key, { sourceId, code: o.code, jobId, name: o.name || '', ordered: 0, checkedIn: 0, eta: o.eta || '', lastOrderTs: 0 });
     const rec = map.get(key);
     rec.ordered += Number(o.qty || 0);
     rec.lastOrderTs = Math.max(rec.lastOrderTs, o.ts || 0);
     if(!rec.eta && o.eta) rec.eta = o.eta;
   });
-  (inventory||[]).filter(e=> e.type === 'in').forEach(ci=>{
-    const jobId = normalizeJobId(ci.jobId || '');
-    const key = `${ci.code}|${jobId}`;
-    if(!map.has(key)) map.set(key, { code: ci.code, jobId, name: ci.name || '', ordered: 0, checkedIn: 0, eta: '', lastOrderTs: 0 });
+  (inventory||[]).filter(e=> e.type === 'in' && e.sourceId).forEach(ci=>{
+    const key = ci.sourceId;
+    if(!map.has(key)) return;
     const rec = map.get(key);
     rec.checkedIn += Number(ci.qty || 0);
   });
@@ -38,10 +38,11 @@ function buildOrderBalance(orders, inventory){
 async function loadJobs(){
   try{
     const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
-    const selects = ['orderJob','reserve-jobId'].map(id=> document.getElementById(id)).filter(Boolean);
+    const selects = ['orderJob','reserve-jobId','reassign-from','reassign-to'].map(id=> document.getElementById(id)).filter(Boolean);
     selects.forEach(sel=>{
       const current = sel.value;
-      sel.innerHTML = '<option value="">General Inventory</option>';
+      const projectOnly = sel.id === 'reserve-jobId' || sel.id === 'reassign-from';
+      sel.innerHTML = projectOnly ? '<option value="">Select project...</option>' : '<option value="">General Inventory</option>';
       (jobs||[]).forEach(j=>{
         const opt = document.createElement('option');
         opt.value = j.code;
@@ -361,6 +362,44 @@ async function renderReserves(){
   }
 }
 
+function initReassign(){
+  const form = document.getElementById('reassignForm');
+  if(!form) return;
+  const msg = document.getElementById('reassignMsg');
+  const clearBtn = document.getElementById('reassign-clearBtn');
+  form.addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    msg.textContent = '';
+    const session = getSession();
+    if(!session || session.role !== 'admin'){ msg.style.color='#b91c1c'; msg.textContent='Admin only'; return; }
+    const code = document.getElementById('reassign-code').value.trim();
+    const fromJobId = document.getElementById('reassign-from').value.trim();
+    const toJobId = document.getElementById('reassign-to').value.trim();
+    const qty = parseInt(document.getElementById('reassign-qty').value, 10) || 0;
+    const reason = document.getElementById('reassign-reason').value.trim();
+    if(!code || !fromJobId || qty <= 0 || !reason){
+      msg.style.color='#b91c1c';
+      msg.textContent='Code, from project, qty, and reason are required';
+      return;
+    }
+    try{
+      const r = await fetch('/api/inventory-reassign', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ code, fromJobId, toJobId, qty, reason, userEmail: session.email, userName: session.name })
+      });
+      const data = await r.json().catch(()=>({}));
+      if(!r.ok){ msg.style.color='#b91c1c'; msg.textContent=data.error||'Reassign failed'; return; }
+      msg.style.color='#15803d'; msg.textContent='Reassigned reserved stock';
+      form.reset();
+      document.getElementById('reserveFilter')?.dispatchEvent(new Event('input'));
+    }catch(e){
+      msg.style.color='#b91c1c'; msg.textContent='Reassign failed';
+    }
+  });
+  clearBtn?.addEventListener('click', ()=>{ form.reset(); msg.textContent=''; });
+}
+
 document.addEventListener('DOMContentLoaded', ()=>{
   loadJobs();
   loadItems();
@@ -368,5 +407,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initTabs();
   initOrders();
   initReserve();
+  initReassign();
   document.getElementById('orderFilter')?.addEventListener('input', renderRecentOrders);
 });

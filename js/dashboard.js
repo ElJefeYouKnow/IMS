@@ -47,7 +47,7 @@ function renderActivity(entries){
     tbody.appendChild(tr);
     return;
   }
-  const label = { in:'Check-In', out:'Check-Out', reserve:'Reserve', return:'Return' };
+  const label = { in:'Check-In', out:'Check-Out', reserve:'Reserve', return:'Return', purchase:'Field Purchase', ordered:'Ordered' };
   recent.forEach(e=>{
     const tr=document.createElement('tr');
     tr.innerHTML=`<td>${label[e.type]||e.type}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${fmtDT(e.ts)}</td>`;
@@ -81,18 +81,19 @@ function renderOrdered(entries){
   const checkins = (entries||[]).filter(e=> e.type==='in');
   const map = new Map();
   orders.forEach(o=>{
+    const sourceId = o.sourceId || o.id;
     const jobId = normalizeJobId(o.jobId || '');
-    const key = `${o.code}|${jobId}`;
-    if(!map.has(key)) map.set(key, { code: o.code, jobId, ordered: 0, checkedIn: 0, eta: o.eta || '', lastOrderTs: 0 });
+    const key = sourceId;
+    if(!map.has(key)) map.set(key, { sourceId, code: o.code, jobId, ordered: 0, checkedIn: 0, eta: o.eta || '', lastOrderTs: 0 });
     const rec = map.get(key);
     rec.ordered += Number(o.qty || 0);
     rec.lastOrderTs = Math.max(rec.lastOrderTs, o.ts || 0);
     if(!rec.eta && o.eta) rec.eta = o.eta;
   });
   checkins.forEach(ci=>{
-    const jobId = normalizeJobId(ci.jobId || '');
-    const key = `${ci.code}|${jobId}`;
-    if(!map.has(key)) map.set(key, { code: ci.code, jobId, ordered: 0, checkedIn: 0, eta: '', lastOrderTs: 0 });
+    if(!ci.sourceId) return;
+    const key = ci.sourceId;
+    if(!map.has(key)) return;
     const rec = map.get(key);
     rec.checkedIn += Number(ci.qty || 0);
   });

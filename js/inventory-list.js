@@ -19,18 +19,18 @@ function normalizeJobId(value){
 function buildOrderBalance(orders, inventory){
   const map = new Map();
   (orders||[]).forEach(o=>{
+    const sourceId = o.sourceId || o.id;
     const jobId = normalizeJobId(o.jobId || o.jobid || '');
-    const key = `${o.code}|${jobId}`;
-    if(!map.has(key)) map.set(key, { code: o.code, jobId, name: o.name || '', ordered: 0, checkedIn: 0, eta: o.eta || '', lastOrderTs: 0 });
+    const key = sourceId;
+    if(!map.has(key)) map.set(key, { sourceId, code: o.code, jobId, name: o.name || '', ordered: 0, checkedIn: 0, eta: o.eta || '', lastOrderTs: 0 });
     const rec = map.get(key);
     rec.ordered += Number(o.qty || 0);
     rec.lastOrderTs = Math.max(rec.lastOrderTs, o.ts || 0);
     if(!rec.eta && o.eta) rec.eta = o.eta;
   });
-  (inventory||[]).filter(e=> e.type === 'in').forEach(ci=>{
-    const jobId = normalizeJobId(ci.jobId || '');
-    const key = `${ci.code}|${jobId}`;
-    if(!map.has(key)) map.set(key, { code: ci.code, jobId, name: ci.name || '', ordered: 0, checkedIn: 0, eta: '', lastOrderTs: 0 });
+  (inventory||[]).filter(e=> e.type === 'in' && e.sourceId).forEach(ci=>{
+    const key = ci.sourceId;
+    if(!map.has(key)) return;
     const rec = map.get(key);
     rec.checkedIn += Number(ci.qty || 0);
   });

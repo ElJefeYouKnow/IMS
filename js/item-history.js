@@ -11,6 +11,7 @@ function typeLabel(t){
   if(t==='reserve_release') return 'Reserve Release';
   if(t==='return') return 'Return';
   if(t==='ordered') return 'Ordered';
+  if(t==='purchase') return 'Field Purchase';
   return t;
 }
 

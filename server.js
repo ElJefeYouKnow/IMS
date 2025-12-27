@@ -121,6 +121,13 @@ function normalizeTenantCode(code) {
 function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
 }
+function normalizeJobId(value) {
+  const val = (value || '').toString().trim();
+  if (!val) return '';
+  const lowered = val.toLowerCase();
+  if (['general', 'general inventory', 'none', 'unassigned'].includes(lowered)) return '';
+  return val;
+}
 async function logAudit({ tenantId: tid, userId, action, details }) {
   const tenantId = tid || 'default';
   if (!AUDIT_ACTIONS.includes(action)) return;
@@ -245,7 +252,10 @@ async function initDb() {
     eta TEXT,
     userEmail TEXT,
     userName TEXT,
-    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default',
+    sourceType TEXT,
+    sourceId TEXT,
+    sourceMeta JSONB
   )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS jobs(
     code TEXT PRIMARY KEY,
@@ -266,6 +276,9 @@ async function initDb() {
   // Backfill tenant columns if the DB was created earlier
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceType TEXT`);
+  await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceId TEXT`);
+  await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceMeta JSONB`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`UPDATE items SET tenantId='default' WHERE tenantId IS NULL`);
@@ -274,6 +287,7 @@ async function initDb() {
   await runAsync(`UPDATE users SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory(code)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_job ON inventory(jobId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(sourceType, sourceId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_items_tenant ON items(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_jobs_tenant ON jobs(tenantId)');
@@ -315,6 +329,7 @@ async function initDb() {
   `);
   // Normalize empty jobId to NULL to satisfy FK checks
   await runAsync(`UPDATE inventory SET jobId = NULL WHERE jobId IS NULL OR jobId = ''`);
+  await runAsync(`UPDATE inventory SET sourceType='order', sourceId=id WHERE type='ordered' AND (sourceId IS NULL OR sourceId = '')`);
   // Backfill any jobs referenced by inventory rows
   await runAsync(`
     INSERT INTO jobs(code,name,scheduleDate,tenantId)
@@ -357,6 +372,7 @@ initDb().catch(err => {
 
 function statusForType(type) {
   if (type === 'ordered') return 'ordered';
+  if (type === 'purchase') return 'purchased';
   if (type === 'in') return 'in-stock';
   if (type === 'out') return 'checked-out';
   if (type === 'reserve') return 'reserved';
@@ -483,6 +499,27 @@ async function loadItem(client, code, tenantIdVal) {
   return row.rows[0];
 }
 
+async function loadSourceEvent(client, sourceType, sourceId, tenantIdVal) {
+  if (!sourceType || !sourceId) return null;
+  const row = await client.query('SELECT * FROM inventory WHERE id=$1 AND tenantId=$2', [sourceId, tenantIdVal]);
+  const source = row.rows[0];
+  if (!source) return null;
+  if (sourceType === 'order' && source.type !== 'ordered') return null;
+  if (sourceType === 'purchase' && source.type !== 'purchase') return null;
+  return source;
+}
+
+async function calcOpenSourceQtyTx(client, sourceId, code, tenantIdVal) {
+  const sourceRow = await client.query('SELECT qty FROM inventory WHERE id=$1 AND tenantId=$2', [sourceId, tenantIdVal]);
+  const sourceQty = Number(sourceRow.rows[0]?.qty || 0);
+  const checkins = await client.query(
+    `SELECT COALESCE(SUM(qty),0) AS qty FROM inventory WHERE sourceId=$1 AND tenantId=$2 AND type='in' AND code=$3`,
+    [sourceId, tenantIdVal, code]
+  );
+  const checkedIn = Number(checkins.rows[0]?.qty || 0);
+  return Math.max(0, sourceQty - checkedIn);
+}
+
 async function ensureItem(client, { code, name, category, unitPrice, tenantIdVal }) {
   let item = await loadItem(client, code, tenantIdVal);
   if (item) return item;
@@ -523,7 +560,7 @@ async function ensureDevAccount() {
     [newId(), normalizeEmail(DEV_EMAIL), 'Dev', 'dev', salt, hash, Date.now(), tenantId]);
 }
 
-async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn }) {
+async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn, sourceType, sourceId, sourceMeta }) {
   const qtyNum = Number(qty);
   if (!code || !qtyNum || qtyNum <= 0) throw new Error('code and positive qty required');
   const jobIdVal = (jobId || '').trim() || null;
@@ -581,11 +618,14 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
     status,
     userEmail,
     userName,
-    tenantId: tenantIdVal
+    tenantId: tenantIdVal,
+    sourceType: sourceType || null,
+    sourceId: sourceId || null,
+    sourceMeta: sourceMeta || null
   };
-  await client.query(`INSERT INTO inventory(id,code,name,qty,location,jobId,notes,reason,returnDate,ts,type,status,userEmail,userName,tenantId)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-    [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.jobId, entry.notes, entry.reason, entry.returnDate, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId]);
+  await client.query(`INSERT INTO inventory(id,code,name,qty,location,jobId,notes,reason,returnDate,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+    [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.jobId, entry.notes, entry.reason, entry.returnDate, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId, entry.sourceType, entry.sourceId, entry.sourceMeta]);
   return entry;
 }
 
@@ -601,22 +641,38 @@ app.get('/api/inventory', async (req, res) => {
 
 app.post('/api/inventory', async (req, res) => {
   try {
-    const { code, name, category, unitPrice, qty, location, jobId, notes, ts } = req.body;
+    const { code, name, category, unitPrice, qty, location, jobId, notes, ts, sourceType, sourceId, reassignReason } = req.body;
+    const qtyNum = Number(qty);
+    if (!sourceType || !sourceId) return res.status(400).json({ error: 'sourceType and sourceId required' });
+    if (!['order','purchase'].includes(sourceType)) return res.status(400).json({ error: 'invalid sourceType' });
+    if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
     const entry = await withTransaction(async (client) => {
-      const jobIdVal = (jobId || '').trim() || null;
-      const checkin = await processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId: jobIdVal, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      const source = await loadSourceEvent(client, sourceType, sourceId, t);
+      if (!source) throw new Error('source not found');
+      if (source.code !== code) throw new Error('source item mismatch');
+      const openQty = await calcOpenSourceQtyTx(client, sourceId, code, t);
+      if (qtyNum > openQty) throw new Error('check-in exceeds remaining open qty');
+      const sourceJob = normalizeJobId(source.jobid || source.jobId || '');
+      let jobIdVal = normalizeJobId(jobId) || sourceJob;
+      if (sourceJob && jobIdVal !== sourceJob) {
+        const role = (req.user?.role || '').toLowerCase();
+        if (role !== 'admin' && role !== 'dev') throw new Error('project mismatch for source');
+        if (!reassignReason) throw new Error('reassign reason required to override project');
+      }
+      jobIdVal = jobIdVal || null;
+      const checkin = await processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId: jobIdVal, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t, sourceType, sourceId });
       // If a project is selected, auto-reserve the same qty to earmark stock for that project.
       if (jobIdVal) {
         const avail = await calcAvailabilityTx(client, code, t);
-        const reserveQty = Math.min(Number(qty) || 0, Math.max(0, avail));
+        const reserveQty = Math.min(qtyNum, Math.max(0, avail));
         if (reserveQty > 0) {
           await processInventoryEvent(client, { type: 'reserve', code, jobId: jobIdVal, qty: reserveQty, returnDate: null, notes: 'auto-reserve on check-in', ts: checkin.ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
         }
       }
       return checkin;
     });
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { code, qty, jobId, location } });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { code, qty, jobId, location, sourceType, sourceId } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
@@ -702,6 +758,34 @@ app.delete('/api/inventory-reserve', async (req, res) => {
     await runAsync("DELETE FROM inventory WHERE type='reserve' AND tenantId=$1", [tenantId(req)]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+// ADMIN REASSIGN (move reserved stock between projects or to general)
+app.post('/api/inventory-reassign', requireRole('admin'), async (req, res) => {
+  try {
+    const { code, fromJobId, toJobId, qty, reason } = req.body || {};
+    const qtyNum = Number(qty);
+    if (!code || !fromJobId) return res.status(400).json({ error: 'code and fromJobId required' });
+    if (!qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'positive qty required' });
+    if (!reason) return res.status(400).json({ error: 'reason required' });
+    const t = tenantId(req);
+    const fromId = normalizeJobId(fromJobId);
+    const toId = normalizeJobId(toJobId);
+    const result = await withTransaction(async (client) => {
+      const reserved = await calcReservedOutstandingTx(client, code, fromId, t);
+      if (qtyNum > reserved) throw new Error('reassign exceeds reserved qty');
+      const release = await processInventoryEvent(client, { type: 'reserve_release', code, jobId: fromId, qty: qtyNum, notes: `reassign: ${reason}`, ts: Date.now(), userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      let reserve = null;
+      if (toId) {
+        reserve = await processInventoryEvent(client, { type: 'reserve', code, jobId: toId, qty: qtyNum, notes: `reassign: ${reason}`, ts: release.ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      }
+      return { release, reserve };
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty: qtyNum, fromJobId, toJobId, reason } });
+    res.status(201).json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
 });
 
 app.get('/api/inventory-return', async (req, res) => {
@@ -985,9 +1069,10 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     const jobIdVal = (jobId || '').trim() || null;
     const entry = await withTransaction(async (client) => {
       await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-      const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
-      await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-        [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId]);
+      const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t, sourceType: 'order', sourceId: null };
+      ev.sourceId = ev.id;
+      await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId]);
       return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta } });
@@ -1009,14 +1094,104 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
         if (!code || !qtyNum || qtyNum <= 0) throw new Error(`Invalid order line for code ${code || ''}`);
         const jobIdVal = (jobId || '').trim() || null;
         await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-        const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t };
-        await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-          [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId]);
+        const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t, sourceType: 'order', sourceId: null };
+        ev.sourceId = ev.id;
+        await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId]);
         results.push(ev);
       }
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { lines: results.length } });
     res.status(201).json({ count: results.length, orders: results });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+// FIELD PURCHASES (employee intake)
+app.post('/api/field-purchase', async (req, res) => {
+  try {
+    const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+    if (!lines.length) return res.status(400).json({ error: 'lines array required' });
+    const t = tenantId(req);
+    const results = [];
+    await withTransaction(async (client) => {
+      for (const line of lines) {
+        const code = (line?.code || '').trim();
+        const name = (line?.name || '').trim();
+        const category = (line?.category || '').trim();
+        const qtyNum = Number(line?.qty || 0);
+        if (!code || !qtyNum || qtyNum <= 0) throw new Error(`Invalid line for code ${code || ''}`);
+        if (!name) throw new Error(`Name required for new purchase (${code})`);
+        const jobIdVal = normalizeJobId(line?.jobId || req.body?.jobId || '') || null;
+        const location = (line?.location || req.body?.location || '').trim();
+        const notes = (line?.notes || req.body?.notes || '').trim();
+        const tsVal = line?.ts || req.body?.purchasedAt || Date.now();
+        const unitPrice = line?.unitPrice ?? null;
+        const sourceMeta = {
+          vendor: line?.vendor || req.body?.vendor || '',
+          receipt: line?.receipt || req.body?.receipt || '',
+          cost: line?.cost ?? line?.unitPrice ?? null,
+          purchasedAt: tsVal
+        };
+        const purchase = await processInventoryEvent(client, {
+          type: 'purchase',
+          code,
+          name,
+          category,
+          unitPrice,
+          qty: qtyNum,
+          location,
+          jobId: jobIdVal,
+          notes,
+          ts: tsVal,
+          userEmail: req.body.userEmail,
+          userName: req.body.userName,
+          tenantIdVal: t,
+          sourceType: 'purchase',
+          sourceMeta
+        });
+        const checkin = await processInventoryEvent(client, {
+          type: 'in',
+          code,
+          name,
+          category,
+          unitPrice,
+          qty: qtyNum,
+          location,
+          jobId: jobIdVal,
+          notes: notes || 'Field purchase',
+          ts: tsVal,
+          userEmail: req.body.userEmail,
+          userName: req.body.userName,
+          tenantIdVal: t,
+          sourceType: 'purchase',
+          sourceId: purchase.id,
+          sourceMeta
+        });
+        if (jobIdVal) {
+          const avail = await calcAvailabilityTx(client, code, t);
+          const reserveQty = Math.min(qtyNum, Math.max(0, avail));
+          if (reserveQty > 0) {
+            await processInventoryEvent(client, {
+              type: 'reserve',
+              code,
+              jobId: jobIdVal,
+              qty: reserveQty,
+              returnDate: null,
+              notes: 'auto-reserve on field purchase',
+              ts: checkin.ts,
+              userEmail: req.body.userEmail,
+              userName: req.body.userName,
+              tenantIdVal: t
+            });
+          }
+        }
+        results.push({ purchase, checkin });
+      }
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { sourceType: 'purchase', count: results.length } });
+    res.status(201).json({ count: results.length, entries: results });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }
