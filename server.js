@@ -576,9 +576,12 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
   if (type === 'out') {
     await enforceCheckoutAging(tenantIdVal);
     const avail = await calcAvailabilityTx(client, code, tenantIdVal);
-    if (qtyNum > avail) throw new Error('insufficient stock to checkout');
+    let reserved = 0;
     if (jobIdVal) {
-      const reserved = await calcReservedOutstandingTx(client, code, jobIdVal, tenantIdVal);
+      reserved = await calcReservedOutstandingTx(client, code, jobIdVal, tenantIdVal);
+    }
+    if (qtyNum > (avail + reserved)) throw new Error('insufficient stock to checkout');
+    if (jobIdVal) {
       const releaseQty = Math.min(qtyNum, reserved);
       if (releaseQty > 0) {
         await client.query(`INSERT INTO inventory(id,code,name,qty,jobId,notes,ts,type,status,userEmail,userName,tenantId)
