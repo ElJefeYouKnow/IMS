@@ -17,6 +17,9 @@ function normalizeJobId(value){
   if(['general','general inventory','none','unassigned'].includes(lowered)) return '';
   return val;
 }
+function getEntryJobId(entry){
+  return normalizeJobId(entry?.jobId || entry?.jobid || '');
+}
 
 // ===== SHARED UTILITIES =====
 async function loadItems(){
@@ -130,12 +133,13 @@ function getOutstandingCheckouts(checkouts, returns){
   const map = new Map(); // key -> {qty, last}
   const sum = (list, sign)=>{
     list.forEach(e=>{
-      const key = `${e.code}|${(e.jobId||'').trim()}`;
+      const jobId = getEntryJobId(e);
+      const key = `${e.code}|${jobId}`;
       const qty = Number(e.qty)||0;
-      if(!map.has(key)) map.set(key,{qty:0,last:0,entry:e});
+      if(!map.has(key)) map.set(key,{qty:0,last:0,entry:{...e, jobId}});
       const rec = map.get(key);
       rec.qty += sign*qty;
-      if((e.ts||0) > rec.last){ rec.last = e.ts||0; rec.entry = e; }
+      if((e.ts||0) > rec.last){ rec.last = e.ts||0; rec.entry = {...e, jobId}; }
     });
   };
   sum(checkouts, 1);
@@ -163,9 +167,10 @@ async function refreshReturnDropdown(select){
   select.innerHTML = '<option value="">-- Manual Entry --</option>';
   outstanding.slice(-20).reverse().forEach(item=>{
     const co = item.entry;
+    const jobId = getEntryJobId(co);
     const opt = document.createElement('option');
-    opt.value = JSON.stringify({...co, qty: item.outstanding});
-    opt.textContent = `${co.code} (Job: ${co.jobId||FALLBACK}, Qty left: ${item.outstanding})`;
+    opt.value = JSON.stringify({...co, jobId, qty: item.outstanding});
+    opt.textContent = `${co.code} (Job: ${jobId||FALLBACK}, Qty left: ${item.outstanding})`;
     select.appendChild(opt);
   });
   select.onchange = ()=>{
@@ -325,8 +330,9 @@ async function renderCheckoutTable(){
     return;
   }
   entries.slice().reverse().forEach(e=>{
+    const jobId = getEntryJobId(e);
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId:e.jobId,qty:e.qty,name:e.name,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${e.jobId||FALLBACK}</td><td>${e.qty}</td><td class="mobile-hide">${fmtDT(e.ts)}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,jobId,qty:e.qty,name:e.name,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${jobId||FALLBACK}</td><td>${e.qty}</td><td class="mobile-hide">${fmtDT(e.ts)}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('checkoutTable');
@@ -443,8 +449,9 @@ async function renderReturnTable(){
     return;
   }
   entries.slice().reverse().forEach(e=>{
+    const jobId = getEntryJobId(e);
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,qty:e.qty,jobId:e.jobId,reason:e.reason,location:e.location,ts:e.ts})}'></td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td class="mobile-hide">${e.location||FALLBACK}</td><td class="mobile-hide">${fmtDT(e.ts)}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,qty:e.qty,jobId,reason:e.reason,location:e.location,ts:e.ts})}'></td><td>${e.code}</td><td>${e.qty}</td><td>${jobId||FALLBACK}</td><td>${e.reason||FALLBACK}</td><td class="mobile-hide">${e.location||FALLBACK}</td><td class="mobile-hide">${fmtDT(e.ts)}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('returnTable');
