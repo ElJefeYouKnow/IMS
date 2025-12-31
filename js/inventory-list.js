@@ -2,11 +2,12 @@ const FALLBACK = 'N/A';
 const LOW_STOCK_THRESHOLD = 5;
 const COUNT_STALE_DAYS = 30;
 const RECENT_DAYS = 3;
-const COUNT_KEY = 'inventoryCounts';
 
 let incomingBaseRows = [];
 let onhandBaseRows = [];
 let overdueByCode = {};
+let overdueRows = [];
+let countCache = {};
 
 async function loadEntries(){
   try{
@@ -28,16 +29,44 @@ function getEntryJobId(entry){
   return normalizeJobId(entry?.jobId || entry?.jobid || '');
 }
 
-function loadCounts(){
-  try{
-    return JSON.parse(localStorage.getItem(COUNT_KEY) || '{}') || {};
-  }catch(e){
-    return {};
-  }
+async function fetchCounts(){
+  const rows = (window.utils && utils.fetchJsonSafe)
+    ? await utils.fetchJsonSafe('/api/inventory-counts', {}, [])
+    : await fetch('/api/inventory-counts').then(r=> r.ok ? r.json() : []);
+  countCache = {};
+  (rows || []).forEach(r=>{
+    const code = r.code;
+    if(!code) return;
+    countCache[code] = {
+      qty: Number(r.qty),
+      ts: r.countedat || r.countedAt || r.ts || r.counted_at || null
+    };
+  });
+  return countCache;
 }
 
-function saveCounts(counts){
-  localStorage.setItem(COUNT_KEY, JSON.stringify(counts || {}));
+async function saveCounts(lines){
+  try{
+    const r = await fetch('/api/inventory-counts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ counts: lines })
+    });
+    const data = await r.json().catch(()=>[]);
+    if(!r.ok) return { ok:false, error: data?.error || 'Failed to save counts' };
+    countCache = {};
+    (data || []).forEach(r=>{
+      const code = r.code;
+      if(!code) return;
+      countCache[code] = {
+        qty: Number(r.qty),
+        ts: r.countedat || r.countedAt || r.ts || r.counted_at || null
+      };
+    });
+    return { ok:true };
+  }catch(e){
+    return { ok:false, error: 'Failed to save counts' };
+  }
 }
 
 function fmtDT(val){
@@ -162,6 +191,44 @@ function buildOverdueMap(entries){
   return { overdueByCode: overdue, overdueCount: count };
 }
 
+function buildOverdueRows(entries){
+  const map = new Map();
+  entries.forEach(e=>{
+    if(e.type !== 'out' && e.type !== 'return') return;
+    const code = e.code;
+    if(!code) return;
+    const jobId = getEntryJobId(e);
+    const key = `${code}|${jobId}`;
+    const rec = map.get(key) || { code, jobId, out: 0, ret: 0, minDue: null, lastOutTs: 0 };
+    const qty = Number(e.qty)||0;
+    if(e.type === 'out'){
+      rec.out += qty;
+      rec.lastOutTs = Math.max(rec.lastOutTs, e.ts || 0);
+      const due = parseDate(e.returnDate);
+      if(due){
+        rec.minDue = rec.minDue ? Math.min(rec.minDue, due) : due;
+      }
+    }else if(e.type === 'return'){
+      rec.ret += qty;
+    }
+    map.set(key, rec);
+  });
+  const rows = [];
+  const now = Date.now();
+  map.forEach(rec=>{
+    const outstanding = Math.max(0, rec.out - rec.ret);
+    if(outstanding <= 0) return;
+    if(!rec.minDue || rec.minDue >= now) return;
+    const daysLate = Math.floor((now - rec.minDue) / (24 * 60 * 60 * 1000));
+    rows.push({
+      ...rec,
+      outstanding,
+      daysLate
+    });
+  });
+  return rows;
+}
+
 function buildIncomingRows(orders, inventory){
   const balances = buildOrderBalance(orders, inventory);
   const rows = [];
@@ -176,7 +243,7 @@ function buildIncomingRows(orders, inventory){
 function computeOnhandRows(entries){
   const { overdueByCode: overdueMap } = buildOverdueMap(entries);
   overdueByCode = overdueMap;
-  const counts = loadCounts();
+  const counts = countCache || {};
   return aggregateStock(entries).map(item=>{
     const countInfo = counts[item.code];
     const countTs = countInfo?.ts || null;
@@ -304,6 +371,7 @@ function renderOnhand(){
   items.forEach(item=>{
     const tr=document.createElement('tr');
     tr.className = 'onhand-row';
+    tr.dataset.code = item.code;
     const countDate = item.countedAt ? fmtDate(item.countedAt) : FALLBACK;
     const countStale = item.countAge !== null && item.countAge > COUNT_STALE_DAYS;
     const discrepancy = item.discrepancy;
@@ -352,6 +420,37 @@ function renderOnhand(){
   });
 }
 
+function renderOverdue(){
+  const tbody = document.querySelector('#overdueTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  if(!overdueRows.length){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="7" style="text-align:center;color:#6b7280;">No overdue returns</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  overdueRows.sort((a,b)=> b.daysLate - a.daysLate);
+  overdueRows.forEach(row=>{
+    const due = row.minDue ? fmtDate(row.minDue) : FALLBACK;
+    const lastOut = row.lastOutTs ? fmtDT(row.lastOutTs) : FALLBACK;
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td>${row.code}</td>
+      <td>${row.jobId || 'General'}</td>
+      <td>${row.outstanding}</td>
+      <td>${due}</td>
+      <td><span class="badge warn">${row.daysLate}d</span></td>
+      <td>${lastOut}</td>
+      <td>
+        <button class="action-btn copy-overdue" data-code="${row.code}" data-job="${row.jobId || ''}" data-qty="${row.outstanding}">Copy</button>
+        <a class="action-btn return-overdue" href="inventory-operations.html#return" data-code="${row.code}">Return</a>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 function setActiveTab(tab){
   document.querySelectorAll('.mode-btn').forEach(btn=>{
     btn.classList.toggle('active', btn.dataset.tab === tab);
@@ -395,13 +494,26 @@ function setupFilters(){
     searchBox.addEventListener('keydown', (e)=>{
       if(e.key !== 'Enter' || !scanMode.checked) return;
       e.preventDefault();
-      const tbody = document.querySelector('#invTable tbody');
-      const row = tbody?.querySelector('tr.onhand-row');
+      const scanValue = searchBox.value.trim();
+      if(!scanValue) return;
+      const match = onhandBaseRows.find(i=> i.code.toLowerCase() === scanValue.toLowerCase());
+      if(!match){
+        alert('No matching item code found');
+        return;
+      }
+      if(!document.body.classList.contains('count-mode')){
+        document.body.classList.add('count-mode');
+      }
+      searchBox.value = match.code;
+      renderOnhand();
+      const row = document.querySelector(`tr.onhand-row[data-code="${match.code}"]`);
       if(row){
         row.classList.add('row-highlight');
         setTimeout(()=> row.classList.remove('row-highlight'), 600);
         const countInput = row.querySelector('.count-input');
-        if(document.body.classList.contains('count-mode') && countInput){
+        if(countInput){
+          const current = Number(countInput.value || 0);
+          countInput.value = Number.isFinite(current) ? current + 1 : 1;
           countInput.focus();
           countInput.select();
         }
@@ -456,20 +568,76 @@ function setupActions(){
 
   const saveBtn = document.getElementById('saveCountsBtn');
   if(saveBtn){
-    saveBtn.addEventListener('click', ()=>{
+    saveBtn.addEventListener('click', async ()=>{
       const inputs = document.querySelectorAll('.count-input');
-      const counts = loadCounts();
+      const lines = [];
       inputs.forEach(input=>{
         const code = input.dataset.code;
         const val = input.value;
         if(!code || val === '') return;
         const qty = Number(val);
         if(Number.isNaN(qty)) return;
-        counts[code] = { qty, ts: Date.now() };
+        lines.push({ code, qty });
       });
-      saveCounts(counts);
+      if(!lines.length){
+        alert('Enter at least one count before saving.');
+        return;
+      }
+      const res = await saveCounts(lines);
+      if(!res.ok){
+        alert(res.error || 'Failed to save counts');
+        return;
+      }
       onhandBaseRows = computeOnhandRows(loadCountsCacheEntries());
       renderOnhand();
+    });
+  }
+
+  const overdueExport = document.getElementById('overdue-exportBtn');
+  if(overdueExport){
+    overdueExport.addEventListener('click', ()=>{
+      const rows = overdueRows.map(r=>[
+        r.code,
+        r.jobId || 'General',
+        r.outstanding,
+        r.minDue ? fmtDate(r.minDue) : '',
+        r.daysLate,
+        r.lastOutTs ? fmtDT(r.lastOutTs) : ''
+      ]);
+      exportCSV(['code','project','outstanding','dueDate','daysLate','lastCheckout'], rows, 'overdue-returns.csv');
+    });
+  }
+
+  const overduePrint = document.getElementById('overdue-printBtn');
+  if(overduePrint){
+    overduePrint.addEventListener('click', ()=>{
+      const rows = overdueRows.map(r=>[
+        r.code,
+        r.jobId || 'General',
+        r.outstanding,
+        r.minDue ? fmtDate(r.minDue) : '',
+        r.daysLate,
+        r.lastOutTs ? fmtDT(r.lastOutTs) : ''
+      ]);
+      printTable('Overdue Returns', ['Code','Project','Outstanding','Due Date','Days Late','Last Checkout'], rows);
+    });
+  }
+
+  const overdueTable = document.getElementById('overdueTable');
+  if(overdueTable){
+    overdueTable.addEventListener('click', async (e)=>{
+      const target = e.target;
+      if(target && target.classList.contains('copy-overdue')){
+        const code = target.dataset.code || '';
+        const jobId = target.dataset.job || '';
+        const qty = target.dataset.qty || '';
+        const text = `Return ${qty} of ${code}${jobId ? ` for project ${jobId}` : ''}`;
+        try{
+          await navigator.clipboard.writeText(text);
+          target.textContent = 'Copied';
+          setTimeout(()=>{ target.textContent = 'Copy'; }, 1200);
+        }catch(err){}
+      }
     });
   }
 }
@@ -483,11 +651,14 @@ async function refreshAll(){
     ? utils.fetchJsonSafe('/api/inventory?type=ordered', {}, [])
     : fetch('/api/inventory?type=ordered').then(r=> r.ok ? r.json() : []);
   const [inventory, orders] = await Promise.all([loadEntries(), ordersPromise]);
+  await fetchCounts();
   window.__cachedInventory = inventory;
   incomingBaseRows = buildIncomingRows(orders, inventory);
   onhandBaseRows = computeOnhandRows(inventory);
+  overdueRows = buildOverdueRows(inventory);
   renderIncoming();
   renderOnhand();
+  renderOverdue();
   updateSummary();
 }
 

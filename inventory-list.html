@@ -65,6 +65,7 @@
         <div class="mode-tabs inventory-tabs">
           <button class="mode-btn active" data-tab="incoming">Incoming</button>
           <button class="mode-btn" data-tab="onhand">On-hand</button>
+          <button class="mode-btn" data-tab="overdue">Overdue Returns</button>
         </div>
 
         <div id="incoming-tab" class="mode-content active">
@@ -109,6 +110,18 @@
                 <th>Discrepancy</th>
               </tr>
             </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div id="overdue-tab" class="mode-content">
+          <div class="data-toolbar inventory-toolbar">
+            <button id="overdue-exportBtn" type="button" class="muted">Export CSV</button>
+            <button id="overdue-printBtn" type="button" class="muted">Print</button>
+            <a class="muted" href="inventory-operations.html#return">Open Returns</a>
+          </div>
+          <table id="overdueTable">
+            <thead><tr><th>Code</th><th>Project</th><th>Outstanding</th><th>Due Date</th><th>Days Late</th><th>Last Checkout</th><th>Actions</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>

@@ -18,7 +18,7 @@ const SESSION_COOKIE = 'sid';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true'; // set true in production with HTTPS
 const loginAttempts = new Map(); // email -> {count, lockUntil}
-const AUDIT_ACTIONS = ['auth.login', 'auth.register', 'inventory.in', 'inventory.out', 'inventory.reserve', 'inventory.return', 'inventory.order', 'items.create', 'items.update', 'items.delete'];
+const AUDIT_ACTIONS = ['auth.login', 'auth.register', 'inventory.in', 'inventory.out', 'inventory.reserve', 'inventory.return', 'inventory.order', 'inventory.count', 'items.create', 'items.update', 'items.delete'];
 const CHECKOUT_RETURN_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
 const DEV_EMAIL = normalizeEmail(process.env.DEV_DEFAULT_EMAIL || 'Dev@ManageX.com');
 const DEV_PASSWORD = process.env.DEV_DEFAULT_PASSWORD || 'Dev123!';
@@ -273,6 +273,14 @@ async function initDb() {
     createdAt BIGINT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS inventory_counts(
+    id TEXT PRIMARY KEY,
+    code TEXT,
+    qty INTEGER NOT NULL,
+    countedAt BIGINT,
+    countedBy TEXT,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
+  )`);
   // Backfill tenant columns if the DB was created earlier
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
@@ -281,10 +289,12 @@ async function initDb() {
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceMeta JSONB`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`UPDATE items SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE inventory SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE jobs SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE users SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE inventory_counts SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory(code)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_job ON inventory(jobId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(sourceType, sourceId)');
@@ -292,6 +302,7 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_jobs_tenant ON jobs(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_counts_tenant ON inventory_counts(tenantId)');
   await runAsync(`CREATE TABLE IF NOT EXISTS audit_events(
     id TEXT PRIMARY KEY,
     tenantId TEXT REFERENCES tenants(id),
@@ -306,6 +317,16 @@ async function initDb() {
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_items_code_tenant ON items(code, tenantId)');
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_code_tenant ON jobs(code, tenantId)');
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_tenant ON users(email, tenantId)');
+  await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_counts_code_tenant ON inventory_counts(code, tenantId)');
+  await runAsync(`
+    WITH dup AS (
+      SELECT ctid FROM (
+        SELECT ctid, code, tenantId, ROW_NUMBER() OVER (PARTITION BY code, tenantId ORDER BY ctid) AS rn
+        FROM inventory_counts
+      ) t WHERE rn > 1
+    )
+    DELETE FROM inventory_counts WHERE ctid IN (SELECT ctid FROM dup)
+  `);
   // Clean any legacy duplicate items per tenant before enforcing composite PK
   await runAsync(`
     WITH dup AS (
@@ -350,6 +371,13 @@ async function initDb() {
   BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'inventory_jobid_fk') THEN
       ALTER TABLE inventory ADD CONSTRAINT inventory_jobid_fk FOREIGN KEY (jobId, tenantId) REFERENCES jobs(code, tenantId) ON UPDATE CASCADE ON DELETE SET NULL;
+    END IF;
+  END$$;`);
+  await runAsync('ALTER TABLE inventory_counts DROP CONSTRAINT IF EXISTS inventory_counts_code_fk');
+  await runAsync(`DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'inventory_counts_code_fk') THEN
+      ALTER TABLE inventory_counts ADD CONSTRAINT inventory_counts_code_fk FOREIGN KEY (code, tenantId) REFERENCES items(code, tenantId);
     END IF;
   END$$;`);
 
@@ -837,6 +865,43 @@ app.delete('/api/inventory-return', async (req, res) => {
     await runAsync("DELETE FROM inventory WHERE type='return' AND tenantId=$1", [tenantId(req)]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+// INVENTORY COUNTS (cycle counts)
+app.get('/api/inventory-counts', async (req, res) => {
+  try {
+    const rows = await allAsync('SELECT * FROM inventory_counts WHERE tenantId=$1', [tenantId(req)]);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/inventory-counts', async (req, res) => {
+  try {
+    const entries = Array.isArray(req.body?.counts) ? req.body.counts : [];
+    if (!entries.length) return res.status(400).json({ error: 'counts array required' });
+    const t = tenantId(req);
+    await withTransaction(async (client) => {
+      for (const entry of entries) {
+        const code = (entry.code || '').trim();
+        const qtyNum = Number(entry.qty);
+        if (!code || !Number.isFinite(qtyNum) || qtyNum < 0) {
+          throw new Error('code and non-negative qty required');
+        }
+        const item = await loadItem(client, code, t);
+        if (!item) throw new Error(`item not found: ${code}`);
+        await client.query(
+          `INSERT INTO inventory_counts(id,code,qty,countedAt,countedBy,tenantId)
+           VALUES($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (code, tenantId)
+           DO UPDATE SET qty=EXCLUDED.qty, countedAt=EXCLUDED.countedAt, countedBy=EXCLUDED.countedBy`,
+          [newId(), code, qtyNum, Date.now(), req.user?.email || '', t]
+        );
+      }
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.count', details: { lines: entries.length } });
+    const rows = await allAsync('SELECT * FROM inventory_counts WHERE tenantId=$1', [t]);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
 // CONSUME / LOST / DAMAGED (admin-only)
