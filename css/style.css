@@ -91,6 +91,31 @@ tbody td{padding:10px;border-top:1px solid #eef2f7}
 /* Inventory page tweaks */
 .inventory-card{margin-bottom:12px}
 .inventory-form{display:flex;flex-direction:column;gap:10px}
+.inventory-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 12px 0}
+.inventory-toolbar input{max-width:260px}
+.inventory-toolbar .muted{white-space:nowrap;background:#eef2f7;color:#0a1b2b;border:1px solid #d5dbe4;padding:8px 12px;border-radius:8px;font-weight:700;text-decoration:none}
+.dark .inventory-toolbar .muted{background:#0f172a;color:#fff;border:1px solid #1f2937}
+.filter-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:#f8fafc;font-size:0.8rem;font-weight:700;color:#0a1b2b}
+.filter-chip input{margin:0}
+.scan-toggle{background:rgba(15,122,87,0.08);border-color:rgba(15,122,87,0.3)}
+.sticky-bar{position:sticky;top:0;background:var(--card);padding:10px;border-radius:12px;z-index:6;box-shadow:0 10px 24px rgba(15,27,43,0.08)}
+.dark .sticky-bar{background:#0d1624}
+.count-input-col{display:none}
+body.count-mode .count-input-col{display:table-cell}
+.count-input{width:100%;max-width:120px;padding:6px;border-radius:8px;border:1px solid #e6edf3}
+.row-detail{background:#f8fafc}
+.row-detail td{border-top:none;padding:12px}
+.row-detail .detail-grid{display:flex;flex-wrap:wrap;gap:8px}
+.row-detail .detail-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:#ffffff;font-size:0.8rem;font-weight:700;color:#0a1b2b}
+.row-detail .detail-chip strong{color:var(--muted);font-weight:700}
+.dark .row-detail{background:#0f172a}
+.dark .row-detail .detail-chip{background:#0b1020;border-color:#1f2937;color:#e5e7eb}
+.stale{color:#b45309;font-weight:800}
+.discrepancy-badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:0.75rem;font-weight:800}
+.discrepancy-badge.ok{background:rgba(15,122,87,0.12);color:#0a1b2b;border:1px solid rgba(15,122,87,0.3)}
+.discrepancy-badge.warn{background:rgba(234,179,8,0.16);color:#854d0e;border:1px solid rgba(234,179,8,0.4)}
+.discrepancy-badge.bad{background:rgba(239,68,68,0.16);color:#7f1d1d;border:1px solid rgba(239,68,68,0.4)}
+.row-highlight{outline:2px solid rgba(15,122,87,0.55);outline-offset:-2px}
 .form-row{display:flex;gap:10px;position:relative}
 .line-items{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
 .line-row{align-items:flex-end}

@@ -1,4 +1,12 @@
 const FALLBACK = 'N/A';
+const LOW_STOCK_THRESHOLD = 5;
+const COUNT_STALE_DAYS = 30;
+const RECENT_DAYS = 3;
+const COUNT_KEY = 'inventoryCounts';
+
+let incomingBaseRows = [];
+let onhandBaseRows = [];
+let overdueByCode = {};
 
 async function loadEntries(){
   try{
@@ -14,6 +22,48 @@ function normalizeJobId(value){
   const lowered = val.toLowerCase();
   if(['general','general inventory','none','unassigned'].includes(lowered)) return '';
   return val;
+}
+
+function getEntryJobId(entry){
+  return normalizeJobId(entry?.jobId || entry?.jobid || '');
+}
+
+function loadCounts(){
+  try{
+    return JSON.parse(localStorage.getItem(COUNT_KEY) || '{}') || {};
+  }catch(e){
+    return {};
+  }
+}
+
+function saveCounts(counts){
+  localStorage.setItem(COUNT_KEY, JSON.stringify(counts || {}));
+}
+
+function fmtDT(val){
+  if(window.utils && utils.formatDateTime){
+    return utils.formatDateTime(val);
+  }
+  return val ? new Date(val).toLocaleString() : FALLBACK;
+}
+
+function fmtDate(val){
+  if(window.utils && utils.formatDateOnly){
+    return utils.formatDateOnly(val);
+  }
+  return val ? new Date(val).toLocaleDateString() : FALLBACK;
+}
+
+function daysBetween(ts){
+  if(!ts) return null;
+  const diff = Date.now() - ts;
+  return Math.floor(diff / (24 * 60 * 60 * 1000));
+}
+
+function parseDate(val){
+  if(!val) return null;
+  const ts = Date.parse(val);
+  return Number.isNaN(ts) ? null : ts;
 }
 
 function buildOrderBalance(orders, inventory){
@@ -40,168 +90,415 @@ function buildOrderBalance(orders, inventory){
 function aggregateStock(entries){
   const stock = {};
   entries.forEach(e=>{
-    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, reserveQty: 0, lastTs: 0, jobs: new Map() };
-    if(e.type === 'in' || e.type === 'return') stock[e.code].inQty += e.qty;
-    else if(e.type === 'reserve_release') stock[e.code].reserveQty -= e.qty;
-    else if(e.type === 'out') stock[e.code].outQty += e.qty;
-    else if(e.type === 'reserve') stock[e.code].reserveQty += e.qty;
-    else if(e.type === 'reserve_release') stock[e.code].reserveQty -= e.qty;
-    if(e.jobId){
-      if(!stock[e.code].jobs.has(e.jobId)) stock[e.code].jobs.set(e.jobId, { out: 0, reserve: 0 });
-      const job = stock[e.code].jobs.get(e.jobId);
-      if(e.type === 'out') job.out += e.qty;
-      else if(e.type === 'return') job.out -= e.qty;
-      else if(e.type === 'reserve') job.reserve += e.qty;
-      else if(e.type === 'reserve_release') job.reserve -= e.qty;
+    if(!e.code) return;
+    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, lastTs: 0, jobs: new Map() };
+    const item = stock[e.code];
+    if(!item.name && e.name) item.name = e.name;
+    const qty = Number(e.qty)||0;
+    if(e.type === 'in' || e.type === 'return') item.inQty += qty;
+    if(e.type === 'return') item.returnQty += qty;
+    else if(e.type === 'out') item.outQty += qty;
+    else if(e.type === 'reserve') item.reserveQty += qty;
+    else if(e.type === 'reserve_release') item.reserveQty -= qty;
+
+    const jobId = getEntryJobId(e);
+    if(jobId){
+      if(!item.jobs.has(jobId)) item.jobs.set(jobId, { out: 0, reserve: 0 });
+      const job = item.jobs.get(jobId);
+      if(e.type === 'out') job.out += qty;
+      else if(e.type === 'return') job.out -= qty;
+      else if(e.type === 'reserve') job.reserve += qty;
+      else if(e.type === 'reserve_release') job.reserve -= qty;
     }
-    stock[e.code].lastTs = Math.max(stock[e.code].lastTs, e.ts || 0);
+    item.lastTs = Math.max(item.lastTs, e.ts || 0);
   });
   return Object.values(stock).map(s=>{
     const activeJobs = [];
     for (const [jobId, stats] of s.jobs.entries()) {
       if ((stats.out || 0) > 0 || (stats.reserve || 0) > 0) activeJobs.push(jobId);
     }
+    const checkedOut = Math.max(0, s.outQty - s.returnQty);
+    const available = Math.max(0, s.inQty - s.outQty - s.reserveQty);
     return {
       ...s,
       jobsList: activeJobs.length ? activeJobs.sort().join(', ') : FALLBACK,
-      current: s.inQty - s.outQty - s.reserveQty,
-      available: s.inQty - s.outQty,
-      lastDate: s.lastTs ? new Date(s.lastTs).toLocaleString() : FALLBACK
-    };
-  });
-}
-
-async function renderProjectSummary(){
-  const tbody = document.querySelector('#jobSummaryTable tbody');
-  if(!tbody) return;
-  tbody.innerHTML = '';
-  const [inventory, orders] = await Promise.all([
-    loadEntries(),
-    utils.fetchJsonSafe('/api/inventory?type=ordered', {}, [])
-  ]);
-  const balances = buildOrderBalance(orders, inventory);
-  const summary = {};
-
-  balances.forEach((rec)=>{
-    const jobId = normalizeJobId(rec.jobId || '');
-    const openQty = Math.max(0, rec.ordered - rec.checkedIn);
-    if(!jobId || openQty <= 0) return;
-    const key = `${jobId}|${rec.code}`;
-    if(!summary[key]) summary[key] = { jobId, code: rec.code, openOrders: 0, inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, lastTs: 0 };
-    summary[key].openOrders += openQty;
-    summary[key].lastTs = Math.max(summary[key].lastTs, rec.lastOrderTs || 0);
-  });
-
-  (inventory||[]).forEach(e=>{
-    const jobId = normalizeJobId(e.jobId || '');
-    if(!jobId) return;
-    const key = `${jobId}|${e.code}`;
-    if(!summary[key]) summary[key] = { jobId, code: e.code, openOrders: 0, inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, lastTs: 0 };
-    if(e.type === 'in') summary[key].inQty += e.qty;
-    else if(e.type === 'out') summary[key].outQty += e.qty;
-    else if(e.type === 'return') summary[key].returnQty += e.qty;
-    else if(e.type === 'reserve') summary[key].reserveQty += e.qty;
-    else if(e.type === 'reserve_release') summary[key].reserveQty -= e.qty;
-    summary[key].lastTs = Math.max(summary[key].lastTs, e.ts || 0);
-  });
-
-  const searchVal = (document.getElementById('jobSummarySearch')?.value || '').trim().toLowerCase();
-  let items = Object.values(summary).map(s=>{
-    const checkedOut = Math.max(0, s.outQty - s.returnQty);
-    const reserved = Math.max(0, s.reserveQty);
-    const available = Math.max(0, s.inQty - checkedOut - reserved);
-    return {
-      ...s,
       checkedOut,
-      reserved,
       available,
-      lastDate: s.lastTs ? ((window.utils && utils.formatDateTime) ? utils.formatDateTime(s.lastTs) : new Date(s.lastTs).toLocaleString()) : FALLBACK
+      lastDate: s.lastTs ? fmtDT(s.lastTs) : FALLBACK
     };
   });
-
-  if(searchVal){
-    items = items.filter(i=> i.jobId.toLowerCase().includes(searchVal) || i.code.toLowerCase().includes(searchVal));
-  }
-  items.sort((a,b)=> a.jobId.localeCompare(b.jobId) || a.code.localeCompare(b.code));
-  if(!items.length){
-    const tr=document.createElement('tr');
-    tr.innerHTML = `<td colspan="8" style="text-align:center;color:#6b7280;">No project inventory yet</td>`;
-    tbody.appendChild(tr);
-    return;
-  }
-  items.forEach(item=>{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${item.jobId}</td><td>${item.code}</td><td>${item.openOrders}</td><td>${item.inQty}</td><td>${item.reserved}</td><td>${item.checkedOut}</td><td>${item.available}</td><td>${item.lastDate}</td>`;
-    tbody.appendChild(tr);
-  });
 }
 
-async function renderTable(){
-  const tbody=document.querySelector('#invTable tbody');tbody.innerHTML='';
-  const entries = await loadEntries();
-  let items = aggregateStock(entries);
-  const search = (document.getElementById('searchBox')?.value || '').toLowerCase();
-  if(search) items = items.filter(i=> i.code.toLowerCase().includes(search) || i.name.toLowerCase().includes(search));
-  items.sort((a,b)=> a.code.localeCompare(b.code));
-  if(!items.length){
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No inventory activity yet</td>`;
-    tbody.appendChild(tr);
-    return;
-  }
-  items.forEach(item=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.jobsList}</td><td>${item.inQty}</td><td>${item.outQty}</td><td>${item.reserveQty}</td><td>${item.current}</td><td>${item.lastDate}</td>`;
-    tbody.appendChild(tr);
+function buildOverdueMap(entries){
+  const map = new Map();
+  entries.forEach(e=>{
+    if(e.type !== 'out' && e.type !== 'return') return;
+    const key = `${e.code}|${getEntryJobId(e)}`;
+    const rec = map.get(key) || { out: 0, ret: 0, minDue: null };
+    const qty = Number(e.qty)||0;
+    if(e.type === 'out'){
+      rec.out += qty;
+      const due = parseDate(e.returnDate);
+      if(due){
+        rec.minDue = rec.minDue ? Math.min(rec.minDue, due) : due;
+      }
+    }else if(e.type === 'return'){
+      rec.ret += qty;
+    }
+    map.set(key, rec);
   });
+  const overdue = {};
+  let count = 0;
+  const now = Date.now();
+  map.forEach((rec, key)=>{
+    const outstanding = Math.max(0, rec.out - rec.ret);
+    if(outstanding <= 0) return;
+    if(rec.minDue && rec.minDue < now){
+      const code = key.split('|')[0];
+      overdue[code] = true;
+      count += 1;
+    }
+  });
+  return { overdueByCode: overdue, overdueCount: count };
 }
 
-async function renderIncoming(){
-  const tbody = document.querySelector('#incomingTable tbody');
-  if(!tbody) return;
-  tbody.innerHTML = '';
-  const [orders, inventory] = await Promise.all([
-    utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []),
-    utils.fetchJsonSafe('/api/inventory', {}, [])
-  ]);
+function buildIncomingRows(orders, inventory){
   const balances = buildOrderBalance(orders, inventory);
-  const search = (document.getElementById('incomingSearchBox')?.value || '').toLowerCase();
   const rows = [];
   balances.forEach((rec)=>{
     const openQty = Math.max(0, rec.ordered - rec.checkedIn);
     if(openQty <= 0) return;
-    const job = normalizeJobId(rec.jobId || '').toLowerCase();
-    const code = (rec.code || '').toLowerCase();
-    if(search && !(code.includes(search) || job.includes(search))) return;
     rows.push({ ...rec, openQty });
   });
+  return rows;
+}
+
+function computeOnhandRows(entries){
+  const { overdueByCode: overdueMap } = buildOverdueMap(entries);
+  overdueByCode = overdueMap;
+  const counts = loadCounts();
+  return aggregateStock(entries).map(item=>{
+    const countInfo = counts[item.code];
+    const countTs = countInfo?.ts || null;
+    const countAge = countTs ? daysBetween(countTs) : null;
+    const countedQty = (countInfo && Number.isFinite(Number(countInfo.qty))) ? Number(countInfo.qty) : null;
+    const discrepancy = countedQty !== null ? countedQty - item.available : null;
+    return {
+      ...item,
+      countedQty,
+      countedAt: countTs,
+      countAge,
+      discrepancy,
+      overdue: !!overdueByCode[item.code],
+      recent: item.lastTs ? (Date.now() - item.lastTs) <= (RECENT_DAYS * 24 * 60 * 60 * 1000) : false
+    };
+  });
+}
+
+function applyOnhandFilters(items){
+  const search = (document.getElementById('searchBox')?.value || '').toLowerCase();
+  const low = document.getElementById('filter-low')?.checked;
+  const overdue = document.getElementById('filter-overdue')?.checked;
+  const project = document.getElementById('filter-project')?.checked;
+  const recent = document.getElementById('filter-recent')?.checked;
+  const needsCount = document.getElementById('filter-count')?.checked;
+
+  return items.filter(item=>{
+    if(search && !(item.code.toLowerCase().includes(search) || (item.name||'').toLowerCase().includes(search))) return false;
+    if(low && item.available > LOW_STOCK_THRESHOLD) return false;
+    if(overdue && !item.overdue) return false;
+    if(project && item.jobsList === FALLBACK) return false;
+    if(recent && !item.recent) return false;
+    if(needsCount){
+      const stale = !item.countedAt || (item.countAge !== null && item.countAge > COUNT_STALE_DAYS);
+      if(!stale) return false;
+    }
+    return true;
+  });
+}
+
+function setText(id, value){
+  const el = document.getElementById(id);
+  if(el) el.textContent = value;
+}
+
+function updateSummary(){
+  const incomingTotal = incomingBaseRows.reduce((sum, row)=> sum + (Number(row.openQty)||0), 0);
+  const overdueIncoming = incomingBaseRows.filter(row=>{
+    const etaTs = parseDate(row.eta);
+    return etaTs && etaTs < Date.now();
+  }).length;
+  setText('incomingTotal', incomingTotal || 0);
+  setText('incomingMeta', `${incomingBaseRows.length} open orders - ${overdueIncoming} late`);
+
+  const lowStockCount = onhandBaseRows.filter(item=> item.available <= LOW_STOCK_THRESHOLD).length;
+  setText('lowStockCount', lowStockCount);
+
+  const overdueCount = Object.keys(overdueByCode || {}).length;
+  setText('overdueCount', overdueCount);
+}
+
+function exportCSV(headers, rows, filename){
+  const csv=[headers.join(','),...rows.map(r=>r.map(c=>`"${String(c ?? '').replace(/"/g,'""')}"`).join(','))].join('\n');
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=filename || 'export.csv';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+function printTable(title, headers, rows){
+  const w = window.open('', '_blank');
+  if(!w) return;
+  const head = `<!doctype html><html><head><title>${title}</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}</style></head><body>`;
+  const table = `<h2>${title}</h2><table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c ?? ''}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  w.document.write(`${head}${table}</body></html>`);
+  w.document.close();
+  w.focus();
+  w.print();
+}
+
+function renderIncoming(){
+  const tbody = document.querySelector('#incomingTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  const search = (document.getElementById('incomingSearchBox')?.value || '').toLowerCase();
+  let rows = incomingBaseRows.slice();
+  if(search){
+    rows = rows.filter(r=> r.code.toLowerCase().includes(search) || (r.jobId||'').toLowerCase().includes(search));
+  }
   if(!rows.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No incoming inventory</td>`;
+    tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No incoming inventory</td>`;
     tbody.appendChild(tr);
     return;
   }
   rows.sort((a,b)=> (b.lastOrderTs||0)-(a.lastOrderTs||0));
-  rows.slice(0,20).forEach(o=>{
+  rows.forEach(o=>{
     const job = o.jobId || '';
-    const eta = o.eta || '';
-    const orderedOn = (window.utils && utils.formatDateTime) ? utils.formatDateTime(o.lastOrderTs) : (o.lastOrderTs ? new Date(o.lastOrderTs).toLocaleString() : '');
+    const etaTs = parseDate(o.eta);
+    const daysLate = etaTs ? Math.floor((Date.now() - etaTs)/(24*60*60*1000)) : null;
+    const lateText = etaTs ? (daysLate > 0 ? `${daysLate}d` : '0d') : FALLBACK;
+    const lateBadge = etaTs ? `<span class="badge ${daysLate > 0 ? 'warn' : 'info'}">${lateText}</span>` : FALLBACK;
+    const orderedOn = o.lastOrderTs ? fmtDT(o.lastOrderTs) : FALLBACK;
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.openQty}</td><td>${job||'General'}</td><td>${eta||FALLBACK}</td><td>${orderedOn||FALLBACK}</td>`;
+    tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.openQty}</td><td>${job||'General'}</td><td>${o.eta||FALLBACK}</td><td>${lateBadge}</td><td>${orderedOn}</td>`;
     tbody.appendChild(tr);
   });
 }
 
+function renderOnhand(){
+  const tbody=document.querySelector('#invTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML='';
+  let items = applyOnhandFilters(onhandBaseRows);
+  items.sort((a,b)=> a.code.localeCompare(b.code));
+
+  if(!items.length){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td colspan="9" style="text-align:center;color:#6b7280;">No inventory matches these filters</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+
+  items.forEach(item=>{
+    const tr=document.createElement('tr');
+    tr.className = 'onhand-row';
+    const countDate = item.countedAt ? fmtDate(item.countedAt) : FALLBACK;
+    const countStale = item.countAge !== null && item.countAge > COUNT_STALE_DAYS;
+    const discrepancy = item.discrepancy;
+    let discrepancyHtml = FALLBACK;
+    if(discrepancy !== null){
+      const abs = Math.abs(discrepancy);
+      const cls = abs === 0 ? 'ok' : (abs <= 2 ? 'warn' : 'bad');
+      discrepancyHtml = `<span class="discrepancy-badge ${cls}">${discrepancy > 0 ? '+' : ''}${discrepancy}</span>`;
+    }
+    tr.innerHTML=`
+      <td>${item.code}</td>
+      <td>${item.name||''}</td>
+      <td>${item.available}</td>
+      <td>${item.reserveQty}</td>
+      <td>${item.checkedOut}</td>
+      <td>${item.lastDate}</td>
+      <td class="${countStale ? 'stale' : ''}">${countDate}</td>
+      <td class="count-input-col"><input class="count-input" data-code="${item.code}" type="number" min="0" value="${item.countedQty ?? ''}"></td>
+      <td>${discrepancyHtml}</td>
+    `;
+
+    const detail=document.createElement('tr');
+    detail.className='row-detail';
+    detail.style.display='none';
+    detail.innerHTML=`
+      <td colspan="9">
+        <div class="detail-grid">
+          <span class="detail-chip"><strong>Projects:</strong> ${item.jobsList}</span>
+          <span class="detail-chip"><strong>Total In:</strong> ${item.inQty}</span>
+          <span class="detail-chip"><strong>Total Out:</strong> ${item.outQty}</span>
+          <span class="detail-chip"><strong>Reserved:</strong> ${item.reserveQty}</span>
+          <span class="detail-chip"><strong>Checked Out:</strong> ${item.checkedOut}</span>
+          <span class="detail-chip"><strong>Available:</strong> ${item.available}</span>
+          <span class="detail-chip"><strong>Overdue Returns:</strong> ${item.overdue ? 'Yes' : 'No'}</span>
+        </div>
+      </td>
+    `;
+
+    tr.addEventListener('click', (e)=>{
+      if(e.target && e.target.tagName === 'INPUT') return;
+      detail.style.display = detail.style.display === 'none' ? 'table-row' : 'none';
+    });
+
+    tbody.appendChild(tr);
+    tbody.appendChild(detail);
+  });
+}
+
+function setActiveTab(tab){
+  document.querySelectorAll('.mode-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.mode-content').forEach(panel=>{
+    panel.classList.toggle('active', panel.id === `${tab}-tab`);
+  });
+}
+
+function setupTabs(){
+  document.querySelectorAll('.mode-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=> setActiveTab(btn.dataset.tab));
+  });
+}
+
+function setupFilters(){
+  const inputs = ['searchBox','filter-low','filter-overdue','filter-project','filter-recent','filter-count'];
+  inputs.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('input', renderOnhand);
+    el.addEventListener('change', renderOnhand);
+  });
+
+  const clearBtn = document.getElementById('clearFiltersBtn');
+  if(clearBtn){
+    clearBtn.addEventListener('click', ()=>{
+      ['filter-low','filter-overdue','filter-project','filter-recent','filter-count'].forEach(id=>{
+        const el = document.getElementById(id);
+        if(el) el.checked = false;
+      });
+      const searchBox = document.getElementById('searchBox');
+      if(searchBox) searchBox.value = '';
+      renderOnhand();
+    });
+  }
+
+  const scanMode = document.getElementById('scanMode');
+  const searchBox = document.getElementById('searchBox');
+  if(scanMode && searchBox){
+    searchBox.addEventListener('keydown', (e)=>{
+      if(e.key !== 'Enter' || !scanMode.checked) return;
+      e.preventDefault();
+      const tbody = document.querySelector('#invTable tbody');
+      const row = tbody?.querySelector('tr.onhand-row');
+      if(row){
+        row.classList.add('row-highlight');
+        setTimeout(()=> row.classList.remove('row-highlight'), 600);
+        const countInput = row.querySelector('.count-input');
+        if(document.body.classList.contains('count-mode') && countInput){
+          countInput.focus();
+          countInput.select();
+        }
+      }
+      setTimeout(()=>{
+        searchBox.value='';
+        renderOnhand();
+      }, 200);
+    });
+  }
+}
+
+function setupActions(){
+  const exportIncoming = document.getElementById('incoming-exportBtn');
+  if(exportIncoming){
+    exportIncoming.addEventListener('click', ()=>{
+      const rows = incomingBaseRows.map(r=>[r.code, r.name || '', r.openQty, r.jobId || 'General', r.eta || '', r.lastOrderTs ? new Date(r.lastOrderTs).toISOString() : '']);
+      exportCSV(['code','name','openQty','project','eta','orderedOn'], rows, 'incoming.csv');
+    });
+  }
+
+  const printIncoming = document.getElementById('incoming-printBtn');
+  if(printIncoming){
+    printIncoming.addEventListener('click', ()=>{
+      const rows = incomingBaseRows.map(r=>[r.code, r.name || '', r.openQty, r.jobId || 'General', r.eta || '', r.lastOrderTs ? fmtDT(r.lastOrderTs) : '']);
+      printTable('Incoming Inventory', ['Code','Name','Open Qty','Project','ETA','Ordered On'], rows);
+    });
+  }
+
+  const exportOnhand = document.getElementById('exportOnhandBtn');
+  if(exportOnhand){
+    exportOnhand.addEventListener('click', ()=>{
+      const rows = applyOnhandFilters(onhandBaseRows).map(i=>[i.code, i.name || '', i.available, i.reserveQty, i.checkedOut, i.lastDate]);
+      exportCSV(['code','name','available','reserved','checkedOut','lastActivity'], rows, 'onhand.csv');
+    });
+  }
+
+  const printOnhand = document.getElementById('printOnhandBtn');
+  if(printOnhand){
+    printOnhand.addEventListener('click', ()=>{
+      const rows = applyOnhandFilters(onhandBaseRows).map(i=>[i.code, i.name || '', i.available, i.reserveQty, i.checkedOut, i.lastDate]);
+      printTable('On-hand Inventory', ['Code','Name','Available','Reserved','Checked Out','Last Activity'], rows);
+    });
+  }
+
+  const cycleToggle = document.getElementById('cycleToggle');
+  if(cycleToggle){
+    cycleToggle.addEventListener('click', ()=>{
+      document.body.classList.toggle('count-mode');
+    });
+  }
+
+  const saveBtn = document.getElementById('saveCountsBtn');
+  if(saveBtn){
+    saveBtn.addEventListener('click', ()=>{
+      const inputs = document.querySelectorAll('.count-input');
+      const counts = loadCounts();
+      inputs.forEach(input=>{
+        const code = input.dataset.code;
+        const val = input.value;
+        if(!code || val === '') return;
+        const qty = Number(val);
+        if(Number.isNaN(qty)) return;
+        counts[code] = { qty, ts: Date.now() };
+      });
+      saveCounts(counts);
+      onhandBaseRows = computeOnhandRows(loadCountsCacheEntries());
+      renderOnhand();
+    });
+  }
+}
+
+function loadCountsCacheEntries(){
+  return window.__cachedInventory || [];
+}
+
+async function refreshAll(){
+  const ordersPromise = (window.utils && utils.fetchJsonSafe)
+    ? utils.fetchJsonSafe('/api/inventory?type=ordered', {}, [])
+    : fetch('/api/inventory?type=ordered').then(r=> r.ok ? r.json() : []);
+  const [inventory, orders] = await Promise.all([loadEntries(), ordersPromise]);
+  window.__cachedInventory = inventory;
+  incomingBaseRows = buildIncomingRows(orders, inventory);
+  onhandBaseRows = computeOnhandRows(inventory);
+  renderIncoming();
+  renderOnhand();
+  updateSummary();
+}
 
 document.addEventListener('DOMContentLoaded',async ()=>{
-  renderTable();
-  const searchBox = document.getElementById('searchBox');
-  if(searchBox) searchBox.addEventListener('input', renderTable);
-  renderIncoming();
+  setupTabs();
+  setupFilters();
+  setupActions();
+  await refreshAll();
+
   const incomingSearchBox = document.getElementById('incomingSearchBox');
   if(incomingSearchBox) incomingSearchBox.addEventListener('input', renderIncoming);
-
-  renderProjectSummary();
-  const jobSummarySearch = document.getElementById('jobSummarySearch');
-  if(jobSummarySearch) jobSummarySearch.addEventListener('input', renderProjectSummary);
 });
+
+
