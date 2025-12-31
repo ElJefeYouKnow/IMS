@@ -14,6 +14,10 @@ function normalizeJobId(value){
   return val;
 }
 
+function getEntryJobId(entry){
+  return normalizeJobId(entry?.jobId || entry?.jobid || '');
+}
+
 function buildOrderBalance(orders, inventory){
   const map = new Map();
   (orders||[]).forEach(o=>{
@@ -31,6 +35,26 @@ function buildOrderBalance(orders, inventory){
     if(!map.has(key)) return;
     const rec = map.get(key);
     rec.checkedIn += Number(ci.qty || 0);
+  });
+  // Fallback: allocate unlinked check-ins by code + project
+  const unlinked = (inventory || []).filter(e=> e.type === 'in' && !e.sourceId);
+  unlinked.forEach(ci=>{
+    const code = ci.code;
+    if(!code) return;
+    const jobId = getEntryJobId(ci);
+    let qtyLeft = Number(ci.qty || 0);
+    if(qtyLeft <= 0) return;
+    const candidates = Array.from(map.values())
+      .filter(r=> r.code === code && (r.jobId || '') === (jobId || ''))
+      .sort((a,b)=> (a.lastOrderTs || 0) - (b.lastOrderTs || 0));
+    candidates.forEach(rec=>{
+      if(qtyLeft <= 0) return;
+      const open = Math.max(0, rec.ordered - rec.checkedIn);
+      if(open <= 0) return;
+      const useQty = Math.min(open, qtyLeft);
+      rec.checkedIn += useQty;
+      qtyLeft -= useQty;
+    });
   });
   return map;
 }
