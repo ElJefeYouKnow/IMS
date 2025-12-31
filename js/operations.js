@@ -222,6 +222,26 @@ async function loadOpenOrders(){
     const rec = map.get(sourceId);
     rec.checkedIn += Number(ci.qty || 0);
   });
+  // Fallback: allocate unlinked check-ins by code + project so fully received orders disappear.
+  const unlinked = (inventory || []).filter(e=> e.type === 'in' && !e.sourceId);
+  unlinked.forEach(ci=>{
+    const code = ci.code;
+    if(!code) return;
+    const jobId = normalizeJobId(ci.jobId || ci.jobid || '');
+    let qtyLeft = Number(ci.qty || 0);
+    if(qtyLeft <= 0) return;
+    const candidates = Array.from(map.values())
+      .filter(r=> r.code === code && (r.jobId || '') === (jobId || ''))
+      .sort((a,b)=> (a.eta || '').localeCompare(b.eta || '') || (a.sourceId || '').localeCompare(b.sourceId || ''));
+    candidates.forEach(rec=>{
+      if(qtyLeft <= 0) return;
+      const open = Math.max(0, rec.ordered - rec.checkedIn);
+      if(open <= 0) return;
+      const useQty = Math.min(open, qtyLeft);
+      rec.checkedIn += useQty;
+      qtyLeft -= useQty;
+    });
+  });
   openOrders = [];
   openOrdersMap = new Map();
   map.forEach(rec=>{

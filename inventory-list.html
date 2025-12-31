@@ -63,12 +63,12 @@
 
       <section class="card">
         <div class="mode-tabs inventory-tabs">
-          <button class="mode-btn active" data-tab="incoming">Incoming</button>
-          <button class="mode-btn" data-tab="onhand">On-hand</button>
+          <button class="mode-btn active" data-tab="onhand">On-hand</button>
+          <button class="mode-btn" data-tab="incoming">Incoming</button>
           <button class="mode-btn" data-tab="overdue">Overdue Returns</button>
         </div>
 
-        <div id="incoming-tab" class="mode-content active">
+        <div id="incoming-tab" class="mode-content">
           <div class="data-toolbar inventory-toolbar">
             <input id="incomingSearchBox" type="text" placeholder="Search incoming by code or project...">
             <button id="incoming-exportBtn" type="button" class="muted">Export CSV</button>
@@ -81,7 +81,7 @@
           </table>
         </div>
 
-        <div id="onhand-tab" class="mode-content">
+        <div id="onhand-tab" class="mode-content active">
           <div class="inventory-toolbar sticky-bar">
             <input id="searchBox" type="text" placeholder="Search by code or name...">
             <label class="filter-chip"><input id="filter-low" type="checkbox"> Low stock</label>

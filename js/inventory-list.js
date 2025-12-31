@@ -413,6 +413,19 @@ function renderOnhand(){
       <td>${discrepancyHtml}</td>
     `;
 
+    const jobRows = [];
+    if(item.jobs && item.jobs.size){
+      item.jobs.forEach((stats, jobId)=>{
+        const checkedOut = Math.max(0, Number(stats.out || 0));
+        if(checkedOut > 0){
+          jobRows.push(`<div class="job-row"><span>${jobId}</span><span>${checkedOut} out</span></div>`);
+        }
+      });
+    }
+    const jobListHtml = jobRows.length
+      ? `<div class="job-breakdown">${jobRows.join('')}</div>`
+      : `<div class="job-empty">No active job checkouts.</div>`;
+
     const detail=document.createElement('tr');
     detail.className='row-detail';
     detail.style.display='none';
@@ -426,6 +439,10 @@ function renderOnhand(){
           <span class="detail-chip"><strong>Checked Out:</strong> ${item.checkedOut}</span>
           <span class="detail-chip"><strong>Available:</strong> ${item.available}</span>
           <span class="detail-chip"><strong>Overdue Returns:</strong> ${item.overdue ? 'Yes' : 'No'}</span>
+        </div>
+        <div style="margin-top:10px;">
+          <strong style="display:block;margin-bottom:6px;color:var(--muted);">Checked Out by Project</strong>
+          ${jobListHtml}
         </div>
       </td>
     `;
