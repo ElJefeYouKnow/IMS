@@ -469,6 +469,26 @@ async function calcOutstandingCheckoutTx(client, code, jobId, tenantIdVal) {
   return Math.max(0, outstanding);
 }
 
+async function resolveReturnJobIdTx(client, code, tenantIdVal, jobIdRaw) {
+  const normalized = normalizeJobId(jobIdRaw);
+  if (normalized) return normalized;
+  const rows = await client.query(
+    `SELECT jobId, COALESCE(SUM(CASE WHEN type='out' THEN qty WHEN type='return' THEN -qty ELSE 0 END),0) as outstanding
+     FROM inventory
+     WHERE code=$1 AND tenantId=$2 AND type IN ('out','return')
+     GROUP BY jobId
+     HAVING COALESCE(SUM(CASE WHEN type='out' THEN qty WHEN type='return' THEN -qty ELSE 0 END),0) > 0`,
+    [code, tenantIdVal]
+  );
+  if (rows.rows.length === 1) {
+    return rows.rows[0].jobid || rows.rows[0].jobId || null;
+  }
+  if (rows.rows.length > 1) {
+    throw new Error('jobId required (multiple outstanding checkouts)');
+  }
+  return null;
+}
+
 function requireRole(role) {
   return (req, res, next) => {
     const userRole = (req.user && req.user.role || '').toLowerCase();
@@ -801,11 +821,13 @@ app.get('/api/inventory-return', async (req, res) => {
 app.post('/api/inventory-return', async (req, res) => {
   try {
     const { code, jobId, qty, reason, location, notes, ts } = req.body;
+    if (!code) return res.status(400).json({ error: 'code required' });
     const t = tenantId(req);
     const entry = await withTransaction(async (client) => {
-      return processInventoryEvent(client, { type: 'return', code, jobId, qty, reason, location, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t, requireRecentReturn: true });
+      const resolvedJobId = await resolveReturnJobIdTx(client, code, t, jobId);
+      return processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t, requireRecentReturn: true });
     });
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.return', details: { code, qty, jobId, reason } });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.return', details: { code, qty, jobId: entry.jobId || null, reason } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });

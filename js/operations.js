@@ -176,6 +176,7 @@ async function refreshReturnDropdown(select){
       row.querySelector('input[name="code"]').value = co.code;
       row.querySelector('input[name="name"]').value = co.name || '';
       row.querySelector('input[name="qty"]').value = co.qty;
+      row.dataset.jobId = (co.jobId || '').trim();
     }
     document.getElementById('return-jobId').value = co.jobId || '';
     document.getElementById('return-reason').value = 'unused';
@@ -472,12 +473,14 @@ async function addReturn(e){
     const r = await fetch('/api/inventory-return',{
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(e)
     });
+    const data = await r.json().catch(()=>({}));
     if(r.ok){
       await renderReturnTable();
-      return true;
+      return { ok:true };
     }
+    return { ok:false, error: data.error || 'Return failed' };
   }catch(e){}
-  return false;
+  return { ok:false, error: 'Return failed' };
 }
 
 async function clearReturns(){
@@ -792,11 +795,16 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       if(missing){ alert(`Item ${missing.code} does not exist. Check it in first.`); return; }
       
       let okAll=true;
+      const errors=[];
       for(const line of lines){
-        const ok = await addReturn({code: line.code, jobId, qty: line.qty, reason, location, notes, ts: Date.now(), type: 'return', userEmail: user?.email, userName: user?.name});
-        if(!ok) okAll=false;
+        const lineJobId = line.jobId || jobId;
+        const res = await addReturn({code: line.code, jobId: lineJobId, qty: line.qty, reason, location, notes, ts: Date.now(), type: 'return', userEmail: user?.email, userName: user?.name});
+        if(!res.ok){
+          okAll=false;
+          if(res.error) errors.push(`${line.code}: ${res.error}`);
+        }
       }
-      if(!okAll) alert('Some items failed to return');
+      if(!okAll) alert(errors.join('\n') || 'Some items failed to return');
       returnForm.reset();
       resetLines('return');
       const select = document.getElementById('return-fromCheckout');
