@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Register Order (Admin)</title>
+  <title>Procurement &amp; Allocation</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -28,7 +28,7 @@
         <a href="job-report.html">Project Report</a>
       <a href="item-master.html" data-role="admin">Item Master</a>
       <a href="job-creator.html" data-role="admin">Project Manager</a>
-      <a class="active" href="order-register.html" data-role="admin">Orders</a>
+      <a class="active" href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
         <a href="field-purchase.html" data-role="employee">Field Purchases</a>
 
       <a href="settings.html" data-role="admin">Settings</a>
@@ -40,14 +40,14 @@
 
     <main class="main">
       <header class="topbar">
-        <h1>Supply &amp; Allocations</h1>
+        <h1>Procurement &amp; Allocation</h1>
         <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
       <section class="card" style="margin-bottom:12px;position:sticky;top:0;z-index:5;">
         <div class="mode-tabs">
-          <button class="mode-btn active" data-mode="order">Register Order</button>
-          <button class="mode-btn" data-mode="reserve">Allocate to Project (Reserve)</button>
+          <button class="mode-btn active" data-mode="order">Orders</button>
+          <button class="mode-btn" data-mode="reserve">Reservations</button>
         </div>
       </section>
 
@@ -56,48 +56,50 @@
           <section class="card inventory-card">
             <p class="muted-text">Admin-only: log items that have been ordered but not yet received.</p>
             <form id="orderForm" class="inventory-form" autocomplete="off">
-            <div class="form-row">
-              <label class="with-suggest">Item Code
-                <input id="orderCode" required placeholder="SKU/part">
-                <div id="orderCodeSuggest" class="suggestions"></div>
-              </label>
-              <label>Item Name<input id="orderName" placeholder="Required for new codes"></label>
-            </div>
               <div class="form-row">
-                <label>Quantity<input id="orderQty" type="number" min="1" value="1" required></label>
-                <label>Expected Arrival<input id="orderEta" type="date"></label>
-              </div>
-              <div class="form-row" id="etaPresets" style="gap:8px;">
-                <button type="button" class="muted" data-days="0">Today</button>
-                <button type="button" class="muted" data-days="1">+1 day</button>
-                <button type="button" class="muted" data-days="3">+3 days</button>
-                <button type="button" class="muted" data-next-monday="true">Next Monday</button>
-              </div>
-              <div class="form-row">
-                <label>Assign to Project (optional)
+                <label>Default Project
                   <select id="orderJob">
                     <option value="">General Inventory</option>
                   </select>
                 </label>
-                <label style="max-width:220px;display:flex;align-items:center;gap:6px;margin-top:22px;">
-                  <input type="checkbox" id="order-stick-job" style="width:auto;"> Keep last job for next entry
+                <label class="toggle-inline">
+                  <input type="checkbox" id="order-apply-default" checked> Apply default to all lines
+                </label>
+                <label class="toggle-inline">
+                  <input type="checkbox" id="order-stick-job"> Keep last project
+                </label>
+                <label class="toggle-inline">
+                  <input type="checkbox" id="order-auto-reserve" checked> Auto-reserve on receive
                 </label>
               </div>
               <div class="form-row">
-                <label style="flex:1">Notes<textarea id="orderNotes" rows="2"></textarea></label>
+                <label>Default ETA<input id="orderEta" type="date" class="eta-input"></label>
               </div>
+              
+
+              <div class="order-lines-header">
+                <strong>Order Lines</strong>
+                <button id="order-addLine" type="button" class="muted">Add Line</button>
+              </div>
+              <div id="order-lines" class="line-items"></div>
+
               <div class="form-row bulk-box">
-                <label style="flex:1">Quick bulk paste (code,name,qty,eta,job)
+                <label style="flex:1">Quick bulk paste (code,name,qty,eta,project)
                   <textarea id="order-bulk" rows="3" placeholder="ABC123,Widgets,2,2025-01-10,JOB-1&#10;XYZ9,,5,2025-01-11,"></textarea>
                 </label>
                 <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
-                  <button id="order-bulk-apply" type="button" class="muted" style="margin-top:22px;">Submit bulk</button>
+                  <button id="order-bulk-load" type="button" class="muted" style="margin-top:22px;">Load to lines</button>
+                  <button id="order-bulk-apply" type="button" class="muted">Submit bulk</button>
                   <button id="order-bulk-clear" type="button" class="muted">Clear bulk</button>
                 </div>
               </div>
+
+              <div class="form-row">
+                <label style="flex:1">Notes<textarea id="orderNotes" rows="2" placeholder="Optional notes for all lines"></textarea></label>
+              </div>
               <div class="form-row sticky-actions-mobile">
-                <button type="submit">Register Order</button>
-                <button id="orderAddAnother" type="button" class="muted">Register &amp; Add Another</button>
+                <button id="orderSubmitBtn" type="submit">Review &amp; Submit</button>
+                <button id="orderSubmitAnother" type="button" class="muted">Submit &amp; Add More</button>
                 <button id="orderClearBtn" type="button" class="muted">Clear</button>
               </div>
               <div id="orderMsg" style="font-size:0.9rem;"></div>
@@ -105,8 +107,40 @@
           </section>
 
           <section class="card">
+            <h3>Incoming Summary</h3>
+            <div class="summary-grid">
+              <div class="summary-item">
+                <span>Open Units</span>
+                <strong id="orderSummaryCount">-</strong>
+              </div>
+              <div class="summary-item">
+                <span>Overdue</span>
+                <strong id="orderSummaryLate">-</strong>
+              </div>
+              <div class="summary-item">
+                <span>Next ETA</span>
+                <strong id="orderSummaryNext">-</strong>
+              </div>
+            </div>
+            <div class="summary-list">
+              <strong>Top Incoming Items</strong>
+              <div id="orderSummaryTop" class="summary-items"></div>
+            </div>
+            <div class="summary-list">
+              <strong>Upcoming by ETA</strong>
+              <div id="orderSummaryEta" class="summary-items"></div>
+            </div>
+          </section>
+
+          <section class="card">
             <div class="data-toolbar">
-              <input id="orderFilter" placeholder="Filter by job/code" />
+              <input id="orderFilter" placeholder="Filter by project/code" />
+              <div class="filter-chips">
+                <button class="filter-btn active" data-range="all" type="button">All</button>
+                <button class="filter-btn" data-range="today" type="button">Today</button>
+                <button class="filter-btn" data-range="week" type="button">This Week</button>
+                <button class="filter-btn" data-range="late" type="button">Late</button>
+              </div>
               <span class="badge info">Inbound</span>
             </div>
             <h3>Recently Registered Orders</h3>
@@ -171,7 +205,8 @@
                 <textarea id="reserve-bulk" rows="3" placeholder="ABC123,2&#10;XYZ9,5"></textarea>
               </label>
               <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
-                <button id="reserve-bulk-apply" type="button" class="muted" style="margin-top:22px;">Reserve bulk</button>
+                <button id="reserve-bulk-load" type="button" class="muted" style="margin-top:22px;">Load to lines</button>
+                <button id="reserve-bulk-apply" type="button" class="muted">Reserve bulk</button>
                 <button id="reserve-bulk-clear" type="button" class="muted">Clear bulk</button>
               </div>
             </div>
@@ -210,6 +245,24 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <div id="orderReviewModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3 style="margin:0;">Review Orders</h3>
+        <button id="orderReviewClose" class="muted" type="button">Close</button>
+      </div>
+      <p class="muted-text" id="orderReviewSummary">-</p>
+      <table id="orderReviewTable">
+        <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>ETA</th><th>Project</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="modal-actions">
+        <button id="orderReviewConfirm" type="button">Confirm</button>
+        <button id="orderReviewCancel" type="button" class="muted">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <script src="js/utils.js"></script>

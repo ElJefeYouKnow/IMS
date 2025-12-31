@@ -690,7 +690,7 @@ app.get('/api/inventory', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/inventory', async (req, res) => {
+  app.post('/api/inventory', async (req, res) => {
   try {
     const { code, name, category, unitPrice, qty, location, jobId, notes, ts, sourceType, sourceId, reassignReason } = req.body;
     const qtyNum = Number(qty);
@@ -702,6 +702,8 @@ app.post('/api/inventory', async (req, res) => {
       const source = await loadSourceEvent(client, sourceType, sourceId, t);
       if (!source) throw new Error('source not found');
       if (source.code !== code) throw new Error('source item mismatch');
+      const sourceMeta = source?.sourcemeta || source?.sourceMeta || null;
+      const autoReserve = sourceMeta?.autoReserve !== false;
       const openQty = await calcOpenSourceQtyTx(client, sourceId, code, t);
       if (qtyNum > openQty) throw new Error('check-in exceeds remaining open qty');
       const sourceJob = normalizeJobId(source.jobid || source.jobId || '');
@@ -714,7 +716,7 @@ app.post('/api/inventory', async (req, res) => {
       jobIdVal = jobIdVal || null;
       const checkin = await processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId: jobIdVal, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t, sourceType, sourceId });
       // If a project is selected, auto-reserve the same qty to earmark stock for that project.
-      if (jobIdVal) {
+      if (jobIdVal && autoReserve) {
         const avail = await calcAvailabilityTx(client, code, t);
         const reserveQty = Math.min(qtyNum, Math.max(0, avail));
         if (reserveQty > 0) {
@@ -1183,17 +1185,18 @@ app.delete('/api/jobs/:code', requireRole('admin'), async (req, res) => {
 // ADMIN ORDERS
 app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
   try {
-    const { code, name, qty, eta, notes, ts, jobId } = req.body;
+    const { code, name, qty, eta, notes, ts, jobId, autoReserve } = req.body;
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
     const jobIdVal = (jobId || '').trim() || null;
     const entry = await withTransaction(async (client) => {
       await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-      const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t, sourceType: 'order', sourceId: null };
+      const sourceMeta = { autoReserve: autoReserve !== false };
+      const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
       ev.sourceId = ev.id;
-      await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-        [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId]);
+      await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId, ev.sourceMeta]);
       return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta } });
@@ -1210,15 +1213,16 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
     const results = [];
     await withTransaction(async (client) => {
       for (const line of lines) {
-        const { code, name, qty, eta, notes, ts, jobId } = line || {};
+        const { code, name, qty, eta, notes, ts, jobId, autoReserve } = line || {};
         const qtyNum = Number(qty);
         if (!code || !qtyNum || qtyNum <= 0) throw new Error(`Invalid order line for code ${code || ''}`);
         const jobIdVal = (jobId || '').trim() || null;
         await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-        const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t, sourceType: 'order', sourceId: null };
+        const sourceMeta = { autoReserve: autoReserve !== false };
+        const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
         ev.sourceId = ev.id;
-        await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-          [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId]);
+        await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+          [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId, ev.sourceMeta]);
         results.push(ev);
       }
     });
