@@ -433,8 +433,6 @@ function renderOnhand(){
       <td colspan="9">
         <div class="detail-grid">
           <span class="detail-chip"><strong>Projects:</strong> ${item.jobsList}</span>
-          <span class="detail-chip"><strong>Total In:</strong> ${item.inQty}</span>
-          <span class="detail-chip"><strong>Total Out:</strong> ${item.outQty}</span>
           <span class="detail-chip"><strong>Reserved:</strong> ${item.reserveQty}</span>
           <span class="detail-chip"><strong>Checked Out:</strong> ${item.checkedOut}</span>
           <span class="detail-chip"><strong>Available:</strong> ${item.available}</span>
