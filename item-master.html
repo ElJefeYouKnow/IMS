@@ -64,6 +64,19 @@
         </form>
       </section>
 
+      <section class="card inventory-card">
+        <h3>Import Item Master (CSV)</h3>
+        <p class="muted-text">Columns: code,name,category,unitPrice,description. Header row optional.</p>
+        <div class="form-row">
+          <input id="importFile" type="file" accept=".csv,text/csv">
+          <button id="downloadTemplateBtn" type="button" class="muted">Download Template</button>
+        </div>
+        <div class="form-row">
+          <button id="importBtn" type="button">Import CSV</button>
+          <div id="importMsg" style="font-size:0.9rem;"></div>
+        </div>
+      </section>
+
       <section class="card">
         <h3>Item Catalog</h3>
         <div style="margin-bottom:12px;">

@@ -2,6 +2,71 @@ const FALLBACK = 'N/A';
 
 let currentEditId = null;
 
+function parseCsvLine(line){
+  const out = [];
+  let cur = '';
+  let inQuotes = false;
+  for(let i=0;i<line.length;i++){
+    const ch = line[i];
+    if(ch === '"'){
+      const next = line[i+1];
+      if(inQuotes && next === '"'){
+        cur += '"';
+        i++;
+      }else{
+        inQuotes = !inQuotes;
+      }
+    }else if(ch === ',' && !inQuotes){
+      out.push(cur.trim());
+      cur = '';
+    }else{
+      cur += ch;
+    }
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+function normalizeHeader(value){
+  return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function parseCsv(text){
+  const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+  if(!lines.length) return { items: [], skipped: 0 };
+  const first = parseCsvLine(lines[0]).map(normalizeHeader);
+  const headerMap = new Map();
+  const hasHeader = first.includes('code') || first.includes('sku') || first.includes('partnumber') || first.includes('part');
+  if(hasHeader){
+    first.forEach((h, idx)=>{
+      if(['code','sku','part','partnumber'].includes(h)) headerMap.set('code', idx);
+      if(['name','itemname'].includes(h)) headerMap.set('name', idx);
+      if(['category','cat','type'].includes(h)) headerMap.set('category', idx);
+      if(['unitprice','price','unitcost','cost','unit'].includes(h)) headerMap.set('unitPrice', idx);
+      if(['description','desc','details'].includes(h)) headerMap.set('description', idx);
+    });
+  }
+  const start = hasHeader ? 1 : 0;
+  let skipped = 0;
+  const items = [];
+  for(let i=start;i<lines.length;i++){
+    const cols = parseCsvLine(lines[i]);
+    const getVal = (key, idx)=> (idx !== undefined ? cols[idx] : '');
+    const code = hasHeader ? getVal('code', headerMap.get('code')) : (cols[0] || '');
+    const name = hasHeader ? getVal('name', headerMap.get('name')) : (cols[1] || '');
+    const category = hasHeader ? getVal('category', headerMap.get('category')) : (cols[2] || '');
+    const unitPriceRaw = hasHeader ? getVal('unitPrice', headerMap.get('unitPrice')) : (cols[3] || '');
+    const description = hasHeader ? getVal('description', headerMap.get('description')) : (cols[4] || '');
+    if(!code || !name){
+      skipped++;
+      continue;
+    }
+    const unitPrice = unitPriceRaw && !Number.isNaN(Number(unitPriceRaw)) ? Number(unitPriceRaw) : null;
+    items.push({ code, name, category, unitPrice, description });
+  }
+  return { items, skipped };
+}
+
 async function loadItems(){
   try{
     const r = await fetch('/api/items',{credentials:'include'});
@@ -105,6 +170,63 @@ document.addEventListener('DOMContentLoaded',()=>{
   renderTable();
   const searchBox = document.getElementById('searchBox');
   if(searchBox) searchBox.addEventListener('input', renderTable);
+
+  const importBtn = document.getElementById('importBtn');
+  const importFile = document.getElementById('importFile');
+  const importMsg = document.getElementById('importMsg');
+  if(importBtn && importFile){
+    importBtn.addEventListener('click', async ()=>{
+      importMsg.textContent = '';
+      if(!importFile.files || !importFile.files[0]){
+        importMsg.textContent = 'Choose a CSV file first.';
+        importMsg.style.color = '#b91c1c';
+        return;
+      }
+      const text = await importFile.files[0].text();
+      const { items, skipped } = parseCsv(text);
+      if(!items.length){
+        importMsg.textContent = 'No valid rows found.';
+        importMsg.style.color = '#b91c1c';
+        return;
+      }
+      try{
+        const r = await fetch('/api/items/bulk', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          credentials:'include',
+          body: JSON.stringify({ items })
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok){
+          importMsg.textContent = data.error || 'Import failed';
+          importMsg.style.color = '#b91c1c';
+          return;
+        }
+        importMsg.textContent = `Imported ${data.count} items${skipped ? `, skipped ${skipped}` : ''}.`;
+        importMsg.style.color = '#15803d';
+        await renderTable();
+      }catch(e){
+        importMsg.textContent = 'Import failed';
+        importMsg.style.color = '#b91c1c';
+      }
+    });
+  }
+
+  const downloadBtn = document.getElementById('downloadTemplateBtn');
+  if(downloadBtn){
+    downloadBtn.addEventListener('click', ()=>{
+      const csv = 'code,name,category,unitPrice,description\\n';
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'item-master-template.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+  }
   
   const form = document.getElementById('itemForm');
   form.addEventListener('submit',async ev=>{

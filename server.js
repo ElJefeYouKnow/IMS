@@ -790,7 +790,7 @@ app.post('/api/inventory-reassign', requireRole('admin'), async (req, res) => {
 
 app.get('/api/inventory-return', async (req, res) => {
   try {
-    const rows = await allAsync('SELECT * FROM inventory WHERE type=$1', ['return']);
+    const rows = await allAsync('SELECT * FROM inventory WHERE type=$1 AND tenantId=$2', ['return', tenantId(req)]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -859,6 +859,37 @@ app.delete('/api/items/:code', requireRole('admin'), async (req, res) => {
     await logAudit({ tenantId: tenantId(req), userId: currentUserId(req), action: 'items.delete', details: { code: req.params.code } });
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+// BULK ITEM IMPORT (admin)
+app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: 'items array required' });
+    const t = tenantId(req);
+    const results = [];
+    await withTransaction(async (client) => {
+      for (const raw of items) {
+        const code = (raw?.code || '').trim();
+        const name = (raw?.name || '').trim();
+        if (!code || !name) throw new Error('code and name required');
+        const category = (raw?.category || '').trim() || null;
+        const description = (raw?.description || '').trim() || null;
+        const unitPrice = raw?.unitPrice === undefined || raw?.unitPrice === null || Number.isNaN(Number(raw.unitPrice))
+          ? null
+          : Number(raw.unitPrice);
+        await client.query(`INSERT INTO items(code,name,category,unitPrice,description,tenantId)
+          VALUES($1,$2,$3,$4,$5,$6)
+          ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tenantId=EXCLUDED.tenantId`,
+          [code, name, category, unitPrice, description, t]);
+        results.push(code);
+      }
+    });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'items.update', details: { bulk: results.length } });
+    res.status(201).json({ count: results.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
 });
 
 // AUTH + USERS
@@ -1301,44 +1332,65 @@ app.get('/api/dev/users', requireDev, async (req, res) => {
 app.get('/api/metrics', async (req, res) => {
   try {
     const now = Date.now();
+    const t = tenantId(req);
     const row = await getAsync(`
       SELECT 
-        COALESCE(SUM(CASE WHEN type='in' THEN qty WHEN type='return' THEN qty WHEN type='reserve_release' THEN qty WHEN type='out' THEN -qty WHEN type='reserve' THEN -qty ELSE 0 END),0) as availableunits,
-        COALESCE(SUM(CASE WHEN type='reserve' THEN qty WHEN type='reserve_release' THEN -qty ELSE 0 END),0) as reservedunits,
+        COALESCE(SUM(CASE WHEN type='in' THEN qty WHEN type='return' THEN qty WHEN type='reserve_release' THEN qty 
+WHEN type='out' THEN -qty WHEN type='reserve' THEN -qty ELSE 0 END),0) as availableunits,
+        COALESCE(SUM(CASE WHEN type='reserve' THEN qty WHEN type='reserve_release' THEN -qty ELSE 0 END),0) as 
+reservedunits,
         COALESCE(COUNT(DISTINCT CASE WHEN jobId IS NOT NULL AND jobId != '' THEN jobId END),0) as activejobs,
         COALESCE(SUM(CASE WHEN ts >= $1 THEN 1 ELSE 0 END),0) as txlast7
       FROM inventory
-    `, [now - 7 * 24 * 60 * 60 * 1000]);
+      WHERE tenantId=$2
+    `, [now - 7 * 24 * 60 * 60 * 1000, t]);
     const lowRows = await allAsync(`
       SELECT i.code, i.name,
-        COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) as available,
-        COALESCE(SUM(CASE WHEN inv.type='reserve' THEN inv.qty WHEN inv.type='reserve_release' THEN -inv.qty ELSE 0 END),0) as reserve
+        COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
+inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
+END),0) as available,
+        COALESCE(SUM(CASE WHEN inv.type='reserve' THEN inv.qty WHEN inv.type='reserve_release' THEN -inv.qty ELSE 0 
+END),0) as reserve
       FROM items i
-      LEFT JOIN inventory inv ON inv.code = i.code
+      LEFT JOIN inventory inv ON inv.code = i.code AND inv.tenantId = i.tenantId
+      WHERE i.tenantId=$1
       GROUP BY i.code, i.name
-      HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) > 0
-        AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) <= 5
+      HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
+inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
+END),0) > 0
+        AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
+inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
+END),0) <= 5
       ORDER BY available ASC
       LIMIT 20
-    `);
+    `, [t]);
     res.json({ ...row, lowStockCount: lowRows.length });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
 app.get('/api/low-stock', async (req, res) => {
   try {
+    const t = tenantId(req);
     const rows = await allAsync(`
       SELECT i.code, i.name,
-        COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) as available,
-        COALESCE(SUM(CASE WHEN inv.type='reserve' THEN inv.qty WHEN inv.type='reserve_release' THEN -inv.qty ELSE 0 END),0) as reserve
+        COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
+inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
+END),0) as available,
+        COALESCE(SUM(CASE WHEN inv.type='reserve' THEN inv.qty WHEN inv.type='reserve_release' THEN -inv.qty ELSE 0 
+END),0) as reserve
       FROM items i
-      LEFT JOIN inventory inv ON inv.code = i.code
+      LEFT JOIN inventory inv ON inv.code = i.code AND inv.tenantId = i.tenantId
+      WHERE i.tenantId=$1
       GROUP BY i.code, i.name
-      HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) > 0
-        AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) <= 5
+      HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
+inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
+END),0) > 0
+        AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
+inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
+END),0) <= 5
       ORDER BY available ASC
       LIMIT 20
-    `);
+    `, [t]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
