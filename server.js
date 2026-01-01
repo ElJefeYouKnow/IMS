@@ -307,7 +307,7 @@ async function initDb() {
   await runAsync(`UPDATE jobs SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE jobs SET startDate = scheduleDate WHERE startDate IS NULL AND scheduleDate IS NOT NULL`);
   await runAsync(`UPDATE jobs SET status = 'planned' WHERE status IS NULL OR status = ''`);
-  await runAsync(`UPDATE jobs SET updatedAt = COALESCE(updatedAt, $1)`, [Date.now()]);
+  await runAsync(`UPDATE jobs SET updatedAt = COALESCE(updatedAt, $1::bigint)`, [Date.now()]);
   await runAsync(`UPDATE users SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE inventory_counts SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory(code)');
@@ -369,7 +369,7 @@ async function initDb() {
   // Backfill any jobs referenced by inventory rows
   await runAsync(`
     INSERT INTO jobs(code,name,startDate,endDate,status,location,notes,updatedAt,tenantId)
-    SELECT DISTINCT inv.jobId, inv.jobId, NULL, NULL, 'planned', NULL, NULL, $1, inv.tenantId
+    SELECT DISTINCT inv.jobId, inv.jobId, NULL, NULL, 'planned', NULL, NULL, $1::bigint, inv.tenantId
     FROM inventory inv
     WHERE inv.jobId IS NOT NULL AND inv.jobId <> ''
     ON CONFLICT (code, tenantId) DO NOTHING
