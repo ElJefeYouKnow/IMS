@@ -339,12 +339,40 @@ function buildProjectSummary(items){
 function applyReportFilters(projects){
   const search = (document.getElementById('reportSearchBox')?.value || '').toLowerCase();
   const statusFilter = (document.getElementById('reportStatusFilter')?.value || '').toLowerCase();
+  const locationFilter = (document.getElementById('reportLocationFilter')?.value || '').toLowerCase();
+  const windowFilter = (document.getElementById('reportWindowFilter')?.value || '').toLowerCase();
   const includeGeneral = document.getElementById('reportIncludeGeneral')?.checked !== false;
+  const hasActivity = document.getElementById('reportHasActivity')?.checked;
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   return projects.filter(p=>{
     if(!includeGeneral && isGeneralProject(p.projectId)) return false;
     const meta = getProjectMeta(p.projectId);
     const statusVal = (meta.status || '').toLowerCase();
     if(statusFilter && statusVal !== statusFilter) return false;
+    if(locationFilter){
+      const locationVal = (meta.location || '').toLowerCase();
+      if(!locationVal.includes(locationFilter)) return false;
+    }
+    if(hasActivity){
+      const active = (p.inQty || 0) + (p.outQty || 0) + (p.reserveQty || 0);
+      if(active <= 0) return false;
+    }
+    if(windowFilter){
+      const startTs = meta.startDate ? Date.parse(meta.startDate) : null;
+      const endTs = meta.endDate ? Date.parse(meta.endDate) : null;
+      if(windowFilter === 'upcoming7'){
+        const windowEnd = todayStart + (7 * 24 * 60 * 60 * 1000);
+        if(!startTs || startTs < todayStart || startTs > windowEnd) return false;
+      }else if(windowFilter === 'upcoming30'){
+        const windowEnd = todayStart + (30 * 24 * 60 * 60 * 1000);
+        if(!startTs || startTs < todayStart || startTs > windowEnd) return false;
+      }else if(windowFilter === 'overdue'){
+        if(!endTs || endTs >= todayStart) return false;
+      }else if(windowFilter === 'missingdates'){
+        if(startTs || endTs) return false;
+      }
+    }
     if(search){
       const location = (meta.location || '').toLowerCase();
       const notes = (meta.notes || '').toLowerCase();
@@ -370,6 +398,27 @@ function updateReportSummary(list){
   setText('reportActiveProjects', activeProjects);
   setText('reportCheckedOut', checkedOut);
   setText('reportReserved', reserved);
+}
+
+function buildReportSummary(items){
+  const summaryMap = new Map();
+  jobCache.forEach(job=>{
+    if(!job.code) return;
+    summaryMap.set(job.code, { projectId: job.code, inQty: 0, outQty: 0, reserveQty: 0, netUsage: 0, items: [] });
+  });
+  items.forEach(item=>{
+    const pid = item.projectId;
+    if(!summaryMap.has(pid)){
+      summaryMap.set(pid, { projectId: pid, inQty: 0, outQty: 0, reserveQty: 0, netUsage: 0, items: [] });
+    }
+    const rec = summaryMap.get(pid);
+    rec.inQty += item.inQty;
+    rec.outQty += item.outQty;
+    rec.reserveQty += item.reserveQty;
+    rec.netUsage += item.netUsage;
+    rec.items.push(item);
+  });
+  return Array.from(summaryMap.values());
 }
 
 function buildDetailTable(items){
@@ -435,7 +484,7 @@ async function renderReport(){
   await loadJobs();
   const entries = await loadEntries();
   const items = aggregateByProject(entries);
-  const summary = buildProjectSummary(items);
+  const summary = buildReportSummary(items);
   const filtered = applyReportFilters(summary);
   updateReportSummary(filtered);
 
@@ -448,7 +497,8 @@ async function renderReport(){
   const colCount = 10;
   if(!filtered.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="${colCount}" style="text-align:center;color:#6b7280;">No project activity yet</td>`;
+    const message = (jobCache.length === 0 && items.length === 0) ? 'No projects created yet' : 'No matching projects';
+    tr.innerHTML = `<td colspan="${colCount}" style="text-align:center;color:#6b7280;">${message}</td>`;
     tbody.appendChild(tr);
     setExpandAllState(false);
     return;
@@ -489,22 +539,42 @@ async function exportReportCSV(){
   await loadJobs();
   const entries = await loadEntries();
   const items = aggregateByProject(entries);
-  if(!items.length){alert('No project data to export');return;}
+  const summary = buildReportSummary(items);
+  const filtered = applyReportFilters(summary);
+  if(!filtered.length){alert('No project data to export');return;}
   const hdr = ['projectId','status','startDate','endDate','location','code','checkedIn','checkedOut','reserved','netUsage'];
-  const rows = items.map(r=>{
-    const meta = getProjectMeta(r.projectId);
-    return [
-      r.projectId,
-      meta.status || '',
-      meta.startDate || '',
-      meta.endDate || '',
-      meta.location || '',
-      r.code,
-      r.inQty,
-      r.outQty,
-      r.reserveQty,
-      r.netUsage
-    ];
+  const rows = [];
+  filtered.forEach(p=>{
+    const meta = getProjectMeta(p.projectId);
+    if(!p.items || p.items.length === 0){
+      rows.push([
+        p.projectId,
+        meta.status || '',
+        meta.startDate || '',
+        meta.endDate || '',
+        meta.location || '',
+        '',
+        0,
+        0,
+        0,
+        0
+      ]);
+      return;
+    }
+    p.items.forEach(r=>{
+      rows.push([
+        p.projectId,
+        meta.status || '',
+        meta.startDate || '',
+        meta.endDate || '',
+        meta.location || '',
+        r.code,
+        r.inQty,
+        r.outQty,
+        r.reserveQty,
+        r.netUsage
+      ]);
+    });
   });
   const csv = [hdr.join(','),...rows.map(r=>r.map(c=>`"${String(c ?? '').replace(/"/g,'""')}"`).join(','))].join('\n');
   const blob = new Blob([csv],{type:'text/csv'});
@@ -540,7 +610,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('projectSearchBox')?.addEventListener('input', renderProjects);
   document.getElementById('reportSearchBox')?.addEventListener('input', renderReport);
   document.getElementById('reportStatusFilter')?.addEventListener('change', renderReport);
+  document.getElementById('reportLocationFilter')?.addEventListener('input', renderReport);
+  document.getElementById('reportWindowFilter')?.addEventListener('change', renderReport);
   document.getElementById('reportIncludeGeneral')?.addEventListener('change', renderReport);
+  document.getElementById('reportHasActivity')?.addEventListener('change', renderReport);
   document.getElementById('reportExportBtn')?.addEventListener('click', exportReportCSV);
   document.getElementById('reportExpandAll')?.addEventListener('click', ()=>{
     const toggles = document.querySelectorAll('.report-toggle');

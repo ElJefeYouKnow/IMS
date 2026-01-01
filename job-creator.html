@@ -136,7 +136,16 @@
               <option value="on-hold">On Hold</option>
               <option value="complete">Complete</option>
             </select>
+            <input id="reportLocationFilter" type="text" placeholder="Filter by location...">
+            <select id="reportWindowFilter">
+              <option value="">All Dates</option>
+              <option value="upcoming7">Start within 7 days</option>
+              <option value="upcoming30">Start within 30 days</option>
+              <option value="overdue">End date passed</option>
+              <option value="missingDates">Missing dates</option>
+            </select>
             <label class="filter-chip"><input id="reportIncludeGeneral" type="checkbox" checked> Include General</label>
+            <label class="filter-chip"><input id="reportHasActivity" type="checkbox"> With activity only</label>
             <button id="reportExpandAll" type="button" class="muted">Expand All</button>
             <button id="reportExportBtn" type="button" class="muted">Export CSV</button>
           </div>
