@@ -201,4 +201,5 @@ body.role-none .sidebar a[data-role]{display:none}
 body.role-admin .bottom-nav a[data-role='admin']{display:inline-flex}
 body.role-employee .bottom-nav a[data-role='employee']{display:inline-flex}
 body.role-none .bottom-nav a[data-role]{display:none}
+body.role-employee .admin-only{display:none}
 

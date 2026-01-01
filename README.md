@@ -30,7 +30,7 @@ npm start
 - Employee Dashboard: http://localhost:8000/employee-dashboard.html
 - Operations (all modes: check-in/out/reserve/return): http://localhost:8000/inventory-operations.html
 - Inventory List: http://localhost:8000/inventory-list.html
-- Job Report: http://localhost:8000/job-report.html
+- Project Report: http://localhost:8000/job-creator.html#report
 - Item Master (Admin): http://localhost:8000/item-master.html
 - Job Creator (Admin): http://localhost:8000/job-creator.html
 - Register Order (Admin): http://localhost:8000/order-register.html

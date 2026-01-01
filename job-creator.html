@@ -25,7 +25,7 @@
         <a  href="employee-dashboard.html" data-role="employee">Dashboard</a>
         <a href="inventory-operations.html">Operations</a>
         <a href="inventory-list.html">Inventory</a>
-        <a href="job-report.html">Project Report</a>
+        <a href="job-creator.html#report">Project Report</a>
         <a href="item-master.html" data-role="admin">Item Master</a>
         <a class="active" href="job-creator.html" data-role="admin">Project Manager</a>
         <a href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
@@ -43,28 +43,61 @@
         <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
-      <section class="card inventory-card">
-        <h3>Add Project</h3>
-        <form id="jobForm" class="inventory-form">
-          <div class="form-row">
-            <label>Project Code<input id="jobCode" required placeholder="Unique project number or name"></label>
-            <label>Display Name<input id="jobName" placeholder="Optional friendly name"></label>
-            <label>Schedule Date<input id="jobDate" type="date"></label>
-          </div>
-          <div class="form-row">
-            <button type="submit">Save Job</button>
-            <button id="jobClearBtn" type="button" class="muted">Clear</button>
-          </div>
-        </form>
+      <section class="card" style="margin-bottom:12px;position:sticky;top:0;z-index:5;">
+        <div class="mode-tabs">
+          <button class="mode-btn active" data-tab="projects">Projects</button>
+          <button class="mode-btn" data-tab="report">Project Report</button>
+        </div>
       </section>
 
-      <section class="card">
-        <h3>Projects</h3>
-        <table id="jobTable">
-          <thead><tr><th>Code</th><th>Name</th><th>Schedule Date</th><th>Actions</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </section>
+      <div id="projects-tab" class="mode-content active">
+        <section class="card inventory-card admin-only">
+          <h3>Add Project</h3>
+          <p class="muted-text">Admin-only: create a project once so every page can reference it consistently.</p>
+          <form id="jobForm" class="inventory-form">
+            <div class="form-row">
+              <label>Project Code<input id="jobCode" required placeholder="Unique project number or name"></label>
+              <label>Display Name<input id="jobName" placeholder="Optional friendly name"></label>
+              <label>Schedule Date<input id="jobDate" type="date"></label>
+            </div>
+            <div class="form-row">
+              <button type="submit">Save Project</button>
+              <button id="jobClearBtn" type="button" class="muted">Clear</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card">
+          <div class="data-toolbar">
+            <input id="projectSearchBox" type="text" placeholder="Search by project code or name...">
+            <span id="projectCount" class="badge info">-</span>
+          </div>
+          <table id="projectTable">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Schedule Date</th>
+                <th id="projectActionsHeader">Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+
+      <div id="report-tab" class="mode-content">
+        <section class="card">
+          <div class="data-toolbar">
+            <input id="reportSearchBox" type="text" placeholder="Search by project code...">
+            <button id="reportExportBtn" type="button" class="muted">Export CSV</button>
+          </div>
+          <table id="reportTable">
+            <thead><tr><th>Project</th><th>Item Code</th><th>Checked In</th><th>Checked Out</th><th>Reserved</th><th>Net Usage</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
     </main>
   </div>
 
