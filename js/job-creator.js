@@ -3,13 +3,29 @@ let jobCache = [];
 let isAdmin = false;
 let editingCode = null;
 
+function normalizeJobRow(row){
+  const safe = row || {};
+  const schedule = safe.scheduleDate || safe.scheduledate || '';
+  return {
+    code: safe.code || '',
+    name: safe.name || '',
+    status: safe.status || '',
+    startDate: safe.startDate || safe.startdate || schedule || '',
+    endDate: safe.endDate || safe.enddate || '',
+    location: safe.location || '',
+    notes: safe.notes || '',
+    updatedAt: safe.updatedAt || safe.updatedat || ''
+  };
+}
+
 async function loadJobs(){
   try{
     const r = await fetch('/api/jobs',{credentials:'include'});
     if(r.status === 401){ window.location.href='login.html'; return []; }
     if(r.ok){
       const data = await r.json();
-      jobCache = Array.isArray(data) ? data : [];
+      const rows = Array.isArray(data) ? data : [];
+      jobCache = rows.map(normalizeJobRow);
       return jobCache;
     }
   }catch(e){}
@@ -52,6 +68,15 @@ function formatNotes(val){
   if(!note) return '';
   if(note.length <= 60) return note;
   return note.slice(0,57) + '...';
+}
+
+function getEntryJobId(entry){
+  const raw = entry?.jobId || entry?.jobid || '';
+  const val = (raw || '').toString().trim();
+  if(!val) return '';
+  const lowered = val.toLowerCase();
+  if(['general','general inventory','none','unassigned'].includes(lowered)) return '';
+  return val;
 }
 
 function setEditMode(project){
@@ -259,7 +284,7 @@ async function loadEntries(){
 function aggregateByProject(entries){
   const projects = {};
   entries.forEach(e=>{
-    const projectId = (e.jobId || '').trim() || 'General';
+    const projectId = getEntryJobId(e) || 'General';
     const key = `${projectId}|${e.code}`;
     if(!projects[key]) projects[key] = { projectId, code: e.code, inQty: 0, outQty: 0, reserveQty: 0 };
     const qty = Number(e.qty || 0);
@@ -278,7 +303,8 @@ const reportDetailMap = new Map();
 let reportExpanded = false;
 
 function isGeneralProject(value){
-  return (value || '').toString().trim().toLowerCase() === 'general';
+  const lowered = (value || '').toString().trim().toLowerCase();
+  return lowered === 'general' || lowered === 'general inventory';
 }
 
 function encodeKey(value){
