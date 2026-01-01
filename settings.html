@@ -74,6 +74,7 @@
                 </div>
                 <div class="form-row">
                   <button type="submit">Create User</button>
+                  <button id="userGeneratePwd" type="button" class="muted">Generate Password</button>
                   <button id="userClearBtn" type="button" class="muted">Clear</button>
                 </div>
                 <div id="userError" style="color:#b91c1c;font-size:0.9rem;"></div>
@@ -82,6 +83,39 @@
 
             <section class="card">
               <h3>Existing Users</h3>
+              <div class="summary-grid">
+                <div class="summary-item">
+                  <span>Total Users</span>
+                  <strong id="userTotal">-</strong>
+                </div>
+                <div class="summary-item">
+                  <span>Admins</span>
+                  <strong id="userAdmins">-</strong>
+                </div>
+                <div class="summary-item">
+                  <span>Employees</span>
+                  <strong id="userEmployees">-</strong>
+                </div>
+                <div class="summary-item">
+                  <span>Showing</span>
+                  <strong id="userShowing">-</strong>
+                </div>
+              </div>
+              <div class="data-toolbar">
+                <input id="userSearch" type="text" placeholder="Search by name or email...">
+                <select id="userRoleFilter">
+                  <option value="">All Roles</option>
+                  <option value="admin">Admins</option>
+                  <option value="user">Employees</option>
+                </select>
+                <select id="userSort">
+                  <option value="az">Sort A-Z</option>
+                  <option value="za">Sort Z-A</option>
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                </select>
+                <button id="userExportBtn" type="button" class="muted">Export CSV</button>
+              </div>
               <table id="usersTable">
                 <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Created</th><th>Action</th></tr></thead>
                 <tbody></tbody>
@@ -97,19 +131,20 @@
                   <label>Name<input id="edit-userName" required></label>
                   <label>Email<input id="edit-userEmail" type="email" required></label>
                 </div>
-                <div class="form-row">
-                  <label>Role
-                    <select id="edit-userRole">
-                      <option value="user">User</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </label>
-                  <label>New Password<input id="edit-userPassword" type="password" placeholder="Leave blank to keep current"></label>
-                </div>
-                <div class="form-row">
-                  <button type="submit">Update User</button>
-                  <button id="edit-userClearBtn" type="button" class="muted">Clear</button>
-                </div>
+              <div class="form-row">
+                <label>Role
+                  <select id="edit-userRole">
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </label>
+                <label>New Password<input id="edit-userPassword" type="password" placeholder="Leave blank to keep current"></label>
+              </div>
+              <div class="form-row">
+                <button type="submit">Update User</button>
+                <button id="edit-generatePassword" type="button" class="muted">Generate Temp Password</button>
+                <button id="edit-userClearBtn" type="button" class="muted">Clear</button>
+              </div>
                 <div id="edit-userError" style="color:#b91c1c;font-size:0.9rem;"></div>
               </form>
             </section>

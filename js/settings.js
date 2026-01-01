@@ -89,6 +89,8 @@ function setupTabs(){
   show('users');
 }
 
+const usersCache = [];
+
 async function loadUsers(role){
   try{
     const r = await fetch('/api/users',{headers:{'x-admin-role': role}});
@@ -102,21 +104,99 @@ async function createUser(role, user){
   return r;
 }
 
-async function renderUsers(role){
+function generateTempPassword(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$';
+  let pwd = '';
+  for(let i=0;i<12;i++){
+    pwd += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return pwd;
+}
+
+function updateUserStats(allUsers, visibleUsers){
+  const total = allUsers.length;
+  const admins = allUsers.filter(u=> u.role === 'admin').length;
+  const employees = allUsers.filter(u=> u.role !== 'admin').length;
+  const setText = (id, val)=>{
+    const el = document.getElementById(id);
+    if(el) el.textContent = `${val}`;
+  };
+  setText('userTotal', total);
+  setText('userAdmins', admins);
+  setText('userEmployees', employees);
+  setText('userShowing', visibleUsers.length);
+}
+
+function applyUserFilters(allUsers){
+  const search = (document.getElementById('userSearch')?.value || '').toLowerCase();
+  const roleFilter = document.getElementById('userRoleFilter')?.value || '';
+  const sort = document.getElementById('userSort')?.value || 'az';
+  let filtered = allUsers.slice();
+  if(search){
+    filtered = filtered.filter(u=>{
+      const email = (u.email || '').toLowerCase();
+      const name = (u.name || '').toLowerCase();
+      return email.includes(search) || name.includes(search);
+    });
+  }
+  if(roleFilter){
+    filtered = filtered.filter(u=> (u.role || '') === roleFilter);
+  }
+  if(sort === 'az'){
+    filtered.sort((a,b)=> (a.email || '').localeCompare(b.email || ''));
+  }else if(sort === 'za'){
+    filtered.sort((a,b)=> (b.email || '').localeCompare(a.email || ''));
+  }else if(sort === 'newest'){
+    filtered.sort((a,b)=> (b.createdAt || 0) - (a.createdAt || 0));
+  }else if(sort === 'oldest'){
+    filtered.sort((a,b)=> (a.createdAt || 0) - (b.createdAt || 0));
+  }
+  updateUserStats(allUsers, filtered);
+  return filtered;
+}
+
+async function updateUserRole(user, role){
+  if(!user?.id) return false;
+  try{
+    const payload = { name: user.name || '', email: user.email || '', role };
+    const r = await fetch(`/api/users/${user.id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    return r.ok;
+  }catch(e){
+    return false;
+  }
+}
+
+async function deleteUser(user){
+  if(!user?.id) return false;
+  try{
+    const r = await fetch(`/api/users/${user.id}`,{method:'DELETE'});
+    return r.ok;
+  }catch(e){
+    return false;
+  }
+}
+
+function renderUsersTable(allUsers){
   const tbody=document.querySelector('#usersTable tbody');tbody.innerHTML='';
-  const users = await loadUsers(role);
+  const users = applyUserFilters(allUsers);
   if(!users.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="4" style="text-align:center;color:#6b7280;">No users yet</td>`;
+    tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No users yet</td>`;
     tbody.appendChild(tr);
+    updateUserStats(allUsers, users);
     return;
   }
-  users.sort((a,b)=> a.email.localeCompare(b.email));
   users.forEach(u=>{
     const tr=document.createElement('tr');
     const dt = u.createdAt ? new Date(u.createdAt).toLocaleString() : '';
-    const btn = `<button type="button" class="muted edit-user" data-id="${u.id}" data-email="${u.email}" data-name="${u.name||''}" data-role="${u.role}">Edit</button>`;
-    tr.innerHTML=`<td>${u.email}</td><td>${u.name||''}</td><td>${u.role}</td><td>${dt}</td><td>${btn}</td>`;
+    const roleLabel = u.role === 'admin' ? 'Admin' : 'Employee';
+    const roleToggle = u.role === 'admin' ? 'Demote' : 'Promote';
+    const btn = `
+      <button type="button" class="action-btn edit-user" data-id="${u.id}" data-email="${u.email}" data-name="${u.name||''}" data-role="${u.role}">Edit</button>
+      <button type="button" class="action-btn role-user" data-id="${u.id}">${roleToggle}</button>
+      <button type="button" class="action-btn delete-user" data-id="${u.id}">Delete</button>
+    `;
+    tr.innerHTML=`<td>${u.email}</td><td>${u.name||''}</td><td>${roleLabel}</td><td>${dt}</td><td>${btn}</td>`;
     tbody.appendChild(tr);
   });
   tbody.querySelectorAll('.edit-user').forEach(btn=>{
@@ -129,6 +209,60 @@ async function renderUsers(role){
       document.getElementById('edit-userError').textContent = '';
     });
   });
+  tbody.querySelectorAll('.role-user').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.id;
+      const user = allUsers.find(u=> u.id === id);
+      if(!user) return;
+      const nextRole = user.role === 'admin' ? 'user' : 'admin';
+      if(!confirm(`Change role for ${user.email} to ${nextRole}?`)) return;
+      const ok = await updateUserRole(user, nextRole);
+      if(!ok) alert('Failed to update role');
+      await refreshUsers();
+    });
+  });
+  tbody.querySelectorAll('.delete-user').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.id;
+      const user = allUsers.find(u=> u.id === id);
+      const session = getSession();
+      if(!user) return;
+      if(session?.id === user.id){
+        alert('You cannot delete your own account.');
+        return;
+      }
+      if(!confirm(`Delete user ${user.email}? This cannot be undone.`)) return;
+      const ok = await deleteUser(user);
+      if(!ok) alert('Failed to delete user');
+      await refreshUsers();
+    });
+  });
+}
+
+async function refreshUsers(){
+  const session = getSession();
+  if(!session) return;
+  const users = await loadUsers(session.role);
+  usersCache.length = 0;
+  usersCache.push(...users);
+  renderUsersTable(usersCache);
+}
+
+function exportUsersCSV(){
+  const rows = applyUserFilters(usersCache);
+  if(!rows.length){alert('No users to export');return;}
+  const hdr = ['email','name','role','createdAt'];
+  const data = rows.map(u=>[u.email,u.name || '',u.role || '',u.createdAt || '']);
+  const csv = [hdr.join(','),...data.map(r=>r.map(c=>`"${String(c ?? '').replace(/"/g,'""')}"`).join(','))].join('\n');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'users.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 document.addEventListener('DOMContentLoaded', ()=>{
@@ -141,7 +275,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     return;
   }
   setupTabs();
-  renderUsers(session.role);
+  refreshUsers();
   const form=document.getElementById('userForm');
   const err=document.getElementById('userError');
   form.addEventListener('submit', async ev=>{
@@ -159,9 +293,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
       return;
     }
     form.reset();
-    renderUsers(session.role);
+    refreshUsers();
   });
   document.getElementById('userClearBtn').addEventListener('click',()=>{form.reset();err.textContent='';});
+  document.getElementById('userGeneratePwd')?.addEventListener('click', ()=>{
+    const pwd = generateTempPassword();
+    document.getElementById('userPassword').value = pwd;
+    err.textContent = `Generated password: ${pwd}`;
+  });
 
   // Edit user
   const editForm = document.getElementById('editUserForm');
@@ -186,12 +325,22 @@ document.addEventListener('DOMContentLoaded', ()=>{
         return;
       }
       editForm.reset();
-      await renderUsers(session.role);
+      await refreshUsers();
     }catch(e){
       editErr.textContent = 'Unable to update user';
     }
   });
   document.getElementById('edit-userClearBtn').addEventListener('click',()=>{editForm.reset();editErr.textContent='';});
+  document.getElementById('edit-generatePassword')?.addEventListener('click', ()=>{
+    const pwd = generateTempPassword();
+    document.getElementById('edit-userPassword').value = pwd;
+    editErr.textContent = `Temp password generated: ${pwd}`;
+  });
+
+  document.getElementById('userSearch')?.addEventListener('input', ()=> renderUsersTable(usersCache));
+  document.getElementById('userRoleFilter')?.addEventListener('change', ()=> renderUsersTable(usersCache));
+  document.getElementById('userSort')?.addEventListener('change', ()=> renderUsersTable(usersCache));
+  document.getElementById('userExportBtn')?.addEventListener('click', exportUsersCSV);
 
   // Profile panel
   loadProfileFields();
