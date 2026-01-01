@@ -1,6 +1,7 @@
 const FALLBACK = 'N/A';
 let jobCache = [];
 let isAdmin = false;
+let editingCode = null;
 
 async function loadJobs(){
   try{
@@ -51,6 +52,54 @@ function formatNotes(val){
   if(!note) return '';
   if(note.length <= 60) return note;
   return note.slice(0,57) + '...';
+}
+
+function setEditMode(project){
+  if(!project) return;
+  editingCode = project.code;
+  const codeInput = document.getElementById('jobCode');
+  const nameInput = document.getElementById('jobName');
+  const statusInput = document.getElementById('jobStatus');
+  const startInput = document.getElementById('jobStartDate');
+  const endInput = document.getElementById('jobEndDate');
+  const locationInput = document.getElementById('jobLocation');
+  const notesInput = document.getElementById('jobNotes');
+  if(codeInput){
+    codeInput.value = project.code || '';
+    codeInput.disabled = true;
+  }
+  if(nameInput) nameInput.value = project.name || '';
+  if(statusInput) statusInput.value = project.status || 'planned';
+  if(startInput) startInput.value = project.startDate || '';
+  if(endInput) endInput.value = project.endDate || '';
+  if(locationInput) locationInput.value = project.location || '';
+  if(notesInput) notesInput.value = project.notes || '';
+
+  const meta = document.getElementById('jobEditMeta');
+  if(meta){
+    meta.textContent = `Editing project: ${project.code}`;
+    meta.style.display = '';
+  }
+  const cancelBtn = document.getElementById('jobCancelEdit');
+  if(cancelBtn) cancelBtn.style.display = '';
+  const submitBtn = document.querySelector('#jobForm button[type="submit"]');
+  if(submitBtn) submitBtn.textContent = 'Update Project';
+}
+
+function clearEditMode(){
+  editingCode = null;
+  const form = document.getElementById('jobForm');
+  if(form) form.reset();
+  const codeInput = document.getElementById('jobCode');
+  if(codeInput) codeInput.disabled = false;
+  const statusInput = document.getElementById('jobStatus');
+  if(statusInput) statusInput.value = 'planned';
+  const meta = document.getElementById('jobEditMeta');
+  if(meta) meta.style.display = 'none';
+  const cancelBtn = document.getElementById('jobCancelEdit');
+  if(cancelBtn) cancelBtn.style.display = 'none';
+  const submitBtn = document.querySelector('#jobForm button[type="submit"]');
+  if(submitBtn) submitBtn.textContent = 'Save Project';
 }
 
 async function saveProject(project){
@@ -123,19 +172,29 @@ async function renderProjects(){
     const locationLabel = project.location || '';
     const notesLabel = formatNotes(project.notes);
     const updatedLabel = formatDateTime(project.updatedAt);
-    const actionCell = isAdmin ? `<td><button class="delete-btn" data-code="${project.code}">Delete</button></td>` : '';
+    const actionCell = isAdmin ? `<td><button class="action-btn edit-btn" data-code="${project.code}">Edit</button><button class="action-btn delete-btn" data-code="${project.code}">Delete</button></td>` : '';
     tr.innerHTML = `<td>${escapeHtml(project.code)}</td><td>${escapeHtml(project.name || '')}</td><td>${escapeHtml(statusLabel)}</td><td>${startLabel}</td><td>${endLabel}</td><td>${escapeHtml(locationLabel)}</td><td title="${escapeHtml(project.notes || '')}">${escapeHtml(notesLabel)}</td><td>${updatedLabel}</td>${actionCell}`;
     tbody.appendChild(tr);
   });
 
   if(isAdmin){
+    document.querySelectorAll('.edit-btn').forEach(btn=>{
+      btn.addEventListener('click', ev=>{
+        const code = ev.target.dataset.code;
+        const project = jobCache.find(j=> (j.code || '') === code);
+        if(project) setEditMode(project);
+      });
+    });
     document.querySelectorAll('.delete-btn').forEach(btn=>{
       btn.addEventListener('click', async ev=>{
         const code = ev.target.dataset.code;
         if(!confirm(`Delete project "${code}"?`)) return;
         const ok = await deleteProjectApi(code);
         if(!ok) alert('Failed to delete project');
-        else await renderProjects();
+        else {
+          if(editingCode === code) clearEditMode();
+          await renderProjects();
+        }
       });
     });
   }
@@ -165,13 +224,12 @@ function initProjectForm(){
     if(!result.ok){
       alert(result.error || 'Failed to save project (check permissions or server)');
     }else{
-      form.reset();
-      const statusField = document.getElementById('jobStatus');
-      if(statusField) statusField.value = 'planned';
+      clearEditMode();
       await renderProjects();
     }
   });
-  document.getElementById('jobClearBtn')?.addEventListener('click', ()=>form.reset());
+  document.getElementById('jobClearBtn')?.addEventListener('click', clearEditMode);
+  document.getElementById('jobCancelEdit')?.addEventListener('click', clearEditMode);
 }
 
 function initTabs(){
@@ -215,35 +273,214 @@ function aggregateByProject(entries){
   }));
 }
 
+const GENERAL_LABEL = 'General';
+const reportDetailMap = new Map();
+let reportExpanded = false;
+
+function isGeneralProject(value){
+  return (value || '').toString().trim().toLowerCase() === 'general';
+}
+
+function encodeKey(value){
+  return encodeURIComponent(value || '');
+}
+
+function decodeKey(value){
+  try{ return decodeURIComponent(value || ''); }catch(e){ return value || ''; }
+}
+
+function getProjectMeta(projectId){
+  const match = jobCache.find(j=> (j.code || '').toLowerCase() === projectId.toLowerCase());
+  if(match) return match;
+  return { code: projectId, status: isGeneralProject(projectId) ? 'general' : '', startDate: '', endDate: '', location: '', notes: '' };
+}
+
+function buildProjectSummary(items){
+  const map = new Map();
+  items.forEach(item=>{
+    const pid = item.projectId;
+    if(!map.has(pid)) map.set(pid, { projectId: pid, inQty: 0, outQty: 0, reserveQty: 0, netUsage: 0, items: [] });
+    const rec = map.get(pid);
+    rec.inQty += item.inQty;
+    rec.outQty += item.outQty;
+    rec.reserveQty += item.reserveQty;
+    rec.netUsage += item.netUsage;
+    rec.items.push(item);
+  });
+  return Array.from(map.values());
+}
+
+function applyReportFilters(projects){
+  const search = (document.getElementById('reportSearchBox')?.value || '').toLowerCase();
+  const statusFilter = (document.getElementById('reportStatusFilter')?.value || '').toLowerCase();
+  const includeGeneral = document.getElementById('reportIncludeGeneral')?.checked !== false;
+  return projects.filter(p=>{
+    if(!includeGeneral && isGeneralProject(p.projectId)) return false;
+    const meta = getProjectMeta(p.projectId);
+    const statusVal = (meta.status || '').toLowerCase();
+    if(statusFilter && statusVal !== statusFilter) return false;
+    if(search){
+      const location = (meta.location || '').toLowerCase();
+      const notes = (meta.notes || '').toLowerCase();
+      const projectText = p.projectId.toLowerCase();
+      if(!(projectText.includes(search) || statusVal.includes(search) || location.includes(search) || notes.includes(search))){
+        return false;
+      }
+    }
+    return true;
+  }).map(p=>({ ...p, meta: getProjectMeta(p.projectId) }));
+}
+
+function updateReportSummary(list){
+  const totalProjects = list.length;
+  const activeProjects = list.filter(p=> (p.meta.status || '').toLowerCase() === 'active').length;
+  const checkedOut = list.reduce((sum,p)=> sum + (Number(p.outQty)||0), 0);
+  const reserved = list.reduce((sum,p)=> sum + (Number(p.reserveQty)||0), 0);
+  const setText = (id, val)=>{
+    const el = document.getElementById(id);
+    if(el) el.textContent = `${val}`;
+  };
+  setText('reportTotalProjects', totalProjects);
+  setText('reportActiveProjects', activeProjects);
+  setText('reportCheckedOut', checkedOut);
+  setText('reportReserved', reserved);
+}
+
+function buildDetailTable(items){
+  if(!items.length) return '<div style="color:#6b7280;">No items</div>';
+  const rows = items.slice().sort((a,b)=> (a.code || '').localeCompare(b.code || '')).map(item=>{
+    const onHand = (item.inQty || 0) - (item.outQty || 0);
+    return `<tr><td>${escapeHtml(item.code || '')}</td><td>${item.inQty}</td><td>${item.outQty}</td><td>${item.reserveQty}</td><td>${onHand}</td><td>${item.netUsage}</td></tr>`;
+  }).join('');
+  return `<table class="detail-table">
+    <thead><tr><th>Code</th><th>Checked In</th><th>Checked Out</th><th>Reserved</th><th>On Hand</th><th>Net Usage</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function openProjectDetail(btn){
+  const key = btn.dataset.project;
+  const row = btn.closest('tr');
+  if(!row) return;
+  let detailRow = row.nextElementSibling;
+  if(detailRow && detailRow.classList.contains('report-detail') && detailRow.dataset.project === key){
+    detailRow.style.display = '';
+    btn.textContent = 'Hide Items';
+    return;
+  }
+  const items = reportDetailMap.get(key) || [];
+  detailRow = document.createElement('tr');
+  detailRow.className = 'report-detail';
+  detailRow.dataset.project = key;
+  detailRow.innerHTML = `<td colspan="10">${buildDetailTable(items)}</td>`;
+  row.parentNode.insertBefore(detailRow, row.nextSibling);
+  btn.textContent = 'Hide Items';
+}
+
+function closeProjectDetail(btn){
+  const row = btn.closest('tr');
+  const detailRow = row?.nextElementSibling;
+  if(detailRow && detailRow.classList.contains('report-detail')){
+    detailRow.style.display = 'none';
+  }
+  btn.textContent = 'View Items';
+}
+
+function toggleProjectDetail(btn){
+  const row = btn.closest('tr');
+  const detailRow = row?.nextElementSibling;
+  if(detailRow && detailRow.classList.contains('report-detail') && detailRow.style.display !== 'none'){
+    closeProjectDetail(btn);
+  }else{
+    openProjectDetail(btn);
+  }
+}
+
+function setExpandAllState(expand){
+  reportExpanded = expand;
+  const expandBtn = document.getElementById('reportExpandAll');
+  if(expandBtn) expandBtn.textContent = expand ? 'Collapse All' : 'Expand All';
+}
+
 async function renderReport(){
   const tbody = document.querySelector('#reportTable tbody');
   if(!tbody) return;
   tbody.innerHTML = '';
+  await loadJobs();
   const entries = await loadEntries();
-  let items = aggregateByProject(entries);
-  const search = (document.getElementById('reportSearchBox')?.value || '').toLowerCase();
-  if(search) items = items.filter(i=> i.projectId.toLowerCase().includes(search));
-  items.sort((a,b)=> a.projectId.localeCompare(b.projectId) || a.code.localeCompare(b.code));
-  if(!items.length){
+  const items = aggregateByProject(entries);
+  const summary = buildProjectSummary(items);
+  const filtered = applyReportFilters(summary);
+  updateReportSummary(filtered);
+
+  reportDetailMap.clear();
+  filtered.forEach(p=>{
+    const key = encodeKey(p.projectId);
+    reportDetailMap.set(key, p.items || []);
+  });
+
+  const colCount = 10;
+  if(!filtered.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="6" style="text-align:center;color:#6b7280;">No project activity yet</td>`;
+    tr.innerHTML = `<td colspan="${colCount}" style="text-align:center;color:#6b7280;">No project activity yet</td>`;
     tbody.appendChild(tr);
+    setExpandAllState(false);
     return;
   }
-  items.forEach(item=>{
+
+  const rows = filtered.sort((a,b)=> a.projectId.localeCompare(b.projectId));
+  rows.forEach(project=>{
+    const meta = project.meta || {};
+    const onHand = (project.inQty || 0) - (project.outQty || 0);
+    const statusLabel = meta.status ? formatStatus(meta.status) : (isGeneralProject(project.projectId) ? GENERAL_LABEL : FALLBACK);
+    const startLabel = formatDate(meta.startDate);
+    const endLabel = formatDate(meta.endDate);
+    const locationLabel = meta.location || '';
+    const key = encodeKey(project.projectId);
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${item.projectId}</td><td>${item.code}</td><td>${item.inQty}</td><td>${item.outQty}</td><td>${item.reserveQty}</td><td>${item.netUsage}</td>`;
+    tr.innerHTML = `
+      <td>${escapeHtml(project.projectId)}</td>
+      <td>${escapeHtml(statusLabel)}</td>
+      <td>${startLabel}</td>
+      <td>${endLabel}</td>
+      <td>${escapeHtml(locationLabel)}</td>
+      <td>${onHand}</td>
+      <td>${project.outQty}</td>
+      <td>${project.reserveQty}</td>
+      <td>${project.netUsage}</td>
+      <td><button class="action-btn report-toggle" data-project="${key}">View Items</button></td>
+    `;
     tbody.appendChild(tr);
   });
+
+  document.querySelectorAll('.report-toggle').forEach(btn=>{
+    btn.addEventListener('click', ()=> toggleProjectDetail(btn));
+  });
+  setExpandAllState(false);
 }
 
 async function exportReportCSV(){
+  await loadJobs();
   const entries = await loadEntries();
   const items = aggregateByProject(entries);
   if(!items.length){alert('No project data to export');return;}
-  const hdr = ['projectId','code','checkedIn','checkedOut','reserved','netUsage'];
-  const rows = items.map(r=>[r.projectId,r.code,r.inQty,r.outQty,r.reserveQty,r.netUsage]);
-  const csv = [hdr.join(','),...rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(','))].join('\n');
+  const hdr = ['projectId','status','startDate','endDate','location','code','checkedIn','checkedOut','reserved','netUsage'];
+  const rows = items.map(r=>{
+    const meta = getProjectMeta(r.projectId);
+    return [
+      r.projectId,
+      meta.status || '',
+      meta.startDate || '',
+      meta.endDate || '',
+      meta.location || '',
+      r.code,
+      r.inQty,
+      r.outQty,
+      r.reserveQty,
+      r.netUsage
+    ];
+  });
+  const csv = [hdr.join(','),...rows.map(r=>r.map(c=>`"${String(c ?? '').replace(/"/g,'""')}"`).join(','))].join('\n');
   const blob = new Blob([csv],{type:'text/csv'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -276,5 +513,18 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
   document.getElementById('projectSearchBox')?.addEventListener('input', renderProjects);
   document.getElementById('reportSearchBox')?.addEventListener('input', renderReport);
+  document.getElementById('reportStatusFilter')?.addEventListener('change', renderReport);
+  document.getElementById('reportIncludeGeneral')?.addEventListener('change', renderReport);
   document.getElementById('reportExportBtn')?.addEventListener('click', exportReportCSV);
+  document.getElementById('reportExpandAll')?.addEventListener('click', ()=>{
+    const toggles = document.querySelectorAll('.report-toggle');
+    if(!toggles.length) return;
+    if(reportExpanded){
+      toggles.forEach(btn=> closeProjectDetail(btn));
+      setExpandAllState(false);
+    }else{
+      toggles.forEach(btn=> openProjectDetail(btn));
+      setExpandAllState(true);
+    }
+  });
 });

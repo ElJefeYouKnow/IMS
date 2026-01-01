@@ -156,6 +156,12 @@ body.count-mode .count-input-col{display:table-cell}
 .dark .filter-btn{background:#0f172a;color:#e5e7eb;border-color:#1f2937}
 .dark .available-pill{background:#0b1020;border-color:#1f2937;color:#e5e7eb}
 .dark input,.dark select,.dark textarea{background:#0f172a;color:#e5e7eb;border-color:#1f2937}
+.report-detail td{background:#f8fafc}
+.report-detail .detail-table{width:100%;border-collapse:collapse;font-size:0.85rem}
+.report-detail .detail-table th{padding:6px;text-align:left;color:var(--muted);font-size:0.8rem}
+.report-detail .detail-table td{padding:6px;border-top:1px solid #e5e7eb}
+.dark .report-detail td{background:#0f172a}
+.dark .report-detail .detail-table td{border-top:1px solid #1f2937}
 .compact .card{padding:10px}
 .compact .form-row{gap:6px}
 .compact .line-items{gap:6px}

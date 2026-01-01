@@ -77,7 +77,9 @@
             <div class="form-row">
               <button type="submit">Save Project</button>
               <button id="jobClearBtn" type="button" class="muted">Clear</button>
+              <button id="jobCancelEdit" type="button" class="muted" style="display:none;">Cancel Edit</button>
             </div>
+            <div id="jobEditMeta" class="muted-text" style="display:none;"></div>
           </form>
         </section>
 
@@ -107,12 +109,52 @@
 
       <div id="report-tab" class="mode-content">
         <section class="card">
+          <div class="summary-grid" style="margin-bottom:12px;">
+            <div class="summary-item">
+              <span>Total Projects</span>
+              <strong id="reportTotalProjects">-</strong>
+            </div>
+            <div class="summary-item">
+              <span>Active Projects</span>
+              <strong id="reportActiveProjects">-</strong>
+            </div>
+            <div class="summary-item">
+              <span>Checked Out Units</span>
+              <strong id="reportCheckedOut">-</strong>
+            </div>
+            <div class="summary-item">
+              <span>Reserved Units</span>
+              <strong id="reportReserved">-</strong>
+            </div>
+          </div>
           <div class="data-toolbar">
-            <input id="reportSearchBox" type="text" placeholder="Search by project code...">
+            <input id="reportSearchBox" type="text" placeholder="Search by project, status, or location...">
+            <select id="reportStatusFilter">
+              <option value="">All Statuses</option>
+              <option value="planned">Planned</option>
+              <option value="active">Active</option>
+              <option value="on-hold">On Hold</option>
+              <option value="complete">Complete</option>
+            </select>
+            <label class="filter-chip"><input id="reportIncludeGeneral" type="checkbox" checked> Include General</label>
+            <button id="reportExpandAll" type="button" class="muted">Expand All</button>
             <button id="reportExportBtn" type="button" class="muted">Export CSV</button>
           </div>
           <table id="reportTable">
-            <thead><tr><th>Project</th><th>Item Code</th><th>Checked In</th><th>Checked Out</th><th>Reserved</th><th>Net Usage</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Status</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Location</th>
+                <th>On Hand</th>
+                <th>Checked Out</th>
+                <th>Reserved</th>
+                <th>Net Usage</th>
+                <th>Items</th>
+              </tr>
+            </thead>
             <tbody></tbody>
           </table>
         </section>
