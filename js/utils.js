@@ -174,6 +174,30 @@
         if(user?.role) opts.headers.set('x-user-role', user.role);
         return orig(url, opts);
       };
+    },
+    initClock(){
+      if(this._clockInit) return;
+      this._clockInit = true;
+      const ensureClock = ()=>{
+        if(document.querySelector('.clock-pill')) return;
+        const target = document.querySelector('.topbar-right');
+        const wrap = document.createElement('div');
+        wrap.className = target ? 'clock-pill' : 'clock-pill corner-clock';
+        wrap.innerHTML = '<span class="clock-label">Now</span><span class="clock-value"></span>';
+        if(target) target.prepend(wrap);
+        else document.body.appendChild(wrap);
+      };
+      const tick = ()=>{
+        const label = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        document.querySelectorAll('.clock-value').forEach(el=>{ el.textContent = label; });
+      };
+      const start = ()=>{
+        ensureClock();
+        tick();
+        setInterval(tick, 60000);
+      };
+      if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+      else start();
     }
   };
 
@@ -202,4 +226,5 @@
   };
 
   global.utils = utils;
+  utils.initClock?.();
 })(window);
