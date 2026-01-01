@@ -6,6 +6,89 @@ function getSession(){
   }catch(e){ return null; }
 }
 
+function setSession(next){
+  localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+}
+
+function updateUserChip(){
+  if(window.utils){
+    utils.setupUserChip?.();
+  }
+}
+
+async function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadProfileFields(){
+  const session = getSession();
+  const nameInput = document.getElementById('adminProfileName');
+  const avatarInput = document.getElementById('adminProfileAvatar');
+  if(nameInput){
+    nameInput.value = localStorage.getItem('profileName') || session?.name || '';
+  }
+  if(avatarInput){
+    const fallback = session?.name ? session.name.slice(0,2).toUpperCase() : '';
+    avatarInput.value = localStorage.getItem('profileAvatar') || fallback;
+  }
+}
+
+function saveProfileFields(){
+  const session = getSession();
+  const nameInput = document.getElementById('adminProfileName');
+  const avatarInput = document.getElementById('adminProfileAvatar');
+  const msg = document.getElementById('adminProfileMsg');
+  const nameVal = nameInput?.value.trim() || '';
+  const avatarVal = avatarInput?.value.trim().toUpperCase() || '';
+  if(nameVal) localStorage.setItem('profileName', nameVal);
+  else localStorage.removeItem('profileName');
+  if(avatarVal) localStorage.setItem('profileAvatar', avatarVal);
+  else localStorage.removeItem('profileAvatar');
+  if(session){
+    const next = { ...session };
+    if(nameVal) next.name = nameVal;
+    setSession(next);
+  }
+  if(msg) msg.textContent = 'Profile saved';
+  updateUserChip();
+}
+
+function clearProfileFields(){
+  localStorage.removeItem('profileName');
+  localStorage.removeItem('profileAvatar');
+  localStorage.removeItem('profilePicData');
+  const session = getSession();
+  if(session){
+    const next = { ...session };
+    if(next.name && localStorage.getItem('profileName')) next.name = localStorage.getItem('profileName');
+    setSession(next);
+  }
+  loadProfileFields();
+  const msg = document.getElementById('adminProfileMsg');
+  if(msg) msg.textContent = 'Profile cleared';
+  updateUserChip();
+}
+
+function setupTabs(){
+  const buttons = document.querySelectorAll('.tab-bar button');
+  const panelUsers = document.getElementById('panelUsers');
+  const panelProfile = document.getElementById('panelProfile');
+  const show = (tab)=>{
+    buttons.forEach(btn=> btn.classList.toggle('active', btn.dataset.tab === tab));
+    if(panelUsers) panelUsers.style.display = tab === 'users' ? '' : 'none';
+    if(panelProfile) panelProfile.style.display = tab === 'profile' ? '' : 'none';
+  };
+  buttons.forEach(btn=>{
+    btn.addEventListener('click', ()=> show(btn.dataset.tab));
+  });
+  show('users');
+}
+
 async function loadUsers(role){
   try{
     const r = await fetch('/api/users',{headers:{'x-admin-role': role}});
@@ -57,6 +140,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(content) content.style.display='none';
     return;
   }
+  setupTabs();
   renderUsers(session.role);
   const form=document.getElementById('userForm');
   const err=document.getElementById('userError');
@@ -108,4 +192,28 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   });
   document.getElementById('edit-userClearBtn').addEventListener('click',()=>{editForm.reset();editErr.textContent='';});
+
+  // Profile panel
+  loadProfileFields();
+  const profileForm = document.getElementById('adminProfileForm');
+  const profilePic = document.getElementById('adminProfilePicture');
+  const profileClear = document.getElementById('adminProfileClear');
+  if(profileForm){
+    profileForm.addEventListener('submit', ev=>{
+      ev.preventDefault();
+      saveProfileFields();
+    });
+  }
+  if(profileClear) profileClear.addEventListener('click', clearProfileFields);
+  if(profilePic){
+    profilePic.addEventListener('change', async (e)=>{
+      const file = e.target.files && e.target.files[0];
+      if(!file) return;
+      const data = await fileToDataUrl(file);
+      localStorage.setItem('profilePicData', data);
+      const msg = document.getElementById('adminProfileMsg');
+      if(msg) msg.textContent = 'Profile picture updated';
+      updateUserChip();
+    });
+  }
 });

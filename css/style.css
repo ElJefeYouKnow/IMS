@@ -19,6 +19,7 @@ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neu
 .user-chip{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.05);padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,0.06);cursor:pointer;transition:transform .15s ease, box-shadow .15s ease}
 .user-chip:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,0,0,0.2)}
 .user-chip .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#16a34a,#0f7a57);display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff;letter-spacing:0.5px}
+.user-chip .avatar.has-photo{color:transparent}
 .sidebar nav{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .sidebar a{color:rgba(255,255,255,0.9);text-decoration:none;padding:10px 12px;border-radius:10px;display:flex;align-items:center;gap:10px;font-weight:600;border:1px solid transparent;transition:all .2s}
 .sidebar a[data-role]{display:none}

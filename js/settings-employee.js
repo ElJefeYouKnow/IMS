@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const profileAvatar = document.getElementById('profileAvatar');
   const profilePicture = document.getElementById('profilePicture');
   const msg = document.getElementById('empSettingsMsg');
+  const session = window.utils?.getSession?.();
 
   // Load stored prefs
   const storedTheme = localStorage.getItem('theme') || 'light';
@@ -33,8 +34,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
     cb.checked = storedShortcuts.length === 0 ? true : storedShortcuts.includes(cb.value);
   });
 
-  profileName.value = localStorage.getItem('profileName') || '';
-  profileAvatar.value = localStorage.getItem('profileAvatar') || '';
+  profileName.value = localStorage.getItem('profileName') || session?.name || '';
+  const avatarFallback = session?.name ? session.name.slice(0,2).toUpperCase() : '';
+  profileAvatar.value = localStorage.getItem('profileAvatar') || avatarFallback;
   // Load picture (we only keep the latest as data URL)
   const storedPic = localStorage.getItem('profilePicData');
   if(profilePicture && storedPic){
@@ -85,10 +87,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
   profileName.addEventListener('change', ()=>{
     localStorage.setItem('profileName', profileName.value.trim());
     msg.textContent = 'Profile name saved';
+    updateSessionName(profileName.value.trim());
+    updateUserChip();
   });
   profileAvatar.addEventListener('change', ()=>{
     localStorage.setItem('profileAvatar', profileAvatar.value.trim().toUpperCase());
     msg.textContent = 'Avatar initials saved';
+    updateUserChip();
   });
 
   if(profilePicture){
@@ -99,12 +104,30 @@ document.addEventListener('DOMContentLoaded', ()=>{
       // Only store the newest picture
       localStorage.setItem('profilePicData', data);
       msg.textContent = 'Profile picture updated';
+      updateUserChip();
     });
   }
 
   // Tabs
   setupTabs();
 });
+
+function updateSessionName(name){
+  if(!name) return;
+  try{
+    const raw = localStorage.getItem('sessionUser');
+    if(!raw) return;
+    const session = JSON.parse(raw);
+    session.name = name;
+    localStorage.setItem('sessionUser', JSON.stringify(session));
+  }catch(e){}
+}
+
+function updateUserChip(){
+  if(window.utils){
+    utils.setupUserChip?.();
+  }
+}
 
 function applyDensity(val){
   if(val === 'compact'){

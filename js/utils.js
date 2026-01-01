@@ -53,18 +53,39 @@
     setupUserChip(){
       const chip = document.querySelector('.user-chip');
       if(!chip) return;
-      chip.addEventListener('click', ()=>{
-        const user = this.getSession();
-        if(user?.role === 'admin') window.location.href='settings.html';
-        else window.location.href='settings-employee.html';
-      });
+      if(!chip.dataset.bound){
+        chip.dataset.bound = 'true';
+        chip.addEventListener('click', ()=>{
+          const user = this.getSession();
+          if(user?.role === 'admin') window.location.href='settings.html';
+          else window.location.href='settings-employee.html';
+        });
+      }
       const avatar = chip.querySelector('.avatar');
-      const name = chip.querySelector('.user-name');
-      const roleText = chip.querySelector('.user-role');
+      const infoWrap = chip.querySelector('.user-info') || chip.querySelector('div:nth-child(2)');
+      const name = infoWrap ? (infoWrap.querySelector('.user-name') || infoWrap.querySelector('div:nth-child(1)')) : null;
+      const roleText = infoWrap ? (infoWrap.querySelector('.user-role') || infoWrap.querySelector('div:nth-child(2)')) : null;
       const user = this.getSession();
+      const profileName = localStorage.getItem('profileName') || '';
+      const profileAvatar = localStorage.getItem('profileAvatar') || '';
+      const profilePic = localStorage.getItem('profilePicData') || '';
+      const displayName = profileName || user?.name || user?.email || 'User';
       if(user){
-        if(avatar) avatar.textContent = (user.name || user.email || 'U').slice(0,2).toUpperCase();
-        if(name) name.textContent = user.name || user.email || 'User';
+        if(avatar){
+          if(profilePic){
+            avatar.textContent = '';
+            avatar.style.backgroundImage = `url(${profilePic})`;
+            avatar.style.backgroundSize = 'cover';
+            avatar.style.backgroundPosition = 'center';
+            avatar.classList.add('has-photo');
+          }else{
+            avatar.classList.remove('has-photo');
+            avatar.style.backgroundImage = '';
+            const initials = profileAvatar || displayName.slice(0,2);
+            avatar.textContent = initials.toUpperCase();
+          }
+        }
+        if(name) name.textContent = displayName;
         if(roleText) roleText.textContent = user.role ? user.role.charAt(0).toUpperCase()+user.role.slice(1) : 'User';
       }
     },
@@ -128,6 +149,7 @@
       document.querySelectorAll('[data-dev-only]').forEach(el=>{
         el.style.display = isDev ? '' : 'none';
       });
+      this.setupUserChip?.();
     },
     buildMobileNav(){
       if(document.querySelector('.bottom-nav')) return;
