@@ -15,6 +15,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const profileAvatar = document.getElementById('profileAvatar');
   const profilePicture = document.getElementById('profilePicture');
   const msg = document.getElementById('empSettingsMsg');
+  const appearanceSaveBtn = document.getElementById('appearanceSave');
+  const profileSaveBtn = document.getElementById('profileSave');
+  const shortcutsSaveBtn = document.getElementById('shortcutsSave');
+  const localeSaveBtn = document.getElementById('localeSave');
   const session = window.utils?.getSession?.();
 
   // Load stored prefs
@@ -46,55 +50,48 @@ document.addEventListener('DOMContentLoaded', ()=>{
   applyDensity(storedDensity);
   applyFontSize(storedFontSize);
 
-  themeSelect.addEventListener('change', ()=>{
+  const saveAppearance = ()=>{
     const val = themeSelect.value;
     utils.setTheme?.(val);
-    msg.textContent = `Theme set to ${val}`;
-  });
+    localStorage.setItem('density', densitySelect.value);
+    applyDensity(densitySelect.value);
+    localStorage.setItem('fontSize', fontSizeSelect.value);
+    applyFontSize(fontSizeSelect.value);
+    msg.textContent = 'Appearance saved';
+  };
 
-  densitySelect.addEventListener('change', ()=>{
-    const val = densitySelect.value;
-    localStorage.setItem('density', val);
-    applyDensity(val);
-    msg.textContent = `Density set to ${val}`;
-  });
-
-  fontSizeSelect.addEventListener('change', ()=>{
-    const val = fontSizeSelect.value;
-    localStorage.setItem('fontSize', val);
-    applyFontSize(val);
-    msg.textContent = `Font size set to ${val}`;
-  });
-
-  languageSelect.addEventListener('change', ()=>{
+  const saveLocale = ()=>{
     localStorage.setItem('lang', languageSelect.value);
-    msg.textContent = `Language/region set to ${languageSelect.value}`;
-  });
-
-  timeFormatSelect.addEventListener('change', ()=>{
     localStorage.setItem('timeFmt', timeFormatSelect.value);
-    msg.textContent = `Time format set to ${timeFormatSelect.value}`;
-  });
+    msg.textContent = 'Language & time saved';
+  };
 
+  const saveShortcuts = ()=>{
+    const enabled = Array.from(shortcutToggles).filter(x=>x.checked).map(x=>x.value);
+    localStorage.setItem('shortcuts', enabled.join(','));
+    msg.textContent = 'Shortcuts saved';
+  };
+
+  const saveProfile = ()=>{
+    const nameVal = profileName.value.trim();
+    const avatarVal = profileAvatar.value.trim().toUpperCase();
+    utils.setProfileValue?.('name', nameVal);
+    utils.setProfileValue?.('avatar', avatarVal);
+    updateSessionName(nameVal);
+    updateUserChip();
+    msg.textContent = 'Profile saved';
+  };
+
+  themeSelect.addEventListener('change', saveAppearance);
+  densitySelect.addEventListener('change', saveAppearance);
+  fontSizeSelect.addEventListener('change', saveAppearance);
+  languageSelect.addEventListener('change', saveLocale);
+  timeFormatSelect.addEventListener('change', saveLocale);
   shortcutToggles.forEach(cb=>{
-    cb.addEventListener('change', ()=>{
-      const enabled = Array.from(shortcutToggles).filter(x=>x.checked).map(x=>x.value);
-      localStorage.setItem('shortcuts', enabled.join(','));
-      msg.textContent = 'Shortcuts updated';
-    });
+    cb.addEventListener('change', saveShortcuts);
   });
-
-  profileName.addEventListener('change', ()=>{
-    utils.setProfileValue?.('name', profileName.value.trim());
-    msg.textContent = 'Profile name saved';
-    updateSessionName(profileName.value.trim());
-    updateUserChip();
-  });
-  profileAvatar.addEventListener('change', ()=>{
-    utils.setProfileValue?.('avatar', profileAvatar.value.trim().toUpperCase());
-    msg.textContent = 'Avatar initials saved';
-    updateUserChip();
-  });
+  profileName.addEventListener('change', saveProfile);
+  profileAvatar.addEventListener('change', saveProfile);
 
   if(profilePicture){
     profilePicture.addEventListener('change', async (e)=>{
@@ -103,10 +100,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const data = await fileToDataUrl(file);
       // Only store the newest picture
       utils.setProfileValue?.('pic', data);
-      msg.textContent = 'Profile picture updated';
+      msg.textContent = 'Profile picture saved';
       updateUserChip();
     });
   }
+
+  appearanceSaveBtn?.addEventListener('click', saveAppearance);
+  localeSaveBtn?.addEventListener('click', saveLocale);
+  shortcutsSaveBtn?.addEventListener('click', saveShortcuts);
+  profileSaveBtn?.addEventListener('click', saveProfile);
 
   // Tabs
   setupTabs();

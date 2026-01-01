@@ -44,12 +44,12 @@
       </header>
 
       <section class="card inventory-card">
-        <div class="form-row" style="margin-bottom:12px;gap:8px;">
-          <button class="muted tab-btn" id="tabAppearance" type="button" style="flex:1;">Appearance</button>
-          <button class="muted tab-btn" id="tabProfile" type="button" style="flex:1;">Profile</button>
-          <button class="muted tab-btn" id="tabShortcuts" type="button" style="flex:1;">Shortcuts</button>
-          <button class="muted tab-btn" id="tabLocale" type="button" style="flex:1;">Language &amp; Time</button>
-          <button class="muted tab-btn" id="tabUsers" type="button" style="flex:1;opacity:0.5;cursor:not-allowed;" disabled>User Management</button>
+        <div class="mode-tabs settings-tabs">
+          <button class="mode-btn" id="tabAppearance" type="button">Appearance</button>
+          <button class="mode-btn" id="tabProfile" type="button">Profile</button>
+          <button class="mode-btn" id="tabShortcuts" type="button">Shortcuts</button>
+          <button class="mode-btn" id="tabLocale" type="button">Language &amp; Time</button>
+          <button class="mode-btn" id="tabUsers" type="button" disabled>User Management</button>
         </div>
 
         <div id="panelAppearance" class="settings-panel">
@@ -75,6 +75,9 @@
               </select>
             </label>
           </div>
+          <div class="form-row">
+            <button id="appearanceSave" type="button">Save Appearance</button>
+          </div>
         </div>
 
         <div id="panelProfile" class="settings-panel" style="display:none;">
@@ -90,6 +93,9 @@
               <input id="profilePicture" type="file" accept="image/*">
             </label>
           </div>
+          <div class="form-row">
+            <button id="profileSave" type="button">Save Profile</button>
+          </div>
           <div style="font-size:0.9rem;color:#6b7280;">Only the most recent picture is kept.</div>
           <div id="loginActivity" style="font-size:0.9rem;color:#6b7280;margin-top:8px;">Recent logins will appear here.</div>
         </div>
@@ -104,6 +110,9 @@
                 <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="shortcut-toggle" value="job-activity"> Job Activity</label>
               </div>
             </label>
+          </div>
+          <div class="form-row">
+            <button id="shortcutsSave" type="button">Save Shortcuts</button>
           </div>
         </div>
 
@@ -124,6 +133,9 @@
               </select>
             </label>
           </div>
+          <div class="form-row">
+            <button id="localeSave" type="button">Save Language &amp; Time</button>
+          </div>
         </div>
 
         <div id="panelUsers" class="settings-panel" style="display:none;">
@@ -131,7 +143,7 @@
           <p class="muted-text">Admin only. Ask an admin to manage users.</p>
         </div>
 
-        <div id="empSettingsMsg" style="font-size:0.9rem;color:#6b7280;margin-top:8px;"></div>
+        <div id="empSettingsMsg" class="settings-msg"></div>
       </section>
     </main>
   </div>

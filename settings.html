@@ -44,12 +44,12 @@
       </header>
 
       <div class="card">
-        <div class="form-row settings-tabs" style="margin-bottom:12px;gap:8px;">
-          <button class="muted tab-btn settings-tab" data-tab="appearance" type="button" style="flex:1;">Appearance</button>
-          <button class="muted tab-btn settings-tab" data-tab="profile" type="button" style="flex:1;">Profile</button>
-          <button class="muted tab-btn settings-tab" data-tab="shortcuts" type="button" style="flex:1;">Shortcuts</button>
-          <button class="muted tab-btn settings-tab" data-tab="locale" type="button" style="flex:1;">Language &amp; Time</button>
-          <button class="muted tab-btn settings-tab" data-tab="users" type="button" style="flex:1;">User Management</button>
+        <div class="mode-tabs settings-tabs">
+          <button class="mode-btn settings-tab" data-tab="appearance" type="button">Appearance</button>
+          <button class="mode-btn settings-tab" data-tab="profile" type="button">Profile</button>
+          <button class="mode-btn settings-tab" data-tab="shortcuts" type="button">Shortcuts</button>
+          <button class="mode-btn settings-tab" data-tab="locale" type="button">Language &amp; Time</button>
+          <button class="mode-btn settings-tab" data-tab="users" type="button">User Management</button>
         </div>
         <div id="admin-guard" style="color:#b91c1c;display:none;">Admin only. Please login with an admin account.</div>
         <div id="settings-content">
@@ -75,6 +75,9 @@
                   <option value="xlarge">Extra Large</option>
                 </select>
               </label>
+            </div>
+            <div class="form-row">
+              <button id="appearanceSave" type="button">Save Appearance</button>
             </div>
           </div>
 
@@ -114,6 +117,9 @@
                 </div>
               </label>
             </div>
+            <div class="form-row">
+              <button id="shortcutsSave" type="button">Save Shortcuts</button>
+            </div>
           </div>
 
           <div id="panelLocale" class="settings-panel" style="display:none;">
@@ -132,6 +138,9 @@
                   <option value="24h">24-hour</option>
                 </select>
               </label>
+            </div>
+            <div class="form-row">
+              <button id="localeSave" type="button">Save Language &amp; Time</button>
             </div>
           </div>
 
@@ -229,7 +238,7 @@
               </form>
             </section>
           </div>
-          <div id="adminSettingsMsg" style="font-size:0.9rem;color:#6b7280;margin-top:8px;"></div>
+          <div id="adminSettingsMsg" class="settings-msg"></div>
         </div>
       </div>
     </main>

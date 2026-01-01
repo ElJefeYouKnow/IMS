@@ -94,6 +94,9 @@ function initAppearanceSettings(){
   const timeFormatSelect = document.getElementById('timeFormatSelect');
   const shortcutToggles = document.querySelectorAll('.shortcut-toggle');
   const msg = document.getElementById('adminSettingsMsg');
+  const appearanceSaveBtn = document.getElementById('appearanceSave');
+  const shortcutsSaveBtn = document.getElementById('shortcutsSave');
+  const localeSaveBtn = document.getElementById('localeSave');
 
   if(!themeSelect) return;
 
@@ -116,43 +119,40 @@ function initAppearanceSettings(){
   applyDensity(storedDensity);
   applyFontSize(storedFontSize);
 
-  themeSelect.addEventListener('change', ()=>{
+  const saveAppearance = ()=>{
     const val = themeSelect.value;
     utils.setTheme?.(val);
-    if(msg) msg.textContent = `Theme set to ${val}`;
-  });
+    localStorage.setItem('density', densitySelect.value);
+    applyDensity(densitySelect.value);
+    localStorage.setItem('fontSize', fontSizeSelect.value);
+    applyFontSize(fontSizeSelect.value);
+    if(msg) msg.textContent = 'Appearance saved';
+  };
 
-  densitySelect.addEventListener('change', ()=>{
-    const val = densitySelect.value;
-    localStorage.setItem('density', val);
-    applyDensity(val);
-    if(msg) msg.textContent = `Density set to ${val}`;
-  });
-
-  fontSizeSelect.addEventListener('change', ()=>{
-    const val = fontSizeSelect.value;
-    localStorage.setItem('fontSize', val);
-    applyFontSize(val);
-    if(msg) msg.textContent = `Font size set to ${val}`;
-  });
-
-  languageSelect.addEventListener('change', ()=>{
+  const saveLocale = ()=>{
     localStorage.setItem('lang', languageSelect.value);
-    if(msg) msg.textContent = `Language/region set to ${languageSelect.value}`;
-  });
-
-  timeFormatSelect.addEventListener('change', ()=>{
     localStorage.setItem('timeFmt', timeFormatSelect.value);
-    if(msg) msg.textContent = `Time format set to ${timeFormatSelect.value}`;
+    if(msg) msg.textContent = 'Language & time saved';
+  };
+
+  const saveShortcuts = ()=>{
+    const enabled = Array.from(shortcutToggles).filter(x=>x.checked).map(x=>x.value);
+    localStorage.setItem('shortcuts', enabled.join(','));
+    if(msg) msg.textContent = 'Shortcuts saved';
+  };
+
+  themeSelect.addEventListener('change', saveAppearance);
+  densitySelect.addEventListener('change', saveAppearance);
+  fontSizeSelect.addEventListener('change', saveAppearance);
+  languageSelect.addEventListener('change', saveLocale);
+  timeFormatSelect.addEventListener('change', saveLocale);
+  shortcutToggles.forEach(cb=>{
+    cb.addEventListener('change', saveShortcuts);
   });
 
-  shortcutToggles.forEach(cb=>{
-    cb.addEventListener('change', ()=>{
-      const enabled = Array.from(shortcutToggles).filter(x=>x.checked).map(x=>x.value);
-      localStorage.setItem('shortcuts', enabled.join(','));
-      if(msg) msg.textContent = 'Shortcuts updated';
-    });
-  });
+  appearanceSaveBtn?.addEventListener('click', saveAppearance);
+  shortcutsSaveBtn?.addEventListener('click', saveShortcuts);
+  localeSaveBtn?.addEventListener('click', saveLocale);
 }
 
 function setupTabs(){
