@@ -5,11 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Admin Settings</title>
   <link rel="stylesheet" href="css/style.css" />
-  <style>
-    .tab-bar{display:flex;gap:10px;border-bottom:2px solid #e5e7eb;margin-bottom:12px;}
-    .tab-bar button{padding:10px 14px;background:none;border:none;border-bottom:3px solid transparent;cursor:pointer;font-weight:600;color:#6b7280;}
-    .tab-bar button.active{color:#111;border-color:#4f46e5;}
-  </style>
 </head>
 <body>
   <div class="app">
@@ -49,13 +44,98 @@
       </header>
 
       <div class="card">
-        <div class="tab-bar">
-          <button class="active" data-tab="users">User Management</button>
-          <button data-tab="profile">Profile</button>
+        <div class="form-row settings-tabs" style="margin-bottom:12px;gap:8px;">
+          <button class="muted tab-btn settings-tab" data-tab="appearance" type="button" style="flex:1;">Appearance</button>
+          <button class="muted tab-btn settings-tab" data-tab="profile" type="button" style="flex:1;">Profile</button>
+          <button class="muted tab-btn settings-tab" data-tab="shortcuts" type="button" style="flex:1;">Shortcuts</button>
+          <button class="muted tab-btn settings-tab" data-tab="locale" type="button" style="flex:1;">Language &amp; Time</button>
+          <button class="muted tab-btn settings-tab" data-tab="users" type="button" style="flex:1;">User Management</button>
         </div>
         <div id="admin-guard" style="color:#b91c1c;display:none;">Admin only. Please login with an admin account.</div>
         <div id="settings-content">
-          <div id="panelUsers">
+          <div id="panelAppearance" class="settings-panel" style="display:none;">
+            <h3>Appearance</h3>
+            <div class="form-row">
+              <label>Theme
+                <select id="themeSelect">
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                </select>
+              </label>
+              <label>Compact Spacing
+                <select id="densitySelect">
+                  <option value="normal">Normal</option>
+                  <option value="compact">Compact</option>
+                </select>
+              </label>
+              <label>Font Size
+                <select id="fontSizeSelect">
+                  <option value="normal">Normal</option>
+                  <option value="large">Large</option>
+                  <option value="xlarge">Extra Large</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div id="panelProfile" class="settings-panel" style="display:none;">
+            <section class="inventory-card">
+              <h3>Profile</h3>
+              <form id="adminProfileForm" class="inventory-form" autocomplete="off">
+                <div class="form-row">
+                  <label>Name
+                    <input id="adminProfileName" type="text" placeholder="Your display name">
+                  </label>
+                  <label>Avatar Initials
+                    <input id="adminProfileAvatar" type="text" maxlength="2" placeholder="e.g. JD">
+                  </label>
+                  <label>Profile Picture
+                    <input id="adminProfilePicture" type="file" accept="image/*">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <button type="submit">Save Profile</button>
+                  <button id="adminProfileClear" type="button" class="muted">Clear</button>
+                </div>
+                <div style="font-size:0.9rem;color:#6b7280;">Only the most recent picture is kept.</div>
+                <div id="adminProfileMsg" style="font-size:0.9rem;color:#6b7280;margin-top:8px;"></div>
+              </form>
+            </section>
+          </div>
+
+          <div id="panelShortcuts" class="settings-panel" style="display:none;">
+            <h3>Shortcuts</h3>
+            <div class="form-row">
+              <label style="flex:1">Choose quick actions to show
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
+                  <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="shortcut-toggle" value="pick-return"> Pick / Return</label>
+                  <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="shortcut-toggle" value="check-stock"> Check Stock</label>
+                  <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="shortcut-toggle" value="job-activity"> Project Activity</label>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div id="panelLocale" class="settings-panel" style="display:none;">
+            <h3>Language &amp; Time</h3>
+            <div class="form-row">
+              <label>Language/Region
+                <select id="languageSelect">
+                  <option value="en-US">English (US)</option>
+                  <option value="en-GB">English (UK)</option>
+                  <option value="es-ES">Espa??ol</option>
+                </select>
+              </label>
+              <label>Time Format
+                <select id="timeFormatSelect">
+                  <option value="12h">12-hour</option>
+                  <option value="24h">24-hour</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div id="panelUsers" class="settings-panel" style="display:none;">
             <section class="inventory-card">
               <h3>Create User</h3>
               <form id="userForm" class="inventory-form">
@@ -149,31 +229,7 @@
               </form>
             </section>
           </div>
-
-          <div id="panelProfile" style="display:none;">
-            <section class="inventory-card">
-              <h3>Profile</h3>
-              <form id="adminProfileForm" class="inventory-form" autocomplete="off">
-                <div class="form-row">
-                  <label>Name
-                    <input id="adminProfileName" type="text" placeholder="Your display name">
-                  </label>
-                  <label>Avatar Initials
-                    <input id="adminProfileAvatar" type="text" maxlength="2" placeholder="e.g. JD">
-                  </label>
-                  <label>Profile Picture
-                    <input id="adminProfilePicture" type="file" accept="image/*">
-                  </label>
-                </div>
-                <div class="form-row">
-                  <button type="submit">Save Profile</button>
-                  <button id="adminProfileClear" type="button" class="muted">Clear</button>
-                </div>
-                <div style="font-size:0.9rem;color:#6b7280;">Only the most recent picture is kept.</div>
-                <div id="adminProfileMsg" style="font-size:0.9rem;color:#6b7280;margin-top:8px;"></div>
-              </form>
-            </section>
-          </div>
+          <div id="adminSettingsMsg" style="font-size:0.9rem;color:#6b7280;margin-top:8px;"></div>
         </div>
       </div>
     </main>

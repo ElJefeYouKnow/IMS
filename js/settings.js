@@ -30,11 +30,11 @@ function loadProfileFields(){
   const nameInput = document.getElementById('adminProfileName');
   const avatarInput = document.getElementById('adminProfileAvatar');
   if(nameInput){
-    nameInput.value = localStorage.getItem('profileName') || session?.name || '';
+    nameInput.value = utils.getProfileValue?.('name') || session?.name || '';
   }
   if(avatarInput){
     const fallback = session?.name ? session.name.slice(0,2).toUpperCase() : '';
-    avatarInput.value = localStorage.getItem('profileAvatar') || fallback;
+    avatarInput.value = utils.getProfileValue?.('avatar') || fallback;
   }
 }
 
@@ -45,10 +45,10 @@ function saveProfileFields(){
   const msg = document.getElementById('adminProfileMsg');
   const nameVal = nameInput?.value.trim() || '';
   const avatarVal = avatarInput?.value.trim().toUpperCase() || '';
-  if(nameVal) localStorage.setItem('profileName', nameVal);
-  else localStorage.removeItem('profileName');
-  if(avatarVal) localStorage.setItem('profileAvatar', avatarVal);
-  else localStorage.removeItem('profileAvatar');
+  if(nameVal) utils.setProfileValue?.('name', nameVal);
+  else utils.setProfileValue?.('name', '');
+  if(avatarVal) utils.setProfileValue?.('avatar', avatarVal);
+  else utils.setProfileValue?.('avatar', '');
   if(session){
     const next = { ...session };
     if(nameVal) next.name = nameVal;
@@ -59,13 +59,12 @@ function saveProfileFields(){
 }
 
 function clearProfileFields(){
-  localStorage.removeItem('profileName');
-  localStorage.removeItem('profileAvatar');
-  localStorage.removeItem('profilePicData');
+  utils.clearProfileValues?.();
   const session = getSession();
   if(session){
     const next = { ...session };
-    if(next.name && localStorage.getItem('profileName')) next.name = localStorage.getItem('profileName');
+    const storedName = utils.getProfileValue?.('name');
+    if(next.name && storedName) next.name = storedName;
     setSession(next);
   }
   loadProfileFields();
@@ -74,19 +73,109 @@ function clearProfileFields(){
   updateUserChip();
 }
 
+function applyDensity(val){
+  if(val === 'compact'){
+    document.documentElement.classList.add('compact');
+  }else{
+    document.documentElement.classList.remove('compact');
+  }
+}
+
+function applyFontSize(val){
+  document.documentElement.style.setProperty('--font-scale', val === 'large' ? '1.1' : val === 'xlarge' ? '1.2' : '1');
+  document.body.style.fontSize = `calc(16px * ${document.documentElement.style.getPropertyValue('--font-scale') || 1})`;
+}
+
+function initAppearanceSettings(){
+  const themeSelect = document.getElementById('themeSelect');
+  const densitySelect = document.getElementById('densitySelect');
+  const fontSizeSelect = document.getElementById('fontSizeSelect');
+  const languageSelect = document.getElementById('languageSelect');
+  const timeFormatSelect = document.getElementById('timeFormatSelect');
+  const shortcutToggles = document.querySelectorAll('.shortcut-toggle');
+  const msg = document.getElementById('adminSettingsMsg');
+
+  if(!themeSelect) return;
+
+  const storedTheme = localStorage.getItem('theme') || 'light';
+  themeSelect.value = storedTheme;
+  const storedDensity = localStorage.getItem('density') || 'normal';
+  densitySelect.value = storedDensity;
+  const storedFontSize = localStorage.getItem('fontSize') || 'normal';
+  fontSizeSelect.value = storedFontSize;
+  const storedLang = localStorage.getItem('lang') || 'en-US';
+  languageSelect.value = storedLang;
+  const storedTimeFmt = localStorage.getItem('timeFmt') || '12h';
+  timeFormatSelect.value = storedTimeFmt;
+
+  const storedShortcuts = (localStorage.getItem('shortcuts') || '').split(',').filter(Boolean);
+  shortcutToggles.forEach(cb=>{
+    cb.checked = storedShortcuts.length === 0 ? true : storedShortcuts.includes(cb.value);
+  });
+
+  applyDensity(storedDensity);
+  applyFontSize(storedFontSize);
+
+  themeSelect.addEventListener('change', ()=>{
+    const val = themeSelect.value;
+    utils.setTheme?.(val);
+    if(msg) msg.textContent = `Theme set to ${val}`;
+  });
+
+  densitySelect.addEventListener('change', ()=>{
+    const val = densitySelect.value;
+    localStorage.setItem('density', val);
+    applyDensity(val);
+    if(msg) msg.textContent = `Density set to ${val}`;
+  });
+
+  fontSizeSelect.addEventListener('change', ()=>{
+    const val = fontSizeSelect.value;
+    localStorage.setItem('fontSize', val);
+    applyFontSize(val);
+    if(msg) msg.textContent = `Font size set to ${val}`;
+  });
+
+  languageSelect.addEventListener('change', ()=>{
+    localStorage.setItem('lang', languageSelect.value);
+    if(msg) msg.textContent = `Language/region set to ${languageSelect.value}`;
+  });
+
+  timeFormatSelect.addEventListener('change', ()=>{
+    localStorage.setItem('timeFmt', timeFormatSelect.value);
+    if(msg) msg.textContent = `Time format set to ${timeFormatSelect.value}`;
+  });
+
+  shortcutToggles.forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      const enabled = Array.from(shortcutToggles).filter(x=>x.checked).map(x=>x.value);
+      localStorage.setItem('shortcuts', enabled.join(','));
+      if(msg) msg.textContent = 'Shortcuts updated';
+    });
+  });
+}
+
 function setupTabs(){
-  const buttons = document.querySelectorAll('.tab-bar button');
-  const panelUsers = document.getElementById('panelUsers');
-  const panelProfile = document.getElementById('panelProfile');
+  const buttons = document.querySelectorAll('.settings-tab');
+  const panels = {
+    appearance: document.getElementById('panelAppearance'),
+    profile: document.getElementById('panelProfile'),
+    shortcuts: document.getElementById('panelShortcuts'),
+    locale: document.getElementById('panelLocale'),
+    users: document.getElementById('panelUsers')
+  };
   const show = (tab)=>{
     buttons.forEach(btn=> btn.classList.toggle('active', btn.dataset.tab === tab));
-    if(panelUsers) panelUsers.style.display = tab === 'users' ? '' : 'none';
-    if(panelProfile) panelProfile.style.display = tab === 'profile' ? '' : 'none';
+    Object.keys(panels).forEach(key=>{
+      if(panels[key]) panels[key].style.display = key === tab ? '' : 'none';
+    });
   };
   buttons.forEach(btn=>{
     btn.addEventListener('click', ()=> show(btn.dataset.tab));
   });
-  show('users');
+  const hash = (window.location.hash || '').replace('#','');
+  const startTab = panels[hash] ? hash : 'users';
+  show(startTab);
 }
 
 const usersCache = [];
@@ -275,6 +364,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     return;
   }
   setupTabs();
+  initAppearanceSettings();
   refreshUsers();
   const form=document.getElementById('userForm');
   const err=document.getElementById('userError');
@@ -359,7 +449,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const file = e.target.files && e.target.files[0];
       if(!file) return;
       const data = await fileToDataUrl(file);
-      localStorage.setItem('profilePicData', data);
+      utils.setProfileValue?.('pic', data);
       const msg = document.getElementById('adminProfileMsg');
       if(msg) msg.textContent = 'Profile picture updated';
       updateUserChip();

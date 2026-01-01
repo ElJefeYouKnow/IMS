@@ -34,11 +34,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
     cb.checked = storedShortcuts.length === 0 ? true : storedShortcuts.includes(cb.value);
   });
 
-  profileName.value = localStorage.getItem('profileName') || session?.name || '';
+  profileName.value = utils.getProfileValue?.('name') || session?.name || '';
   const avatarFallback = session?.name ? session.name.slice(0,2).toUpperCase() : '';
-  profileAvatar.value = localStorage.getItem('profileAvatar') || avatarFallback;
+  profileAvatar.value = utils.getProfileValue?.('avatar') || avatarFallback;
   // Load picture (we only keep the latest as data URL)
-  const storedPic = localStorage.getItem('profilePicData');
+  const storedPic = utils.getProfileValue?.('pic');
   if(profilePicture && storedPic){
     profilePicture.setAttribute('data-preview','loaded');
   }
@@ -85,13 +85,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
 
   profileName.addEventListener('change', ()=>{
-    localStorage.setItem('profileName', profileName.value.trim());
+    utils.setProfileValue?.('name', profileName.value.trim());
     msg.textContent = 'Profile name saved';
     updateSessionName(profileName.value.trim());
     updateUserChip();
   });
   profileAvatar.addEventListener('change', ()=>{
-    localStorage.setItem('profileAvatar', profileAvatar.value.trim().toUpperCase());
+    utils.setProfileValue?.('avatar', profileAvatar.value.trim().toUpperCase());
     msg.textContent = 'Avatar initials saved';
     updateUserChip();
   });
@@ -102,7 +102,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(!file) return;
       const data = await fileToDataUrl(file);
       // Only store the newest picture
-      localStorage.setItem('profilePicData', data);
+      utils.setProfileValue?.('pic', data);
       msg.textContent = 'Profile picture updated';
       updateUserChip();
     });
@@ -156,17 +156,19 @@ function setupTabs(){
     appearance: document.getElementById('panelAppearance'),
     profile: document.getElementById('panelProfile'),
     shortcuts: document.getElementById('panelShortcuts'),
-    locale: document.getElementById('panelLocale')
+    locale: document.getElementById('panelLocale'),
+    users: document.getElementById('panelUsers')
   };
   const buttons = {
     appearance: document.getElementById('tabAppearance'),
     profile: document.getElementById('tabProfile'),
     shortcuts: document.getElementById('tabShortcuts'),
-    locale: document.getElementById('tabLocale')
+    locale: document.getElementById('tabLocale'),
+    users: document.getElementById('tabUsers')
   };
   const show = (key)=>{
     Object.keys(panels).forEach(k=>{
-      panels[k].style.display = k === key ? '' : 'none';
+      if(panels[k]) panels[k].style.display = k === key ? '' : 'none';
       if(buttons[k]) buttons[k].classList.toggle('active', k === key);
     });
   };

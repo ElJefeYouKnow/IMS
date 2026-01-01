@@ -49,6 +49,7 @@
           <button class="muted tab-btn" id="tabProfile" type="button" style="flex:1;">Profile</button>
           <button class="muted tab-btn" id="tabShortcuts" type="button" style="flex:1;">Shortcuts</button>
           <button class="muted tab-btn" id="tabLocale" type="button" style="flex:1;">Language &amp; Time</button>
+          <button class="muted tab-btn" id="tabUsers" type="button" style="flex:1;opacity:0.5;cursor:not-allowed;" disabled>User Management</button>
         </div>
 
         <div id="panelAppearance" class="settings-panel">
@@ -123,6 +124,11 @@
               </select>
             </label>
           </div>
+        </div>
+
+        <div id="panelUsers" class="settings-panel" style="display:none;">
+          <h3>User Management</h3>
+          <p class="muted-text">Admin only. Ask an admin to manage users.</p>
         </div>
 
         <div id="empSettingsMsg" style="font-size:0.9rem;color:#6b7280;margin-top:8px;"></div>

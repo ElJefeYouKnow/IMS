@@ -50,6 +50,39 @@
         });
       }
     },
+    profileKey(suffix, userOverride){
+      const user = userOverride || this.getSession?.();
+      const tenant = (user?.tenantId || user?.tenantid || 'default').toLowerCase();
+      const id = user?.id || user?.userid || user?.email || 'anon';
+      return `profile.${tenant}.${id}.${suffix}`;
+    },
+    getProfileValue(suffix){
+      const key = this.profileKey?.(suffix);
+      let val = key ? localStorage.getItem(key) : null;
+      if(val) return val;
+      const legacyMap = { name: 'profileName', avatar: 'profileAvatar', pic: 'profilePicData' };
+      const legacyKey = legacyMap[suffix];
+      if(!legacyKey) return null;
+      const legacyVal = localStorage.getItem(legacyKey);
+      if(legacyVal && key){
+        localStorage.setItem(key, legacyVal);
+        localStorage.removeItem(legacyKey);
+        return legacyVal;
+      }
+      return legacyVal;
+    },
+    setProfileValue(suffix, value){
+      const key = this.profileKey?.(suffix);
+      if(!key) return;
+      if(value) localStorage.setItem(key, value);
+      else localStorage.removeItem(key);
+    },
+    clearProfileValues(){
+      ['name','avatar','pic'].forEach(suffix=>{
+        const key = this.profileKey?.(suffix);
+        if(key) localStorage.removeItem(key);
+      });
+    },
     setupUserChip(){
       const chip = document.querySelector('.user-chip');
       if(!chip) return;
@@ -66,9 +99,9 @@
       const name = infoWrap ? (infoWrap.querySelector('.user-name') || infoWrap.querySelector('div:nth-child(1)')) : null;
       const roleText = infoWrap ? (infoWrap.querySelector('.user-role') || infoWrap.querySelector('div:nth-child(2)')) : null;
       const user = this.getSession();
-      const profileName = localStorage.getItem('profileName') || '';
-      const profileAvatar = localStorage.getItem('profileAvatar') || '';
-      const profilePic = localStorage.getItem('profilePicData') || '';
+      const profileName = this.getProfileValue?.('name') || '';
+      const profileAvatar = this.getProfileValue?.('avatar') || '';
+      const profilePic = this.getProfileValue?.('pic') || '';
       const displayName = profileName || user?.name || user?.email || 'User';
       if(user){
         if(avatar){
