@@ -2,6 +2,11 @@
   {
     "code": "Row",
     "name": "Row",
-    "scheduleDate": "2025-12-30"
+    "startDate": "2025-12-30",
+    "endDate": "2026-01-15",
+    "status": "planned",
+    "location": "Main Site",
+    "notes": "Sample project notes.",
+    "updatedAt": 1767225600000
   }
 ]

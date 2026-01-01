@@ -37,7 +37,11 @@ async function loadJobOptions(){
   const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
   const today = new Date();
   jobOptions = (jobs || [])
-    .filter(j=> !j.scheduleDate || new Date(j.scheduleDate) >= today)
+    .filter(j=>{
+      if(!j.endDate) return true;
+      const end = new Date(j.endDate);
+      return !Number.isNaN(end.getTime()) && end >= today;
+    })
     .map(j=> j.code)
     .filter(Boolean)
     .sort();

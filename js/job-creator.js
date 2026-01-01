@@ -23,6 +23,36 @@ function formatDate(val){
   return d.toLocaleDateString();
 }
 
+function formatDateTime(val){
+  if(!val) return FALLBACK;
+  if(window.utils && utils.formatDateTime) return utils.formatDateTime(val);
+  const d = new Date(val);
+  if(Number.isNaN(d.getTime())) return FALLBACK;
+  return d.toLocaleString();
+}
+
+function formatStatus(val){
+  const raw = (val || '').toString().trim();
+  if(!raw) return FALLBACK;
+  return raw.replace(/-/g,' ').replace(/\b\w/g, c=> c.toUpperCase());
+}
+
+function escapeHtml(value){
+  return String(value || '')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/\"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function formatNotes(val){
+  const note = (val || '').toString().trim();
+  if(!note) return '';
+  if(note.length <= 60) return note;
+  return note.slice(0,57) + '...';
+}
+
 async function saveProject(project){
   if(!isAdmin) return { ok:false, error:'Admin only' };
   try{
@@ -63,7 +93,10 @@ async function renderProjects(){
     filtered = filtered.filter(j=>{
       const code = (j.code || '').toLowerCase();
       const name = (j.name || '').toLowerCase();
-      return code.includes(search) || name.includes(search);
+      const location = (j.location || '').toLowerCase();
+      const status = (j.status || '').toLowerCase();
+      const notes = (j.notes || '').toLowerCase();
+      return code.includes(search) || name.includes(search) || location.includes(search) || status.includes(search) || notes.includes(search);
     });
   }
   filtered.sort((a,b)=> (a.code || '').localeCompare(b.code || ''));
@@ -74,7 +107,7 @@ async function renderProjects(){
   const actionsHeader = document.getElementById('projectActionsHeader');
   if(actionsHeader) actionsHeader.style.display = isAdmin ? '' : 'none';
 
-  const colCount = isAdmin ? 4 : 3;
+  const colCount = isAdmin ? 9 : 8;
   if(!filtered.length){
     const tr = document.createElement('tr');
     tr.innerHTML = `<td colspan="${colCount}" style="text-align:center;color:#6b7280;">No projects found</td>`;
@@ -84,9 +117,14 @@ async function renderProjects(){
 
   filtered.forEach(project=>{
     const tr = document.createElement('tr');
-    const dateLabel = formatDate(project.scheduleDate);
+    const statusLabel = formatStatus(project.status);
+    const startLabel = formatDate(project.startDate);
+    const endLabel = formatDate(project.endDate);
+    const locationLabel = project.location || '';
+    const notesLabel = formatNotes(project.notes);
+    const updatedLabel = formatDateTime(project.updatedAt);
     const actionCell = isAdmin ? `<td><button class="delete-btn" data-code="${project.code}">Delete</button></td>` : '';
-    tr.innerHTML = `<td>${project.code}</td><td>${project.name || ''}</td><td>${dateLabel}</td>${actionCell}`;
+    tr.innerHTML = `<td>${escapeHtml(project.code)}</td><td>${escapeHtml(project.name || '')}</td><td>${escapeHtml(statusLabel)}</td><td>${startLabel}</td><td>${endLabel}</td><td>${escapeHtml(locationLabel)}</td><td title="${escapeHtml(project.notes || '')}">${escapeHtml(notesLabel)}</td><td>${updatedLabel}</td>${actionCell}`;
     tbody.appendChild(tr);
   });
 
@@ -117,13 +155,19 @@ function initProjectForm(){
     ev.preventDefault();
     const code = document.getElementById('jobCode').value.trim();
     const name = document.getElementById('jobName').value.trim();
-    const scheduleDate = document.getElementById('jobDate').value;
+    const status = document.getElementById('jobStatus')?.value || 'planned';
+    const startDate = document.getElementById('jobStartDate')?.value || '';
+    const endDate = document.getElementById('jobEndDate')?.value || '';
+    const location = document.getElementById('jobLocation')?.value.trim() || '';
+    const notes = document.getElementById('jobNotes')?.value.trim() || '';
     if(!code){alert('Project code required');return;}
-    const result = await saveProject({code,name,scheduleDate});
+    const result = await saveProject({code,name,status,startDate,endDate,location,notes});
     if(!result.ok){
       alert(result.error || 'Failed to save project (check permissions or server)');
     }else{
       form.reset();
+      const statusField = document.getElementById('jobStatus');
+      if(statusField) statusField.value = 'planned';
       await renderProjects();
     }
   });

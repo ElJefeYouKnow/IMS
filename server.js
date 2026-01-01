@@ -261,6 +261,12 @@ async function initDb() {
     code TEXT PRIMARY KEY,
     name TEXT,
     scheduleDate TEXT,
+    startDate TEXT,
+    endDate TEXT,
+    status TEXT,
+    location TEXT,
+    notes TEXT,
+    updatedAt BIGINT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS users(
@@ -288,11 +294,20 @@ async function initDb() {
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceId TEXT`);
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceMeta JSONB`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS startDate TEXT`);
+  await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS endDate TEXT`);
+  await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS status TEXT`);
+  await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS location TEXT`);
+  await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`UPDATE items SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE inventory SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE jobs SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE jobs SET startDate = scheduleDate WHERE startDate IS NULL AND scheduleDate IS NOT NULL`);
+  await runAsync(`UPDATE jobs SET status = 'planned' WHERE status IS NULL OR status = ''`);
+  await runAsync(`UPDATE jobs SET updatedAt = COALESCE(updatedAt, $1)`, [Date.now()]);
   await runAsync(`UPDATE users SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE inventory_counts SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory(code)');
@@ -353,12 +368,12 @@ async function initDb() {
   await runAsync(`UPDATE inventory SET sourceType='order', sourceId=id WHERE type='ordered' AND (sourceId IS NULL OR sourceId = '')`);
   // Backfill any jobs referenced by inventory rows
   await runAsync(`
-    INSERT INTO jobs(code,name,scheduleDate,tenantId)
-    SELECT DISTINCT inv.jobId, inv.jobId, NULL, inv.tenantId
+    INSERT INTO jobs(code,name,startDate,endDate,status,location,notes,updatedAt,tenantId)
+    SELECT DISTINCT inv.jobId, inv.jobId, NULL, NULL, 'planned', NULL, NULL, $1, inv.tenantId
     FROM inventory inv
     WHERE inv.jobId IS NOT NULL AND inv.jobId <> ''
     ON CONFLICT (code, tenantId) DO NOTHING
-  `);
+  `, [Date.now()]);
   await runAsync('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_code_fkey');
   await runAsync(`DO $$
   BEGIN
@@ -1166,12 +1181,16 @@ app.get('/api/jobs', async (req, res) => {
 
 app.post('/api/jobs', requireRole('admin'), async (req, res) => {
   try {
-    const { code, name, scheduleDate } = req.body;
+    const { code, name, scheduleDate, startDate, endDate, status, location, notes } = req.body;
     if (!code) return res.status(400).json({ error: 'code required' });
     const t = tenantId(req);
-    await runAsync(`INSERT INTO jobs(code,name,scheduleDate,tenantId) VALUES($1,$2,$3,$4)
-      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, scheduleDate=EXCLUDED.scheduleDate`, [code, name || '', scheduleDate || null, t]);
-    res.status(201).json({ code, name: name || '', scheduleDate: scheduleDate || null, tenantId: t });
+    const start = startDate || scheduleDate || null;
+    const statusValue = (status || 'planned').toString().trim().toLowerCase();
+    const updatedAt = Date.now();
+    await runAsync(`INSERT INTO jobs(code,name,startDate,endDate,status,location,notes,updatedAt,tenantId)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, startDate=EXCLUDED.startDate, endDate=EXCLUDED.endDate, status=EXCLUDED.status, location=EXCLUDED.location, notes=EXCLUDED.notes, updatedAt=EXCLUDED.updatedAt`, [code, name || '', start, endDate || null, statusValue, location || null, notes || null, updatedAt, t]);
+    res.status(201).json({ code, name: name || '', startDate: start || null, endDate: endDate || null, status: statusValue, location: location || null, notes: notes || null, updatedAt, tenantId: t });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
