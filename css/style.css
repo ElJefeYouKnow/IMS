@@ -213,4 +213,6 @@ body.role-employee .admin-only{display:none}
 .settings-tabs{margin-bottom:12px;flex-wrap:wrap}
 .settings-panel{display:flex;flex-direction:column;gap:12px}
 .settings-msg{font-size:0.9rem;color:#6b7280;margin-top:8px}
+.settings-action{padding:10px 12px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-weight:700;box-shadow:0 8px 16px rgba(15,122,87,0.25);cursor:pointer}
+.settings-action:disabled{opacity:0.6;cursor:not-allowed;box-shadow:none}
 
