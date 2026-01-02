@@ -222,6 +222,15 @@ select:disabled{
 .inventory-form button.muted{background:#eef2f7;color:#0a1b2b;border:1px solid #d5dbe4}
 .dark .inventory-form button.muted{background:#0f172a;color:#fff;border:1px solid #1f2937}
 @media(max-width:680px){.form-row{flex-direction:column}}
+@media(max-width:680px){
+  .line-items{gap:12px}
+  .line-row{border:1px solid var(--line);padding:12px;border-radius:12px;background:rgba(15,122,87,0.06)}
+  .dark .line-row{background:#0f172a;border-color:#1f2937}
+  .line-row label{width:100%}
+  .line-row .remove-line{width:100%}
+  .line-row button{width:100%}
+  .line-row input,.line-row select,.line-row textarea{font-size:16px}
+}
 
 .tab-btn{background:#f1f5f9;border:1px solid #e2e8f0;color:#0a1b2b;font-weight:700}
 .tab-btn.active{background:linear-gradient(135deg,#0a1b2b,#0f7a57);color:#fff;border-color:rgba(255,255,255,0.3);box-shadow:0 10px 24px rgba(10,27,43,0.2)}
