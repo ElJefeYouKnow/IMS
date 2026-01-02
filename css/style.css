@@ -1,4 +1,6 @@
 :root{
+  --font-body: "Manrope", "Segoe UI", sans-serif;
+  --font-display: "Space Grotesk", "Segoe UI", sans-serif;
   --bg:#f7f9fb;
   --card:#ffffff;
   --accent:#0f7a57; /* dark green */
@@ -6,8 +8,10 @@
   --muted:#5c6470;
   --line: #e4e8ee;
 }
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap");
 *{box-sizing:border-box}
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:var(--bg);color:#0f172a}
+body{margin:0;font-family:var(--font-body);background:var(--bg);color:#0f172a}
+h1,h2,h3,.brand,.mode-btn,.tab-btn,.filter-btn{font-family:var(--font-display)}
 .dark body{background:#06121d;color:#e6edf5}
 .app{display:flex;min-height:100vh;flex-direction:row}
 .main{max-width:100%;overflow-x:hidden;}
