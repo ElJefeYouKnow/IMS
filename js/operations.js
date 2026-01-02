@@ -1,5 +1,7 @@
 let allItems = [];
 let jobOptions = [];
+let upcomingJobs = [];
+let upcomingReservedCache = { jobId: '', items: [] };
 let openOrders = [];
 let openOrdersMap = new Map();
 const FALLBACK = 'N/A';
@@ -20,6 +22,53 @@ function normalizeJobId(value){
 function getEntryJobId(entry){
   return normalizeJobId(entry?.jobId || entry?.jobid || '');
 }
+const CLOSED_JOB_STATUSES = new Set(['complete','completed','closed','archived','cancelled','canceled']);
+function parseDateValue(value){
+  if(!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+function normalizeJobRecord(job){
+  if(!job) return null;
+  const code = (job.code || '').toString().trim();
+  if(!code) return null;
+  const startDateRaw = job.startDate || job.startdate || job.scheduleDate || job.scheduledate || '';
+  const endDateRaw = job.endDate || job.enddate || '';
+  return {
+    code,
+    name: job.name || '',
+    startDate: parseDateValue(startDateRaw),
+    endDate: parseDateValue(endDateRaw),
+    status: (job.status || '').toString().trim().toLowerCase(),
+    location: job.location || ''
+  };
+}
+function isJobUpcoming(job, today){
+  if(CLOSED_JOB_STATUSES.has(job.status)) return false;
+  if(job.endDate && job.endDate.getTime() < today.getTime()) return false;
+  return true;
+}
+function jobSortValue(job, today){
+  const todayMs = today.getTime();
+  if(job.startDate && job.startDate.getTime() < todayMs && (!job.endDate || job.endDate.getTime() >= todayMs)) return todayMs;
+  const target = job.startDate || job.endDate;
+  return target ? target.getTime() : Number.MAX_SAFE_INTEGER;
+}
+function jobDateLabel(job){
+  if(job.startDate && job.endDate) return `Start ${fmtD(job.startDate)} / End ${fmtD(job.endDate)}`;
+  if(job.startDate) return `Start ${fmtD(job.startDate)}`;
+  if(job.endDate) return `End ${fmtD(job.endDate)}`;
+  return 'No dates';
+}
+function jobOptionLabel(job){
+  const parts = [];
+  if(job.name) parts.push(job.name);
+  const dateLabel = jobDateLabel(job);
+  if(dateLabel) parts.push(dateLabel);
+  if(job.status) parts.push(job.status.toUpperCase());
+  const suffix = parts.length ? ` - ${parts.join(' | ')}` : '';
+  return `${job.code}${suffix}`;
+}
 
 // ===== SHARED UTILITIES =====
 async function loadItems(){
@@ -36,16 +85,18 @@ function addItemLocally(item){
 async function loadJobOptions(){
   const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
   const today = new Date();
-  jobOptions = (jobs || [])
-    .filter(j=>{
-      if(!j.endDate) return true;
-      const end = new Date(j.endDate);
-      return !Number.isNaN(end.getTime()) && end >= today;
-    })
+  today.setHours(0,0,0,0);
+  const records = (jobs || []).map(normalizeJobRecord).filter(Boolean);
+  const upcoming = records.filter(job=> isJobUpcoming(job, today));
+  jobOptions = upcoming
     .map(j=> j.code)
     .filter(Boolean)
     .sort();
+  upcomingJobs = upcoming
+    .slice()
+    .sort((a,b)=> jobSortValue(a, today) - jobSortValue(b, today) || a.code.localeCompare(b.code));
   applyJobOptions();
+  applyUpcomingJobs();
 }
 
 function applyJobOptions(){
@@ -63,6 +114,20 @@ function applyJobOptions(){
     });
     if(current) sel.value=current;
   });
+}
+
+function applyUpcomingJobs(){
+  const sel = document.getElementById('checkout-upcomingJob');
+  if(!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Select upcoming project...</option>';
+  upcomingJobs.forEach(job=>{
+    const opt = document.createElement('option');
+    opt.value = job.code;
+    opt.textContent = jobOptionLabel(job);
+    sel.appendChild(opt);
+  });
+  if(current) sel.value=current;
 }
 
 function ensureJobOption(jobId){
@@ -386,6 +451,84 @@ async function clearCheckouts(){
 function exportCheckoutCSV(){
   exportCSV('checkout');
 }
+function checkoutLinesHaveData(){
+  return [...document.querySelectorAll('#checkout-lines input[name="code"]')]
+    .some(input => (input.value || '').trim());
+}
+function fillCheckoutLines(items, { force } = {}){
+  const container = document.getElementById('checkout-lines');
+  if(!container) return;
+  const hasData = checkoutLinesHaveData();
+  if(hasData && !force){
+    const ok = confirm('Replace current lines with reserved items for this project?');
+    if(!ok) return;
+  }
+  container.innerHTML = '';
+  items.forEach(item=>{
+    addLine('checkout');
+    const row = container.lastElementChild;
+    if(!row) return;
+    const meta = allItems.find(i=> i.code === item.code);
+    row.querySelector('input[name="code"]').value = item.code;
+    row.querySelector('input[name="name"]').value = item.name || meta?.name || '';
+    row.querySelector('input[name="category"]').value = meta?.category || '';
+    row.querySelector('input[name="qty"]').value = item.qty;
+  });
+}
+async function loadReservedForJob(jobId, { force } = {}){
+  if(!jobId) return [];
+  if(!force && upcomingReservedCache.jobId === jobId) return upcomingReservedCache.items;
+  const entries = await utils.fetchJsonSafe('/api/inventory', {}, []) || [];
+  const map = new Map();
+  entries.forEach(e=>{
+    const type = e.type;
+    if(type !== 'reserve' && type !== 'reserve_release') return;
+    const entryJobId = normalizeJobId(e.jobId || e.jobid || '');
+    if(entryJobId !== jobId) return;
+    const code = (e.code || '').trim();
+    if(!code) return;
+    const qty = Number(e.qty || 0);
+    if(!qty) return;
+    const delta = type === 'reserve' ? qty : -qty;
+    const rec = map.get(code) || { code, name: e.name || '', qty: 0 };
+    rec.qty += delta;
+    if(!rec.name && e.name) rec.name = e.name;
+    map.set(code, rec);
+  });
+  const items = Array.from(map.values()).filter(i=> i.qty > 0);
+  items.forEach(item=>{
+    if(!item.name){
+      const meta = allItems.find(i=> i.code === item.code);
+      item.name = meta?.name || '';
+    }
+  });
+  items.sort((a,b)=> a.code.localeCompare(b.code));
+  upcomingReservedCache = { jobId, items };
+  return items;
+}
+async function refreshUpcomingMeta(jobId, { autoLoad, force } = {}){
+  const meta = document.getElementById('checkout-upcomingMeta');
+  if(!meta) return;
+  if(!jobId){
+    meta.textContent = 'Choose a project to auto-fill reserved pick lists.';
+    return;
+  }
+  const items = await loadReservedForJob(jobId, { force });
+  if(!items.length){
+    meta.textContent = 'No reserved items for this project yet. Add lines manually.';
+    return;
+  }
+  const totalQty = items.reduce((sum, item)=> sum + (Number(item.qty) || 0), 0);
+  meta.textContent = `${items.length} reserved items ready (${totalQty} units).`;
+  if(autoLoad){
+    if(!checkoutLinesHaveData() || force){
+      fillCheckoutLines(items, { force });
+      meta.textContent = `Loaded ${items.length} reserved items (${totalQty} units).`;
+    }else{
+      meta.textContent += ' Click "Load Reserved Items" to replace current lines.';
+    }
+  }
+}
 function getSelectedPayloads(tableId){
   const rows = document.querySelectorAll(`#${tableId} tbody .row-select:checked`);
   const out = [];
@@ -616,6 +759,33 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(btn) btn.addEventListener('click', ()=> addLine(prefix));
   });
   switchMode(initialMode);
+
+  const upcomingSelect = document.getElementById('checkout-upcomingJob');
+  const upcomingLoadBtn = document.getElementById('checkout-loadReserved');
+  const checkoutJobSelect = document.getElementById('checkout-jobId');
+  if(upcomingSelect){
+    upcomingSelect.addEventListener('change', async ()=>{
+      const jobId = upcomingSelect.value.trim();
+      if(checkoutJobSelect) checkoutJobSelect.value = jobId;
+      await refreshUpcomingMeta(jobId, { autoLoad: true });
+    });
+  }
+  if(upcomingLoadBtn){
+    upcomingLoadBtn.addEventListener('click', async ()=>{
+      const jobId = (upcomingSelect?.value || checkoutJobSelect?.value || '').trim();
+      if(!jobId){ alert('Select a project first'); return; }
+      if(checkoutJobSelect) checkoutJobSelect.value = jobId;
+      await refreshUpcomingMeta(jobId, { autoLoad: true, force: true });
+    });
+  }
+  if(checkoutJobSelect && upcomingSelect){
+    checkoutJobSelect.addEventListener('change', async ()=>{
+      const jobId = checkoutJobSelect.value.trim();
+      const hasOption = !!upcomingSelect.querySelector(`option[value="${jobId}"]`);
+      upcomingSelect.value = hasOption ? jobId : '';
+      await refreshUpcomingMeta(jobId, { autoLoad: false, force: true });
+    });
+  }
 
   const addOrderBtn = document.getElementById('checkin-addOrderBtn');
   if(addOrderBtn){

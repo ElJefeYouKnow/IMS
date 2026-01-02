@@ -78,6 +78,7 @@ app.use((req, res, next) => {
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 50, standardHeaders: true, legacyHeaders: false });
 app.use(['/api/auth/login', '/api/auth/register'], authLimiter);
+const tenantLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
 
 // Protect all API routes (except auth and tenant creation) with session auth
 app.use((req, res, next) => {
@@ -557,6 +558,10 @@ function requireDev(req, res, next) {
 function tenantId(req) {
   return (req.user && (req.user.tenantid || req.user.tenantId)) || 'default';
 }
+function actorInfo(req) {
+  const user = req.user || {};
+  return { userEmail: user.email || '', userName: user.name || '' };
+}
 async function loadItem(client, code, tenantIdVal) {
   const row = await client.query('SELECT * FROM items WHERE code=$1 AND tenantId=$2', [code, tenantIdVal]);
   return row.rows[0];
@@ -705,7 +710,7 @@ app.get('/api/inventory', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-  app.post('/api/inventory', async (req, res) => {
+app.post('/api/inventory', async (req, res) => {
   try {
     const { code, name, category, unitPrice, qty, location, jobId, notes, ts, sourceType, sourceId, reassignReason } = req.body;
     const qtyNum = Number(qty);
@@ -713,6 +718,7 @@ app.get('/api/inventory', async (req, res) => {
     if (!['order','purchase'].includes(sourceType)) return res.status(400).json({ error: 'invalid sourceType' });
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const entry = await withTransaction(async (client) => {
       const source = await loadSourceEvent(client, sourceType, sourceId, t);
       if (!source) throw new Error('source not found');
@@ -729,13 +735,13 @@ app.get('/api/inventory', async (req, res) => {
         if (!reassignReason) throw new Error('reassign reason required to override project');
       }
       jobIdVal = jobIdVal || null;
-      const checkin = await processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId: jobIdVal, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t, sourceType, sourceId });
+      const checkin = await processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId: jobIdVal, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, sourceType, sourceId });
       // If a project is selected, auto-reserve the same qty to earmark stock for that project.
       if (jobIdVal && autoReserve) {
         const avail = await calcAvailabilityTx(client, code, t);
         const reserveQty = Math.min(qtyNum, Math.max(0, avail));
         if (reserveQty > 0) {
-          await processInventoryEvent(client, { type: 'reserve', code, jobId: jobIdVal, qty: reserveQty, returnDate: null, notes: 'auto-reserve on check-in', ts: checkin.ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+          await processInventoryEvent(client, { type: 'reserve', code, jobId: jobIdVal, qty: reserveQty, returnDate: null, notes: 'auto-reserve on check-in', ts: checkin.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
         }
       }
       return checkin;
@@ -749,17 +755,18 @@ app.post('/api/inventory-checkout', async (req, res) => {
   try {
     const { code, jobId, qty, reason, notes, ts } = req.body;
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const entry = await withTransaction(async (client) => {
       const tsNow = ts || Date.now();
       const due = tsNow + CHECKOUT_RETURN_WINDOW_MS;
-      return processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      return processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty, jobId } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
-app.delete('/api/inventory', async (req, res) => {
+app.delete('/api/inventory', requireRole('admin'), async (req, res) => {
   try {
     const type = req.query.type;
     const t = tenantId(req);
@@ -769,7 +776,7 @@ app.delete('/api/inventory', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.delete('/api/inventory-checkout', async (req, res) => {
+app.delete('/api/inventory-checkout', requireRole('admin'), async (req, res) => {
   try {
     await runAsync("DELETE FROM inventory WHERE type='out' AND tenantId=$1", [tenantId(req)]);
     res.status(204).end();
@@ -788,8 +795,9 @@ app.post('/api/inventory-reserve', async (req, res) => {
     const { code, jobId, qty, returnDate, notes, ts } = req.body;
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const entry = await withTransaction(async (client) => {
-      return processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      return processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty, jobId, returnDate } });
     res.status(201).json(entry);
@@ -804,13 +812,14 @@ app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) =
     const entries = Array.isArray(lines) ? lines : [];
     if (!entries.length) return res.status(400).json({ error: 'lines array required' });
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const results = [];
     await withTransaction(async (client) => {
       for (const line of entries) {
         const code = (line?.code || '').trim();
         const qty = Number(line?.qty || 0);
         if (!code || qty <= 0) throw new Error(`Invalid line for code ${code || ''}`);
-        const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts: line?.ts || Date.now(), userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+        const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts: line?.ts || Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
         results.push(ev);
       }
     });
@@ -821,7 +830,7 @@ app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) =
   }
 });
 
-app.delete('/api/inventory-reserve', async (req, res) => {
+app.delete('/api/inventory-reserve', requireRole('admin'), async (req, res) => {
   try {
     await runAsync("DELETE FROM inventory WHERE type='reserve' AND tenantId=$1", [tenantId(req)]);
     res.status(204).end();
@@ -837,15 +846,16 @@ app.post('/api/inventory-reassign', requireRole('admin'), async (req, res) => {
     if (!qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'positive qty required' });
     if (!reason) return res.status(400).json({ error: 'reason required' });
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const fromId = normalizeJobId(fromJobId);
     const toId = normalizeJobId(toJobId);
     const result = await withTransaction(async (client) => {
       const reserved = await calcReservedOutstandingTx(client, code, fromId, t);
       if (qtyNum > reserved) throw new Error('reassign exceeds reserved qty');
-      const release = await processInventoryEvent(client, { type: 'reserve_release', code, jobId: fromId, qty: qtyNum, notes: `reassign: ${reason}`, ts: Date.now(), userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      const release = await processInventoryEvent(client, { type: 'reserve_release', code, jobId: fromId, qty: qtyNum, notes: `reassign: ${reason}`, ts: Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
       let reserve = null;
       if (toId) {
-        reserve = await processInventoryEvent(client, { type: 'reserve', code, jobId: toId, qty: qtyNum, notes: `reassign: ${reason}`, ts: release.ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+        reserve = await processInventoryEvent(client, { type: 'reserve', code, jobId: toId, qty: qtyNum, notes: `reassign: ${reason}`, ts: release.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
       }
       return { release, reserve };
     });
@@ -868,16 +878,17 @@ app.post('/api/inventory-return', async (req, res) => {
     const { code, jobId, qty, reason, location, notes, ts } = req.body;
     if (!code) return res.status(400).json({ error: 'code required' });
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const entry = await withTransaction(async (client) => {
       const resolvedJobId = await resolveReturnJobIdTx(client, code, t, jobId);
-      return processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t, requireRecentReturn: true });
+      return processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, requireRecentReturn: true });
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.return', details: { code, qty, jobId: entry.jobId || null, reason } });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
-app.delete('/api/inventory-return', async (req, res) => {
+app.delete('/api/inventory-return', requireRole('admin'), async (req, res) => {
   try {
     await runAsync("DELETE FROM inventory WHERE type='return' AND tenantId=$1", [tenantId(req)]);
     res.status(204).end();
@@ -927,8 +938,9 @@ app.post('/api/inventory-consume', requireRole('admin'), async (req, res) => {
     const { code, qty, reason, notes, ts } = req.body;
     if (!reason) return res.status(400).json({ error: 'reason required' });
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const entry = await withTransaction(async (client) => {
-      return processInventoryEvent(client, { type: 'consume', code, qty, reason, notes, ts, userEmail: req.body.userEmail, userName: req.body.userName, tenantIdVal: t });
+      return processInventoryEvent(client, { type: 'consume', code, qty, reason, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty, reason } });
     res.status(201).json(entry);
@@ -1000,9 +1012,13 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
 });
 
 // AUTH + USERS
-app.post('/api/tenants', async (req, res) => {
+app.post('/api/tenants', tenantLimiter, async (req, res) => {
   try {
   const { code, name, adminEmail, adminPassword, adminName } = req.body;
+  const tenantSecret = process.env.TENANT_SIGNUP_SECRET;
+  if (!tenantSecret) return res.status(400).json({ error: 'tenant signups disabled (missing TENANT_SIGNUP_SECRET)' });
+  const provided = req.headers['x-tenant-signup'] || req.body?.tenantKey;
+  if (provided !== tenantSecret) return res.status(403).json({ error: 'invalid tenant signup key' });
   if (!code || !name || !adminEmail || !adminPassword) return res.status(400).json({ error: 'code, name, adminEmail, adminPassword required' });
   if (adminPassword.length < 10) return res.status(400).json({ error: 'admin password too weak' });
   const normCode = normalizeTenantCode(code);
@@ -1208,11 +1224,12 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const jobIdVal = (jobId || '').trim() || null;
     const entry = await withTransaction(async (client) => {
       await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
       const sourceMeta = { autoReserve: autoReserve !== false };
-      const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
+      const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
       ev.sourceId = ev.id;
       await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId, ev.sourceMeta]);
@@ -1229,6 +1246,7 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
     const lines = Array.isArray(req.body?.orders) ? req.body.orders : [];
     if (!lines.length) return res.status(400).json({ error: 'orders array required' });
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const results = [];
     await withTransaction(async (client) => {
       for (const line of lines) {
@@ -1238,7 +1256,7 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
         const jobIdVal = (jobId || '').trim() || null;
         await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
         const sourceMeta = { autoReserve: autoReserve !== false };
-        const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: req.body.userEmail, userName: req.body.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
+        const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
         ev.sourceId = ev.id;
         await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
           [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId, ev.sourceMeta]);
@@ -1258,6 +1276,7 @@ app.post('/api/field-purchase', async (req, res) => {
     const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
     if (!lines.length) return res.status(400).json({ error: 'lines array required' });
     const t = tenantId(req);
+    const actor = actorInfo(req);
     const results = [];
     await withTransaction(async (client) => {
       for (const line of lines) {
@@ -1289,8 +1308,8 @@ app.post('/api/field-purchase', async (req, res) => {
           jobId: jobIdVal,
           notes,
           ts: tsVal,
-          userEmail: req.body.userEmail,
-          userName: req.body.userName,
+          userEmail: actor.userEmail,
+          userName: actor.userName,
           tenantIdVal: t,
           sourceType: 'purchase',
           sourceMeta
@@ -1306,8 +1325,8 @@ app.post('/api/field-purchase', async (req, res) => {
           jobId: jobIdVal,
           notes: notes || 'Field purchase',
           ts: tsVal,
-          userEmail: req.body.userEmail,
-          userName: req.body.userName,
+          userEmail: actor.userEmail,
+          userName: actor.userName,
           tenantIdVal: t,
           sourceType: 'purchase',
           sourceId: purchase.id,
@@ -1325,8 +1344,8 @@ app.post('/api/field-purchase', async (req, res) => {
               returnDate: null,
               notes: 'auto-reserve on field purchase',
               ts: checkin.ts,
-              userEmail: req.body.userEmail,
-              userName: req.body.userName,
+              userEmail: actor.userEmail,
+              userName: actor.userName,
               tenantIdVal: t
             });
           }

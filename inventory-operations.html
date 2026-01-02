@@ -143,6 +143,15 @@
         <section class="card inventory-card">
           <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Pick items from inventory for a project. Track the project and notes.</p>
           <form id="checkoutForm" class="inventory-form" autocomplete="off">
+            <div class="form-row">
+              <label style="flex:1">Upcoming Projects (closest dates first)
+                <select id="checkout-upcomingJob">
+                  <option value="">Select upcoming project...</option>
+                </select>
+              </label>
+              <button id="checkout-loadReserved" type="button" class="muted" style="margin-top:22px;">Load Reserved Items</button>
+            </div>
+            <div id="checkout-upcomingMeta" style="font-size:12px;color:#6b7280;margin-top:-6px;">Choose a project to auto-fill reserved pick lists.</div>
             <div>
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                 <strong>Pick Items</strong>
