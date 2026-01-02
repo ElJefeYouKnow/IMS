@@ -188,14 +188,23 @@
       if(document.querySelector('.bottom-nav')) return;
       const sourceLinks = Array.from(document.querySelectorAll('.sidebar nav a'));
       if(!sourceLinks.length) return;
+      let backdrop = document.querySelector('.bottom-nav-backdrop');
+      if(!backdrop){
+        backdrop = document.createElement('div');
+        backdrop.className = 'bottom-nav-backdrop';
+        document.body.appendChild(backdrop);
+      }
       const nav = document.createElement('nav');
       nav.className = 'bottom-nav collapsed';
       const toggle = document.createElement('button');
       toggle.className = 'nav-toggle';
       toggle.type = 'button';
       toggle.textContent = 'Menu';
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.setAttribute('aria-controls', 'mobileNavItems');
       const wrap = document.createElement('div');
       wrap.className = 'nav-items';
+      wrap.id = 'mobileNavItems';
       const dedup = new Set();
       sourceLinks.forEach(l=>{
         const href = l.getAttribute('href');
@@ -211,7 +220,22 @@
       nav.appendChild(toggle);
       nav.appendChild(wrap);
       document.body.appendChild(nav);
-      toggle.addEventListener('click', ()=> nav.classList.toggle('collapsed'));
+      const setExpanded = (expanded)=>{
+        nav.classList.toggle('expanded', expanded);
+        nav.classList.toggle('collapsed', !expanded);
+        toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        toggle.textContent = expanded ? 'Close Menu' : 'Menu';
+        backdrop.classList.toggle('active', expanded);
+      };
+      setExpanded(false);
+      toggle.addEventListener('click', ()=> setExpanded(!nav.classList.contains('expanded')));
+      backdrop.addEventListener('click', ()=> setExpanded(false));
+      wrap.addEventListener('click', (event)=>{
+        if(event.target && event.target.tagName === 'A') setExpanded(false);
+      });
+      document.addEventListener('keydown', (event)=>{
+        if(event.key === 'Escape') setExpanded(false);
+      });
     },
     registerServiceWorker(){
       // Disabled to ensure UI changes are picked up immediately; re-enable if offline caching is required.
