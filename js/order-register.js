@@ -100,6 +100,9 @@ function fillNameIfKnown(codeInput, nameInput){
     nameInput.value = match.name || '';
     nameInput.dataset.existing = 'true';
   }else{
+    if(nameInput.dataset.existing === 'true'){
+      nameInput.value = '';
+    }
     nameInput.dataset.existing = 'false';
   }
 }
@@ -128,7 +131,24 @@ async function loadJobs(){
 async function loadItems(){
   try{
     itemsCache = await utils.fetchJsonSafe('/api/items', {}, []) || [];
+    refreshSkuDatalist();
   }catch(e){}
+}
+
+function refreshSkuDatalist(){
+  const list = document.getElementById('order-sku-options');
+  if(!list) return;
+  list.innerHTML = '';
+  itemsCache
+    .slice()
+    .sort((a,b)=> (a.code || '').localeCompare(b.code || ''))
+    .forEach(item=>{
+      if(!item.code) return;
+      const opt = document.createElement('option');
+      opt.value = item.code;
+      if(item.name) opt.label = `${item.code} - ${item.name}`;
+      list.appendChild(opt);
+    });
 }
 
 function refreshOrderLineJobOptions(){
@@ -217,17 +237,12 @@ function addOrderLine(prefill = {}){
   if(prefill.eta){ etaInput.value = prefill.eta; }
   if(prefill.jobId){ jobSelect.value = prefill.jobId; }
 
+  codeInput.setAttribute('list', 'order-sku-options');
+  codeInput.addEventListener('input', ()=> fillNameIfKnown(codeInput, nameInput));
   codeInput.addEventListener('blur', ()=> fillNameIfKnown(codeInput, nameInput));
   codeInput.addEventListener('change', ()=> fillNameIfKnown(codeInput, nameInput));
 
-  if(window.utils && utils.attachItemLookup){
-    utils.attachItemLookup({
-      getItems: ()=> itemsCache,
-      codeInputId: codeId,
-      nameInputId: nameId,
-      suggestionsId: suggId
-    });
-  }
+  fillNameIfKnown(codeInput, nameInput);
 
   row.querySelector('.remove-line').addEventListener('click', ()=>{
     row.remove();
