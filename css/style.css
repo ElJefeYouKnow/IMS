@@ -161,6 +161,47 @@ body.count-mode .count-input-col{display:table-cell}
 .dark .filter-btn{background:#0f172a;color:#e5e7eb;border-color:#1f2937}
 .dark .available-pill{background:#0b1020;border-color:#1f2937;color:#e5e7eb}
 .dark input,.dark select,.dark textarea{background:#0f172a;color:#e5e7eb;border-color:#1f2937}
+.form-row select,
+select{
+  appearance:none;
+  -webkit-appearance:none;
+  -moz-appearance:none;
+  padding:10px 38px 10px 12px;
+  border-radius:10px;
+  border:1px solid #d6dde6;
+  background:
+    linear-gradient(135deg, rgba(15,122,87,0.08), rgba(10,27,43,0.06)) padding-box,
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%230f172a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>") no-repeat right 12px center;
+  font-weight:700;
+  color:#0a1b2b;
+  box-shadow:0 8px 18px rgba(10,27,43,0.08);
+  transition:border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.form-row select:focus,
+select:focus{
+  outline:none;
+  border-color:rgba(15,122,87,0.6);
+  box-shadow:0 0 0 3px rgba(15,122,87,0.18), 0 10px 22px rgba(10,27,43,0.12);
+}
+.form-row select:hover,
+select:hover{
+  transform:translateY(-1px);
+  border-color:rgba(15,122,87,0.4);
+}
+.form-row select:disabled,
+select:disabled{
+  opacity:0.6;
+  cursor:not-allowed;
+  box-shadow:none;
+}
+.dark .form-row select,
+.dark select{
+  background:
+    linear-gradient(135deg, rgba(15,122,87,0.18), rgba(10,27,43,0.3)) padding-box,
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23e5e7eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>") no-repeat right 12px center;
+  border-color:#1f2937;
+  color:#e5e7eb;
+}
 .report-detail td{background:#f8fafc}
 .report-detail .detail-table{width:100%;border-collapse:collapse;font-size:0.85rem}
 .report-detail .detail-table th{padding:6px;text-align:left;color:var(--muted);font-size:0.8rem}
