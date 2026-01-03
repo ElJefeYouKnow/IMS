@@ -260,6 +260,24 @@
     </main>
   </div>
 
+  <div id="checkoutConfirmModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3 style="margin:0;">Confirm Pick Items</h3>
+        <button id="checkoutConfirmClose" class="muted" type="button">Close</button>
+      </div>
+      <div id="checkoutConfirmSummary" class="confirm-summary">-</div>
+      <table id="checkoutConfirmTable" class="confirm-table">
+        <thead><tr><th>Code</th><th>Name</th><th>Qty</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="modal-actions">
+        <button id="checkoutConfirmAction" type="button">Confirm &amp; Take</button>
+        <button id="checkoutConfirmCancel" type="button" class="muted">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/utils.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded',()=>{

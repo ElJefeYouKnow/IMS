@@ -159,6 +159,13 @@ body.count-mode .count-input-col{display:table-cell}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 .modal .muted{background:#eef2f7;color:#0a1b2b;border:1px solid #d5dbe4;padding:8px 12px;border-radius:8px;font-weight:700}
 .dark .modal .muted{background:#0f172a;color:#fff;border:1px solid #1f2937}
+.confirm-summary{margin:12px 0;font-weight:700;color:#0a1b2b}
+.confirm-summary span{color:var(--muted);font-weight:600}
+.confirm-table{width:100%;border-collapse:collapse}
+.confirm-table th{color:var(--muted);font-size:0.85rem;text-align:left;padding:8px 6px}
+.confirm-table td{padding:10px 6px;border-top:1px solid #eef2f7}
+.dark .confirm-summary{color:#e5e7eb}
+.dark .confirm-table td{border-top:1px solid #1f2937}
 .available-pill{display:inline-flex;align-items:center;justify-content:center;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:#ffffff;font-weight:700;font-size:0.85rem}
 .dark .order-line{background:rgba(15,122,87,0.12);border-color:#1f2937}
 .dark .summary-item{background:#0f172a;border-color:#1f2937;color:#e5e7eb}

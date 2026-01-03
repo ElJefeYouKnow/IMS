@@ -4,6 +4,7 @@ let upcomingJobs = [];
 let upcomingReservedCache = { jobId: '', items: [] };
 let openOrders = [];
 let openOrdersMap = new Map();
+let pendingCheckout = null;
 const FALLBACK = 'N/A';
 const MIN_LINES = 1;
 const SESSION_KEY = 'sessionUser';
@@ -529,6 +530,50 @@ async function refreshUpcomingMeta(jobId, { autoLoad, force } = {}){
     }
   }
 }
+
+function buildCheckoutDisplayLines(lines){
+  return lines.map(line=>{
+    const match = allItems.find(i=> i.code === line.code);
+    return {
+      code: line.code,
+      name: line.name || match?.name || '',
+      qty: line.qty
+    };
+  });
+}
+
+function openCheckoutConfirm(lines, jobId, notes){
+  const modal = document.getElementById('checkoutConfirmModal');
+  const tbody = document.querySelector('#checkoutConfirmTable tbody');
+  const summary = document.getElementById('checkoutConfirmSummary');
+  if(!modal || !tbody || !summary) return;
+
+  const displayLines = buildCheckoutDisplayLines(lines);
+  const totalQty = displayLines.reduce((sum, line)=> sum + (Number(line.qty) || 0), 0);
+  const summaryParts = [
+    `Project: ${jobId || FALLBACK}`,
+    `Lines: ${displayLines.length}`,
+    `Units: ${totalQty}`
+  ];
+  if(notes) summaryParts.push(`Notes: ${notes}`);
+  summary.textContent = summaryParts.join(' · ');
+
+  tbody.innerHTML = '';
+  displayLines.forEach(line=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${line.code}</td><td>${line.name || ''}</td><td>${line.qty}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  pendingCheckout = { lines, jobId, notes };
+  modal.classList.remove('hidden');
+}
+
+function closeCheckoutConfirm(){
+  const modal = document.getElementById('checkoutConfirmModal');
+  if(modal) modal.classList.add('hidden');
+  pendingCheckout = null;
+}
 function getSelectedPayloads(tableId){
   const rows = document.querySelectorAll(`#${tableId} tbody .row-select:checked`);
   const out = [];
@@ -740,7 +785,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   await loadOpenOrders();
   populateOrderSelect();
   updateOpsMetrics();
-  const initialMode = new URLSearchParams(window.location.search).get('mode') || 'checkin';
+  const initialMode = new URLSearchParams(window.location.search).get('mode') || 'checkout';
   if(window.utils && utils.setupLogout) utils.setupLogout();
   // adjust available modes based on DOM
   const availableModes = ['checkin','checkout','return'].filter(m=> document.getElementById(`${m}-mode`));
@@ -896,18 +941,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   
   // ===== CHECK-OUT FORM =====
   const checkoutForm = document.getElementById('checkoutForm');
-  checkoutForm.addEventListener('submit', async ev=>{
-    ev.preventDefault();
-    const lines = gatherLines('checkout');
-    const jobId = document.getElementById('checkout-jobId').value.trim();
-    const notes = document.getElementById('checkout-notes').value.trim();
+  const executeCheckout = async (lines, jobId, notes)=>{
     const user = getSessionUser();
-    
-    if(!jobId){alert('Job ID required'); return;}
-    if(!lines.length){alert('Add at least one line with code and quantity'); return;}
-    const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
-    if(missing){ alert(`Item ${missing.code} does not exist. Check it in first or add via check-in.`); return; }
-    
     let okAll=true;
     const errors=[];
     for(const line of lines){
@@ -921,6 +956,34 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     checkoutForm.reset();
     resetLines('checkout');
     ensureJobOption(jobId);
+    return okAll;
+  };
+
+  checkoutForm.addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    const lines = gatherLines('checkout');
+    const jobId = document.getElementById('checkout-jobId').value.trim();
+    const notes = document.getElementById('checkout-notes').value.trim();
+    
+    if(!jobId){alert('Job ID required'); return;}
+    if(!lines.length){alert('Add at least one line with code and quantity'); return;}
+    const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
+    if(missing){ alert(`Item ${missing.code} does not exist. Check it in first or add via check-in.`); return; }
+    
+    openCheckoutConfirm(lines, jobId, notes);
+  });
+
+  const checkoutConfirmClose = document.getElementById('checkoutConfirmClose');
+  const checkoutConfirmCancel = document.getElementById('checkoutConfirmCancel');
+  const checkoutConfirmAction = document.getElementById('checkoutConfirmAction');
+  checkoutConfirmClose?.addEventListener('click', closeCheckoutConfirm);
+  checkoutConfirmCancel?.addEventListener('click', closeCheckoutConfirm);
+  checkoutConfirmAction?.addEventListener('click', async ()=>{
+    if(!pendingCheckout) return;
+    checkoutConfirmAction.disabled = true;
+    const ok = await executeCheckout(pendingCheckout.lines, pendingCheckout.jobId, pendingCheckout.notes);
+    checkoutConfirmAction.disabled = false;
+    if(ok) closeCheckoutConfirm();
   });
   
   document.getElementById('checkout-clearBtn').addEventListener('click', async ()=>{
