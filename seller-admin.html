@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Seller Admin</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div>
+        <div class="brand">Inventory Management System</div>
+        <div class="subtitle">Navigation</div>
+        <div class="user-chip">
+          <div class="avatar">US</div>
+          <div>
+            <div style="font-weight:700;"><div class="user-name">User</div>
+            <div class="user-role"></div>
+            <div style="font-size:12px;opacity:0.8;"></div>
+          </div>
+        </div>
+      </div>
+      <nav>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Dashboard</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Project Manager</a>
+        <a href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
+        <a href="field-purchase.html" data-role="employee">Field Purchases</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">History</a>
+        <a href="dev-settings.html" data-dev-only style="display:none;">Dev Settings</a>
+        <a class="active" href="seller-admin.html" data-dev-only>Seller Admin</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Seller Admin</h1>
+        <div class="topbar-right">
+          <button id="logoutBtn" class="muted">Logout</button>
+        </div>
+      </header>
+
+      <section class="card">
+        <h3>Usage Dashboard</h3>
+        <div class="summary-grid">
+          <div class="summary-item">
+            <span>Active Clients</span>
+            <strong id="metricClients">-</strong>
+          </div>
+          <div class="summary-item">
+            <span>Active Users</span>
+            <strong id="metricUsers">-</strong>
+          </div>
+          <div class="summary-item">
+            <span>Recent Activity (7d)</span>
+            <strong id="metricActivity">-</strong>
+          </div>
+          <div class="summary-item">
+            <span>Open Tickets</span>
+            <strong id="metricTickets">-</strong>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="card" style="margin:0;">
+            <h3>Recent Activity</h3>
+            <div id="activityList" class="summary-items"></div>
+          </div>
+          <div class="card" style="margin:0;">
+            <h3>Alerts</h3>
+            <div id="alertList" class="summary-items"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="data-toolbar">
+          <input id="clientFilter" placeholder="Search clients" />
+          <span class="badge info">Clients</span>
+        </div>
+        <h3>Client Management</h3>
+        <form id="clientForm" class="inventory-form" autocomplete="off">
+          <input type="hidden" id="client-id" />
+          <div class="form-row">
+            <label>Client Name<input id="client-name" required placeholder="Acme Builders"></label>
+            <label>Contact Email<input id="client-email" type="email" required placeholder="owner@acme.com"></label>
+            <label style="max-width:140px;">Active Users<input id="client-users" type="number" min="1" value="1"></label>
+          </div>
+          <div class="form-row">
+            <label>Plan
+              <select id="client-plan">
+                <option value="starter">Starter</option>
+                <option value="growth">Growth</option>
+                <option value="enterprise">Enterprise</option>
+              </select>
+            </label>
+            <label>Status
+              <select id="client-status">
+                <option value="active">Active</option>
+                <option value="trial">Trial</option>
+                <option value="past_due">Past Due</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <label>Notes<input id="client-notes" placeholder="Optional notes"></label>
+          </div>
+          <div class="form-row sticky-actions-mobile">
+            <button id="clientSaveBtn" type="submit">Save Client</button>
+            <button id="clientClearBtn" type="button" class="muted">Clear</button>
+          </div>
+          <div id="clientMsg" class="settings-msg"></div>
+        </form>
+
+        <table id="clientTable">
+          <thead>
+            <tr><th>Name</th><th>Email</th><th>Plan</th><th>Status</th><th>Users</th><th>Updated</th><th>Actions</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h3>Subscription Management</h3>
+        <p class="muted-text">Front-end ready. Wiring to billing provider can come next.</p>
+        <table id="subscriptionTable">
+          <thead>
+            <tr><th>Client</th><th>Plan</th><th>Status</th><th>Next Step</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <div class="data-toolbar">
+          <input id="ticketFilter" placeholder="Search tickets" />
+          <span class="badge warn">Support</span>
+        </div>
+        <h3>Support Tools</h3>
+        <form id="ticketForm" class="inventory-form" autocomplete="off">
+          <input type="hidden" id="ticket-id" />
+          <div class="form-row">
+            <label>Client
+              <select id="ticket-client">
+                <option value="">Select client...</option>
+              </select>
+            </label>
+            <label>Subject<input id="ticket-subject" required placeholder="Issue summary"></label>
+            <label>Priority
+              <select id="ticket-priority">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label>Status
+              <select id="ticket-status">
+                <option value="open">Open</option>
+                <option value="pending">Pending</option>
+                <option value="closed">Closed</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row sticky-actions-mobile">
+            <button id="ticketSaveBtn" type="submit">Save Ticket</button>
+            <button id="ticketClearBtn" type="button" class="muted">Clear</button>
+          </div>
+          <div id="ticketMsg" class="settings-msg"></div>
+        </form>
+
+        <table id="ticketTable">
+          <thead>
+            <tr><th>Client</th><th>Subject</th><th>Priority</th><th>Status</th><th>Updated</th><th>Actions</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/seller-admin.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', ()=>{
+      if(window.utils){
+        if(!utils.requireSession?.()) return;
+        utils.wrapFetchWithRole?.();
+        utils.applyStoredTheme?.();
+        utils.buildMobileNav?.();
+        utils.applyNavVisibility?.();
+        utils.setupLogout?.();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -182,6 +182,16 @@
       document.querySelectorAll('[data-dev-only]').forEach(el=>{
         el.style.display = isDev ? '' : 'none';
       });
+      if(isDev){
+        const nav = document.querySelector('.sidebar nav');
+        if(nav && !nav.querySelector('a[data-dev-only][href="seller-admin.html"]')){
+          const link = document.createElement('a');
+          link.href = 'seller-admin.html';
+          link.dataset.devOnly = '';
+          link.textContent = 'Seller Admin';
+          nav.appendChild(link);
+        }
+      }
       this.setupUserChip?.();
     },
     buildMobileNav(){

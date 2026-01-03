@@ -25,6 +25,9 @@ const DEV_PASSWORD = process.env.DEV_DEFAULT_PASSWORD || 'Dev123!';
 const DEV_TENANT_CODE = process.env.DEV_TENANT_CODE || 'dev';
 const DEV_TENANT_ID = process.env.DEV_TENANT_ID || DEV_TENANT_CODE;
 const DEV_RESET_TOKEN = process.env.DEV_RESET_TOKEN || 'reset-all-data-now';
+const SELLER_DATA_PATH = path.join(__dirname, 'data', 'seller-admin.json');
+const SELLER_ACTIVITY_LIMIT = 8;
+let sellerStore = { clients: [], tickets: [], activities: [] };
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -95,6 +98,66 @@ app.use((req, res, next) => {
 // Helpers
 function newId() {
   return 'itm_' + Math.random().toString(16).slice(2, 10) + Date.now().toString(16);
+}
+function newSellerId(prefix = 'seller_') {
+  return prefix + Math.random().toString(16).slice(2, 10) + Date.now().toString(16);
+}
+function seedSellerStore() {
+  const now = Date.now();
+  const clientA = { id: newSellerId('cli_'), name: 'Acme Builders', email: 'ops@acme.com', plan: 'growth', status: 'active', activeUsers: 12, notes: 'Expansion', updatedAt: now - 86400000 };
+  const clientB = { id: newSellerId('cli_'), name: 'Northline Group', email: 'admin@northline.com', plan: 'starter', status: 'trial', activeUsers: 4, notes: '', updatedAt: now - 43200000 };
+  const clientC = { id: newSellerId('cli_'), name: 'Stonefield', email: 'it@stonefield.com', plan: 'enterprise', status: 'past_due', activeUsers: 28, notes: 'Invoice overdue', updatedAt: now - 21600000 };
+  sellerStore = {
+    clients: [clientA, clientB, clientC],
+    tickets: [
+      { id: newSellerId('tkt_'), clientId: clientA.id, subject: 'Inventory sync delay', priority: 'medium', status: 'open', updatedAt: now - 5400000 },
+      { id: newSellerId('tkt_'), clientId: clientC.id, subject: 'Billing access request', priority: 'high', status: 'pending', updatedAt: now - 7200000 }
+    ],
+    activities: [
+      { id: newSellerId('act_'), message: 'Acme Builders upgraded to Growth', ts: now - 7200000 },
+      { id: newSellerId('act_'), message: 'New ticket opened for Stonefield', ts: now - 5400000 }
+    ]
+  };
+}
+function ensureSellerStoreShape() {
+  if (!sellerStore || typeof sellerStore !== 'object') sellerStore = { clients: [], tickets: [], activities: [] };
+  if (!Array.isArray(sellerStore.clients)) sellerStore.clients = [];
+  if (!Array.isArray(sellerStore.tickets)) sellerStore.tickets = [];
+  if (!Array.isArray(sellerStore.activities)) sellerStore.activities = [];
+}
+function loadSellerStore() {
+  try {
+    if (fs.existsSync(SELLER_DATA_PATH)) {
+      const raw = fs.readFileSync(SELLER_DATA_PATH, 'utf8');
+      sellerStore = raw ? JSON.parse(raw) : { clients: [], tickets: [], activities: [] };
+    } else {
+      seedSellerStore();
+      saveSellerStore();
+      return;
+    }
+    ensureSellerStoreShape();
+    if (!sellerStore.clients.length) {
+      seedSellerStore();
+      saveSellerStore();
+    }
+  } catch (e) {
+    console.warn('Failed to load seller admin data', e.message);
+    seedSellerStore();
+    saveSellerStore();
+  }
+}
+function saveSellerStore() {
+  try {
+    ensureSellerStoreShape();
+    fs.writeFileSync(SELLER_DATA_PATH, JSON.stringify(sellerStore, null, 2));
+  } catch (e) {
+    console.warn('Failed to save seller admin data', e.message);
+  }
+}
+function recordSellerActivity(message) {
+  sellerStore.activities.unshift({ id: newSellerId('act_'), message, ts: Date.now() });
+  sellerStore.activities = sellerStore.activities.slice(0, SELLER_ACTIVITY_LIMIT);
+  saveSellerStore();
 }
 
 async function hashPassword(password) {
@@ -413,6 +476,7 @@ initDb().catch(err => {
   console.error('DB init failed', err);
   process.exit(1);
 });
+loadSellerStore();
 
 function statusForType(type) {
   if (type === 'ordered') return 'ordered';
@@ -1554,6 +1618,118 @@ app.get('/api/notifications', async (req, res) => {
     const t = tenantId(req);
     const rows = await allAsync('SELECT * FROM audit_events WHERE tenantId=$1 ORDER BY ts DESC LIMIT 20', [t]);
     res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+// SELLER ADMIN (dev-only)
+app.get('/api/seller/data', requireDev, (req, res) => {
+  try {
+    ensureSellerStoreShape();
+    res.json({ clients: sellerStore.clients, tickets: sellerStore.tickets, activities: sellerStore.activities });
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/seller/clients', requireDev, (req, res) => {
+  try {
+    const name = (req.body?.name || '').trim();
+    const email = normalizeEmail(req.body?.email || '');
+    const plan = (req.body?.plan || 'starter').toString().trim();
+    const status = (req.body?.status || 'active').toString().trim();
+    const activeUsers = Number(req.body?.activeUsers || 0);
+    const notes = (req.body?.notes || '').trim();
+    if (!name || !email) return res.status(400).json({ error: 'name and email required' });
+    const client = { id: newSellerId('cli_'), name, email, plan, status, activeUsers, notes, updatedAt: Date.now() };
+    sellerStore.clients.push(client);
+    recordSellerActivity(`Created client ${name}`);
+    saveSellerStore();
+    res.status(201).json(client);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.put('/api/seller/clients/:id', requireDev, (req, res) => {
+  try {
+    const client = sellerStore.clients.find(c => c.id === req.params.id);
+    if (!client) return res.status(404).json({ error: 'client not found' });
+    const name = (req.body?.name || client.name || '').trim();
+    const email = normalizeEmail(req.body?.email || client.email || '');
+    const plan = (req.body?.plan || client.plan || 'starter').toString().trim();
+    const status = (req.body?.status || client.status || 'active').toString().trim();
+    const activeUsers = Number(req.body?.activeUsers ?? client.activeUsers ?? 0);
+    const notes = (req.body?.notes ?? client.notes ?? '').toString().trim();
+    if (!name || !email) return res.status(400).json({ error: 'name and email required' });
+    client.name = name;
+    client.email = email;
+    client.plan = plan;
+    client.status = status;
+    client.activeUsers = activeUsers;
+    client.notes = notes;
+    client.updatedAt = Date.now();
+    recordSellerActivity(`Updated client ${client.name}`);
+    saveSellerStore();
+    res.json(client);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.delete('/api/seller/clients/:id', requireDev, (req, res) => {
+  try {
+    const client = sellerStore.clients.find(c => c.id === req.params.id);
+    if (!client) return res.status(404).json({ error: 'client not found' });
+    sellerStore.clients = sellerStore.clients.filter(c => c.id !== req.params.id);
+    sellerStore.tickets = sellerStore.tickets.filter(t => t.clientId !== req.params.id);
+    recordSellerActivity(`Deleted client ${client.name}`);
+    saveSellerStore();
+    res.status(204).end();
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/seller/tickets', requireDev, (req, res) => {
+  try {
+    const clientId = (req.body?.clientId || '').trim();
+    const subject = (req.body?.subject || '').trim();
+    const priority = (req.body?.priority || 'low').toString().trim();
+    const status = (req.body?.status || 'open').toString().trim();
+    if (!clientId || !subject) return res.status(400).json({ error: 'clientId and subject required' });
+    const client = sellerStore.clients.find(c => c.id === clientId);
+    if (!client) return res.status(400).json({ error: 'invalid clientId' });
+    const ticket = { id: newSellerId('tkt_'), clientId, subject, priority, status, updatedAt: Date.now() };
+    sellerStore.tickets.push(ticket);
+    recordSellerActivity(`New ticket: ${subject}`);
+    saveSellerStore();
+    res.status(201).json(ticket);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.put('/api/seller/tickets/:id', requireDev, (req, res) => {
+  try {
+    const ticket = sellerStore.tickets.find(t => t.id === req.params.id);
+    if (!ticket) return res.status(404).json({ error: 'ticket not found' });
+    const clientId = (req.body?.clientId || ticket.clientId || '').trim();
+    const subject = (req.body?.subject || ticket.subject || '').trim();
+    const priority = (req.body?.priority || ticket.priority || 'low').toString().trim();
+    const status = (req.body?.status || ticket.status || 'open').toString().trim();
+    if (!clientId || !subject) return res.status(400).json({ error: 'clientId and subject required' });
+    const client = sellerStore.clients.find(c => c.id === clientId);
+    if (!client) return res.status(400).json({ error: 'invalid clientId' });
+    ticket.clientId = clientId;
+    ticket.subject = subject;
+    ticket.priority = priority;
+    ticket.status = status;
+    ticket.updatedAt = Date.now();
+    recordSellerActivity(`Updated ticket "${subject}"`);
+    saveSellerStore();
+    res.json(ticket);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/seller/tickets/:id/close', requireDev, (req, res) => {
+  try {
+    const ticket = sellerStore.tickets.find(t => t.id === req.params.id);
+    if (!ticket) return res.status(404).json({ error: 'ticket not found' });
+    ticket.status = 'closed';
+    ticket.updatedAt = Date.now();
+    recordSellerActivity(`Closed ticket "${ticket.subject}"`);
+    saveSellerStore();
+    res.json(ticket);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
