@@ -34,17 +34,16 @@ async function loadJobs(){
 }
 
 function formatDate(val){
-  if(!val) return FALLBACK;
-  const d = new Date(val);
-  if(Number.isNaN(d.getTime())) return FALLBACK;
+  const d = parseDateValue(val);
+  if(!d) return FALLBACK;
   return d.toLocaleDateString();
 }
 
 function formatDateTime(val){
   if(!val) return FALLBACK;
   if(window.utils && utils.formatDateTime) return utils.formatDateTime(val);
-  const d = new Date(val);
-  if(Number.isNaN(d.getTime())) return FALLBACK;
+  const d = parseDateValue(val);
+  if(!d) return FALLBACK;
   return d.toLocaleString();
 }
 
@@ -70,6 +69,26 @@ function formatNotes(val){
   return note.slice(0,57) + '...';
 }
 
+function parseDateValue(val){
+  if(val === undefined || val === null) return null;
+  if(typeof val === 'string'){
+    const trimmed = val.trim();
+    if(!trimmed) return null;
+    if(/^\d+$/.test(trimmed)){
+      const num = Number(trimmed);
+      const d = new Date(num);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if(match){
+      const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function getEntryJobId(entry){
   const raw = entry?.jobId || entry?.jobid || '';
   const val = (raw || '').toString().trim();
@@ -82,16 +101,16 @@ function getEntryJobId(entry){
 function setEditMode(project){
   if(!project) return;
   editingCode = project.code;
-  const codeInput = document.getElementById('jobCode');
-  const nameInput = document.getElementById('jobName');
-  const statusInput = document.getElementById('jobStatus');
-  const startInput = document.getElementById('jobStartDate');
-  const endInput = document.getElementById('jobEndDate');
-  const locationInput = document.getElementById('jobLocation');
-  const notesInput = document.getElementById('jobNotes');
+  const codeInput = document.getElementById('jobEditCode');
+  const nameInput = document.getElementById('jobEditName');
+  const statusInput = document.getElementById('jobEditStatus');
+  const startInput = document.getElementById('jobEditStartDate');
+  const endInput = document.getElementById('jobEditEndDate');
+  const locationInput = document.getElementById('jobEditLocation');
+  const notesInput = document.getElementById('jobEditNotes');
   if(codeInput){
     codeInput.value = project.code || '';
-    codeInput.disabled = true;
+    codeInput.readOnly = true;
   }
   if(nameInput) nameInput.value = project.name || '';
   if(statusInput) statusInput.value = project.status || 'planned';
@@ -101,30 +120,28 @@ function setEditMode(project){
   if(notesInput) notesInput.value = project.notes || '';
 
   const meta = document.getElementById('jobEditMeta');
-  if(meta){
-    meta.textContent = `Editing project: ${project.code}`;
-    meta.style.display = '';
-  }
-  const cancelBtn = document.getElementById('jobCancelEdit');
-  if(cancelBtn) cancelBtn.style.display = '';
-  const submitBtn = document.querySelector('#jobForm button[type="submit"]');
-  if(submitBtn) submitBtn.textContent = 'Update Project';
+  if(meta) meta.textContent = `Editing project: ${project.code}`;
+  const modal = document.getElementById('jobEditModal');
+  if(modal) modal.classList.remove('hidden');
 }
 
 function clearEditMode(){
   editingCode = null;
+  const form = document.getElementById('jobEditForm');
+  if(form) form.reset();
+  const statusInput = document.getElementById('jobEditStatus');
+  if(statusInput) statusInput.value = 'planned';
+  const modal = document.getElementById('jobEditModal');
+  if(modal) modal.classList.add('hidden');
+}
+
+function resetAddForm(){
   const form = document.getElementById('jobForm');
   if(form) form.reset();
-  const codeInput = document.getElementById('jobCode');
-  if(codeInput) codeInput.disabled = false;
   const statusInput = document.getElementById('jobStatus');
   if(statusInput) statusInput.value = 'planned';
-  const meta = document.getElementById('jobEditMeta');
-  if(meta) meta.style.display = 'none';
-  const cancelBtn = document.getElementById('jobCancelEdit');
-  if(cancelBtn) cancelBtn.style.display = 'none';
-  const submitBtn = document.querySelector('#jobForm button[type="submit"]');
-  if(submitBtn) submitBtn.textContent = 'Save Project';
+  const codeInput = document.getElementById('jobCode');
+  if(codeInput) codeInput.disabled = false;
 }
 
 async function saveProject(project){
@@ -249,12 +266,42 @@ function initProjectForm(){
     if(!result.ok){
       alert(result.error || 'Failed to save project (check permissions or server)');
     }else{
-      clearEditMode();
+      resetAddForm();
       await renderProjects();
     }
   });
-  document.getElementById('jobClearBtn')?.addEventListener('click', clearEditMode);
-  document.getElementById('jobCancelEdit')?.addEventListener('click', clearEditMode);
+  document.getElementById('jobClearBtn')?.addEventListener('click', resetAddForm);
+
+  const editForm = document.getElementById('jobEditForm');
+  if(editForm){
+    editForm.addEventListener('submit', async ev=>{
+      ev.preventDefault();
+      const code = editingCode || document.getElementById('jobEditCode')?.value.trim() || '';
+      const name = document.getElementById('jobEditName')?.value.trim() || '';
+      const status = document.getElementById('jobEditStatus')?.value || 'planned';
+      const startDate = document.getElementById('jobEditStartDate')?.value || '';
+      const endDate = document.getElementById('jobEditEndDate')?.value || '';
+      const location = document.getElementById('jobEditLocation')?.value.trim() || '';
+      const notes = document.getElementById('jobEditNotes')?.value.trim() || '';
+      if(!code){alert('Project code required');return;}
+      const result = await saveProject({code,name,status,startDate,endDate,location,notes});
+      if(!result.ok){
+        alert(result.error || 'Failed to save project (check permissions or server)');
+      }else{
+        clearEditMode();
+        await renderProjects();
+      }
+    });
+  }
+  document.getElementById('jobEditCancel')?.addEventListener('click', clearEditMode);
+  document.getElementById('jobEditClose')?.addEventListener('click', clearEditMode);
+  document.getElementById('jobEditModal')?.addEventListener('click', ev=>{
+    if(ev.target === ev.currentTarget) clearEditMode();
+  });
+  document.addEventListener('keydown', ev=>{
+    const modal = document.getElementById('jobEditModal');
+    if(ev.key === 'Escape' && modal && !modal.classList.contains('hidden')) clearEditMode();
+  });
 }
 
 function initTabs(){
@@ -359,8 +406,8 @@ function applyReportFilters(projects){
       if(active <= 0) return false;
     }
     if(windowFilter){
-      const startTs = meta.startDate ? Date.parse(meta.startDate) : null;
-      const endTs = meta.endDate ? Date.parse(meta.endDate) : null;
+      const startTs = meta.startDate ? parseDateValue(meta.startDate)?.getTime() : null;
+      const endTs = meta.endDate ? parseDateValue(meta.endDate)?.getTime() : null;
       if(windowFilter === 'upcoming7'){
         const windowEnd = todayStart + (7 * 24 * 60 * 60 * 1000);
         if(!startTs || startTs < todayStart || startTs > windowEnd) return false;
