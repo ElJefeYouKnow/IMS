@@ -4,6 +4,24 @@ function getSession(){
   try{return JSON.parse(localStorage.getItem(SESSION_KEY)||'null');}catch(e){return null;}
 }
 
+function parseTs(val){
+  if(val === undefined || val === null) return null;
+  if(typeof val === 'number') return val;
+  if(typeof val === 'string'){
+    if(/^\d+$/.test(val)) return Number(val);
+    const t = Date.parse(val);
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
+function formatWhen(val){
+  const ts = parseTs(val);
+  if(ts === null) return '';
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
+}
+
 function typeLabel(t){
   if(t==='in') return 'Check-In';
   if(t==='out') return 'Check-Out';
@@ -44,7 +62,7 @@ async function renderTable(){
   rows.forEach(e=>{
     const tr=document.createElement('tr');
     const user = e.userName ? `${e.userName} (${e.userEmail||''})` : (e.userEmail||'');
-    const when = e.ts ? new Date(e.ts).toLocaleString() : '';
+    const when = formatWhen(e.ts);
     const notes = e.notes || e.reason || e.location || '';
     tr.innerHTML=`<td>${typeLabel(e.type)}</td><td>${e.status||''}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||''}</td><td>${user}</td><td>${when}</td><td>${notes}</td>`;
     tbody.appendChild(tr);
