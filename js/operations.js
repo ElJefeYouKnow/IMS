@@ -336,8 +336,9 @@ async function renderCheckinTable(){
     return;
   }
   entries.slice().reverse().forEach(e=>{
+    const jobId = getEntryJobId(e);
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,name:e.name,qty:e.qty,location:e.location,jobId:e.jobId,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${e.qty}</td><td>${e.location||''}</td><td>${e.jobId||FALLBACK}</td><td>${fmtDT(e.ts)}</td>`;
+    tr.innerHTML=`<td><input type="checkbox" class="row-select" data-payload='${JSON.stringify({code:e.code,name:e.name,qty:e.qty,location:e.location,jobId,ts:e.ts})}'></td><td>${e.code}</td><td>${e.name||''}</td><td>${e.qty}</td><td>${e.location||''}</td><td>${jobId||FALLBACK}</td><td>${fmtDT(e.ts)}</td>`;
     tbody.appendChild(tr);
   });
   wireSelectAll('checkinTable');
@@ -739,7 +740,7 @@ async function exportCSV(mode){
   
   let rows;
   if(mode === 'checkin'){
-    rows = entries.map(r=>[r.code,r.name,r.qty,r.location,r.jobId,new Date(r.ts).toISOString()]);
+    rows = entries.map(r=>[r.code,r.name,r.qty,r.location,getEntryJobId(r),new Date(r.ts).toISOString()]);
   }else if(mode === 'checkout'){
     rows = entries.map(r=>[r.code,r.jobId,r.qty,new Date(r.ts).toISOString()]);
   }else if(mode === 'reserve'){
