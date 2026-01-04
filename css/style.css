@@ -253,6 +253,10 @@ select:disabled{
 .mode-btn:disabled{opacity:0.5;cursor:not-allowed;box-shadow:none}
 .mode-content{display:none}
 .mode-content.active{display:block}
+@media(max-width:720px){
+  .mode-tabs{flex-wrap:wrap}
+  .mode-btn{flex:1 1 160px;padding:8px 10px;font-size:0.9rem}
+}
 .page-grid{display:grid;grid-template-columns:2fr 1.3fr;gap:14px;align-items:start}
 @media(max-width:960px){
   .page-grid{grid-template-columns:1fr}

@@ -494,7 +494,8 @@ function openProjectDetail(btn){
   detailRow = document.createElement('tr');
   detailRow.className = 'report-detail';
   detailRow.dataset.project = key;
-  detailRow.innerHTML = `<td colspan="10">${buildDetailTable(items)}</td>`;
+  const colCount = isAdmin ? 11 : 10;
+  detailRow.innerHTML = `<td colspan="${colCount}">${buildDetailTable(items)}</td>`;
   row.parentNode.insertBefore(detailRow, row.nextSibling);
   btn.textContent = 'Hide Items';
 }
@@ -541,7 +542,9 @@ async function renderReport(){
     reportDetailMap.set(key, p.items || []);
   });
 
-  const colCount = 10;
+  const actionsHeader = document.getElementById('reportActionsHeader');
+  if(actionsHeader) actionsHeader.style.display = isAdmin ? '' : 'none';
+  const colCount = isAdmin ? 11 : 10;
   if(!filtered.length){
     const tr = document.createElement('tr');
     const message = (jobCache.length === 0 && items.length === 0) ? 'No projects created yet' : 'No matching projects';
@@ -560,6 +563,18 @@ async function renderReport(){
     const endLabel = formatDate(meta.endDate);
     const locationLabel = meta.location || '';
     const key = encodeKey(project.projectId);
+    const statusRaw = (meta.status || '').toLowerCase();
+    const isComplete = ['complete','completed','closed','archived'].includes(statusRaw);
+    let actionCell = '';
+    if(isAdmin){
+      if(isGeneralProject(project.projectId)){
+        actionCell = `<td>${FALLBACK}</td>`;
+      }else if(isComplete){
+        actionCell = `<td><span class="badge info">Completed</span></td>`;
+      }else{
+        actionCell = `<td><button class="action-btn complete-btn" data-code="${key}">Mark Complete</button></td>`;
+      }
+    }
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${escapeHtml(project.projectId)}</td>
@@ -572,6 +587,7 @@ async function renderReport(){
       <td>${project.reserveQty}</td>
       <td>${project.netUsage}</td>
       <td><button class="action-btn report-toggle" data-project="${key}">View Items</button></td>
+      ${actionCell}
     `;
     tbody.appendChild(tr);
   });
@@ -579,6 +595,31 @@ async function renderReport(){
   document.querySelectorAll('.report-toggle').forEach(btn=>{
     btn.addEventListener('click', ()=> toggleProjectDetail(btn));
   });
+  if(isAdmin){
+    document.querySelectorAll('.complete-btn').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const code = decodeKey(btn.dataset.code || '');
+        if(!code) return;
+        if(!confirm(`Mark project "${code}" complete?`)) return;
+        const meta = getProjectMeta(code);
+        const result = await saveProject({
+          code: meta.code || code,
+          name: meta.name || '',
+          status: 'complete',
+          startDate: meta.startDate || '',
+          endDate: meta.endDate || '',
+          location: meta.location || '',
+          notes: meta.notes || ''
+        });
+        if(!result.ok){
+          alert(result.error || 'Failed to update project');
+          return;
+        }
+        await renderProjects();
+        await renderReport();
+      });
+    });
+  }
   setExpandAllState(false);
 }
 
