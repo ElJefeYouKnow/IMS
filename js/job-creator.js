@@ -356,9 +356,10 @@ function aggregateByProject(entries){
   entries.forEach(e=>{
     const projectId = getEntryJobId(e) || 'General';
     const key = `${projectId}|${e.code}`;
-    if(!projects[key]) projects[key] = { projectId, code: e.code, inQty: 0, outQty: 0, reserveQty: 0 };
+    if(!projects[key]) projects[key] = { projectId, code: e.code, inQty: 0, outQty: 0, reserveQty: 0, returnQty: 0 };
     const qty = Number(e.qty || 0);
-    if(e.type === 'in' || e.type === 'return') projects[key].inQty += qty;
+    if(e.type === 'in') projects[key].inQty += qty;
+    else if(e.type === 'return'){ projects[key].inQty += qty; projects[key].returnQty += qty; }
     else if(e.type === 'out') projects[key].outQty += qty;
     else if(e.type === 'reserve') projects[key].reserveQty += qty;
     else if(e.type === 'reserve_release') projects[key].reserveQty -= qty;
@@ -394,15 +395,30 @@ function buildProjectSummary(items){
   const map = new Map();
   items.forEach(item=>{
     const pid = item.projectId;
-    if(!map.has(pid)) map.set(pid, { projectId: pid, inQty: 0, outQty: 0, reserveQty: 0, netUsage: 0, items: [] });
+    if(!map.has(pid)) map.set(pid, { projectId: pid, inQty: 0, outQty: 0, reserveQty: 0, returnQty: 0, netUsage: 0, items: [] });
     const rec = map.get(pid);
     rec.inQty += item.inQty;
     rec.outQty += item.outQty;
     rec.reserveQty += item.reserveQty;
+    rec.returnQty += item.returnQty || 0;
     rec.netUsage += item.netUsage;
     rec.items.push(item);
   });
   return Array.from(map.values());
+}
+
+function getProjectCheckedOut(project){
+  const items = project.items || [];
+  return items.reduce((sum, item)=>{
+    const outQty = Number(item.outQty || 0);
+    const returnQty = Number(item.returnQty || 0);
+    return sum + Math.max(0, outQty - returnQty);
+  }, 0);
+}
+
+function getProjectReserved(project){
+  const items = project.items || [];
+  return items.reduce((sum, item)=> sum + Math.max(0, Number(item.reserveQty || 0)), 0);
 }
 
 function applyReportFilters(projects){
@@ -457,8 +473,8 @@ function applyReportFilters(projects){
 function updateReportSummary(list){
   const totalProjects = list.length;
   const activeProjects = list.filter(p=> (p.meta.status || '').toLowerCase() === 'active').length;
-  const checkedOut = list.reduce((sum,p)=> sum + (Number(p.outQty)||0), 0);
-  const reserved = list.reduce((sum,p)=> sum + (Number(p.reserveQty)||0), 0);
+  const checkedOut = list.reduce((sum,p)=> sum + getProjectCheckedOut(p), 0);
+  const reserved = list.reduce((sum,p)=> sum + getProjectReserved(p), 0);
   const setText = (id, val)=>{
     const el = document.getElementById(id);
     if(el) el.textContent = `${val}`;
@@ -492,12 +508,23 @@ function buildReportSummary(items){
 
 function buildDetailTable(items){
   if(!items.length) return '<div style="color:#6b7280;">No items</div>';
-  const rows = items.slice().sort((a,b)=> (a.code || '').localeCompare(b.code || '')).map(item=>{
-    const onHand = (item.inQty || 0) - (item.outQty || 0);
-    return `<tr><td>${escapeHtml(item.code || '')}</td><td>${item.inQty}</td><td>${item.outQty}</td><td>${item.reserveQty}</td><td>${onHand}</td><td>${item.netUsage}</td></tr>`;
-  }).join('');
+  const rows = items
+    .map(item=>{
+      const inQty = Number(item.inQty || 0);
+      const outQty = Number(item.outQty || 0);
+      const returnQty = Number(item.returnQty || 0);
+      const reserved = Math.max(0, Number(item.reserveQty || 0));
+      const checkedOut = Math.max(0, outQty - returnQty);
+      const onHand = Math.max(0, inQty - outQty);
+      return { code: item.code || '', checkedOut, reserved, onHand };
+    })
+    .filter(item=> item.checkedOut > 0 || item.reserved > 0 || item.onHand > 0)
+    .sort((a,b)=> a.code.localeCompare(b.code))
+    .map(item=> `<tr><td>${escapeHtml(item.code)}</td><td>${item.checkedOut}</td><td>${item.reserved}</td><td>${item.onHand}</td></tr>`)
+    .join('');
+  if(!rows) return '<div style="color:#6b7280;">No current items for this project.</div>';
   return `<table class="detail-table">
-    <thead><tr><th>Code</th><th>Checked In</th><th>Checked Out</th><th>Reserved</th><th>On Hand</th><th>Net Usage</th></tr></thead>
+    <thead><tr><th>Code</th><th>Checked Out</th><th>Reserved</th><th>On Hand</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -592,6 +619,8 @@ async function renderReport(){
     const lastActivityTs = lastActivityMap.get(project.projectId) || 0;
     const lastActivityLabel = lastActivityTs ? formatDateTime(lastActivityTs) : FALLBACK;
     const nameLabel = (meta.name || '').toString().trim();
+    const checkedOutQty = getProjectCheckedOut(project);
+    const reservedQty = getProjectReserved(project);
     const card = document.createElement('div');
     card.className = 'report-card';
     card.innerHTML = `
@@ -611,8 +640,8 @@ async function renderReport(){
         <div class="report-chip"><span>Last Activity</span><strong>${escapeHtml(lastActivityLabel)}</strong></div>
       </div>
       <div class="report-metrics">
-        <div class="report-metric"><span>Checked Out</span><strong>${Number(project.outQty || 0)}</strong></div>
-        <div class="report-metric"><span>Reserved</span><strong>${Number(project.reserveQty || 0)}</strong></div>
+        <div class="report-metric"><span>Checked Out</span><strong>${checkedOutQty}</strong></div>
+        <div class="report-metric"><span>Reserved</span><strong>${reservedQty}</strong></div>
       </div>
       <div class="report-notes"><strong>Notes:</strong> ${escapeHtml(notesLabel || FALLBACK)}</div>
         <div class="report-card-actions">
