@@ -86,14 +86,14 @@
 
       <section class="card">
         <div class="mode-tabs">
-          <button class="mode-btn active" data-mode="checkin">Receive Orders</button>
-          <button class="mode-btn" data-mode="checkout">Pick Items (Check-Out)</button>
+          <button class="mode-btn active" data-mode="checkout">Pick Items (Check-Out)</button>
+          <button class="mode-btn" data-mode="checkin">Receive Orders</button>
           <button class="mode-btn" data-mode="return">Return</button>
         </div>
       </section>
 
       
-      <div id="checkin-mode" class="mode-content active">
+      <div id="checkin-mode" class="mode-content">
         <section class="card inventory-card">
           <form id="checkinForm" class="inventory-form" autocomplete="off">
             <div>
@@ -139,7 +139,7 @@
       </div>
 
       <!-- CHECK-OUT MODE -->
-      <div id="checkout-mode" class="mode-content">
+      <div id="checkout-mode" class="mode-content active">
         <section class="card inventory-card">
           <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Pick items from inventory for a project. Track the project and notes.</p>
           <form id="checkoutForm" class="inventory-form" autocomplete="off">
