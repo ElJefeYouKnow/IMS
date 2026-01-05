@@ -869,6 +869,13 @@ function initReassign(){
   if(!form) return;
   const msg = document.getElementById('reassignMsg');
   const clearBtn = document.getElementById('reassign-clearBtn');
+  if(window.utils && utils.attachItemLookup){
+    utils.attachItemLookup({
+      getItems: ()=> itemsCache,
+      codeInputId: 'reassign-code',
+      suggestionsId: 'reassign-code-s'
+    });
+  }
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
     msg.textContent = '';

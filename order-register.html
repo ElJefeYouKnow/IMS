@@ -216,7 +216,10 @@
             <p class="muted" style="margin-top:-2px;">Move reserved stock between projects or back to general inventory.</p>
             <form id="reassignForm" class="inventory-form" autocomplete="off">
               <div class="form-row">
-                <label>Item Code<input id="reassign-code" placeholder="SKU/part" required></label>
+                <label class="with-suggest">Item Code
+                  <input id="reassign-code" placeholder="SKU/part" required list="order-sku-options">
+                  <div id="reassign-code-s" class="suggestions"></div>
+                </label>
                 <label>From Project
                   <select id="reassign-from" required>
                     <option value="">Select project...</option>
