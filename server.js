@@ -300,6 +300,9 @@ async function initDb() {
     description TEXT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS unitPrice NUMERIC`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS description TEXT`);
   await runAsync(`CREATE TABLE IF NOT EXISTS inventory(
     id TEXT PRIMARY KEY,
     code TEXT REFERENCES items(code),
