@@ -213,29 +213,7 @@
 
             <section class="inventory-card">
               <h3>Edit User</h3>
-              <p style="color:#6b7280;margin-top:0;">Select a user above to edit email, password or role.</p>
-              <form id="editUserForm" class="inventory-form">
-                <input type="hidden" id="edit-userId">
-                <div class="form-row">
-                  <label>Name<input id="edit-userName" required></label>
-                  <label>Email<input id="edit-userEmail" type="email" required></label>
-                </div>
-              <div class="form-row">
-                <label>Role
-                  <select id="edit-userRole">
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </label>
-                <label>New Password<input id="edit-userPassword" type="password" placeholder="Leave blank to keep current"></label>
-              </div>
-              <div class="form-row">
-                <button type="submit">Update User</button>
-                <button id="edit-generatePassword" type="button" class="muted">Generate Temp Password</button>
-                <button id="edit-userClearBtn" type="button" class="muted">Clear</button>
-              </div>
-                <div id="edit-userError" style="color:#b91c1c;font-size:0.9rem;"></div>
-              </form>
+              <p style="color:#6b7280;margin-top:0;">Select a user in the table above to edit details in a popup.</p>
             </section>
           </div>
           <div id="adminSettingsMsg" class="settings-msg"></div>
@@ -244,11 +222,46 @@
     </main>
   </div>
 
-  <script src="js/utils.js"></script>
-  <script src="js/settings.js"></script>
-  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
-</body>
-</html>
+    <div id="editUserModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editUserTitle">
+      <div class="modal-content">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <h3 id="editUserTitle" style="margin:0;">Edit User</h3>
+          <button id="editUserClose" class="muted" type="button">Close</button>
+        </div>
+        <p id="edit-userMeta" class="muted-text">Editing user:</p>
+        <form id="editUserForm" class="inventory-form">
+          <input type="hidden" id="edit-userId">
+          <div class="form-row">
+            <label>Name<input id="edit-userName" required></label>
+            <label>Email<input id="edit-userEmail" type="email" required></label>
+          </div>
+          <div class="form-row">
+            <label>Role
+              <select id="edit-userRole">
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+            <label>New Password<input id="edit-userPassword" type="password" placeholder="Leave blank to keep current"></label>
+          </div>
+          <div class="form-row">
+            <button id="edit-generatePassword" type="button" class="muted">Generate Temp Password</button>
+            <button id="edit-userClearBtn" type="button" class="muted">Clear</button>
+          </div>
+          <div class="modal-actions">
+            <button type="submit">Update User</button>
+            <button id="edit-userCancel" type="button" class="muted">Cancel</button>
+          </div>
+          <div id="edit-userError" style="color:#b91c1c;font-size:0.9rem;"></div>
+        </form>
+      </div>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/settings.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
+  </body>
+  </html>
 
 
 

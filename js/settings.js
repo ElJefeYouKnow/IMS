@@ -296,6 +296,9 @@ function renderUsersTable(allUsers){
       document.getElementById('edit-userRole').value = btn.dataset.role || 'user';
       document.getElementById('edit-userPassword').value = '';
       document.getElementById('edit-userError').textContent = '';
+      const meta = document.getElementById('edit-userMeta');
+      if(meta) meta.textContent = `Editing user: ${btn.dataset.email || ''}`;
+      openEditUserModal();
     });
   });
   tbody.querySelectorAll('.role-user').forEach(btn=>{
@@ -352,6 +355,22 @@ function exportUsersCSV(){
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function openEditUserModal(){
+  const modal = document.getElementById('editUserModal');
+  if(modal) modal.classList.remove('hidden');
+}
+
+function closeEditUserModal(){
+  const modal = document.getElementById('editUserModal');
+  if(modal) modal.classList.add('hidden');
+  const editForm = document.getElementById('editUserForm');
+  if(editForm) editForm.reset();
+  const editErr = document.getElementById('edit-userError');
+  if(editErr) editErr.textContent = '';
+  const meta = document.getElementById('edit-userMeta');
+  if(meta) meta.textContent = 'Editing user:';
 }
 
 document.addEventListener('DOMContentLoaded', ()=>{
@@ -414,7 +433,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         editErr.textContent = data.error || 'Update failed';
         return;
       }
-      editForm.reset();
+      closeEditUserModal();
       await refreshUsers();
     }catch(e){
       editErr.textContent = 'Unable to update user';
@@ -425,6 +444,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const pwd = generateTempPassword();
     document.getElementById('edit-userPassword').value = pwd;
     editErr.textContent = `Temp password generated: ${pwd}`;
+  });
+  document.getElementById('editUserClose')?.addEventListener('click', closeEditUserModal);
+  document.getElementById('edit-userCancel')?.addEventListener('click', closeEditUserModal);
+  document.getElementById('editUserModal')?.addEventListener('click', ev=>{
+    if(ev.target === ev.currentTarget) closeEditUserModal();
+  });
+  document.addEventListener('keydown', ev=>{
+    const modal = document.getElementById('editUserModal');
+    if(ev.key === 'Escape' && modal && !modal.classList.contains('hidden')) closeEditUserModal();
   });
 
   document.getElementById('userSearch')?.addEventListener('input', ()=> renderUsersTable(usersCache));
