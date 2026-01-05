@@ -8,6 +8,7 @@ function getSession(){
 
 async function loadItems(){
   itemsCache = await utils.fetchJsonSafe('/api/items', {}, []) || [];
+  refreshItemOptions();
 }
 
 async function loadJobs(){
@@ -40,7 +41,7 @@ function addLine(){
   row.className = 'form-row line-row';
   row.innerHTML = `
     <label>Item Code
-      <input id="${codeId}" name="code" required placeholder="SKU, part number or barcode">
+      <input id="${codeId}" name="code" required placeholder="SKU, part number or barcode" list="purchase-item-options">
       <div id="${suggId}" class="suggestions"></div>
     </label>
     <label>Item Name<input id="${nameId}" name="name" placeholder="Required if new"></label>
@@ -62,6 +63,19 @@ function addLine(){
     categoryInputId: categoryId,
     suggestionsId: suggId
   });
+  const codeInput = row.querySelector(`#${codeId}`);
+  const nameInput = row.querySelector(`#${nameId}`);
+  const categoryInput = row.querySelector(`#${categoryId}`);
+  const fillFromExisting = ()=>{
+    const val = codeInput?.value.trim().toLowerCase() || '';
+    if(!val) return;
+    const match = itemsCache.find(i=> (i.code || '').toLowerCase() === val);
+    if(!match) return;
+    if(nameInput && !nameInput.value) nameInput.value = match.name || '';
+    if(categoryInput && !categoryInput.value) categoryInput.value = match.category || '';
+  };
+  codeInput?.addEventListener('change', fillFromExisting);
+  codeInput?.addEventListener('blur', fillFromExisting);
 }
 
 function gatherLines(){
@@ -100,6 +114,19 @@ async function renderPurchaseTable(){
   });
 }
 
+function refreshItemOptions(){
+  const list = document.getElementById('purchase-item-options');
+  if(!list) return;
+  list.innerHTML = '';
+  itemsCache.forEach(item=>{
+    if(!item?.code) return;
+    const opt = document.createElement('option');
+    opt.value = item.code;
+    if(item.name) opt.label = `${item.code} - ${item.name}`;
+    list.appendChild(opt);
+  });
+}
+
 document.addEventListener('DOMContentLoaded', async ()=>{
   await loadItems();
   await loadJobs();
@@ -133,6 +160,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       form.reset();
       document.getElementById('purchase-lines').innerHTML = '';
       addLine();
+      await loadItems();
       await renderPurchaseTable();
       alert(`Logged ${data.count} purchase(s).`);
     }catch(e){
