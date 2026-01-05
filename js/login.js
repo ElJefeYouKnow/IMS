@@ -2,13 +2,25 @@ document.addEventListener('DOMContentLoaded', ()=>{
   localStorage.removeItem('sessionUser');
   const form = document.getElementById('loginForm');
   const err = document.getElementById('login-error');
+  const tenantInput = document.getElementById('login-tenant');
+  const rememberToggle = document.getElementById('login-remember-tenant');
+  const storedTenant = localStorage.getItem('rememberTenantCode') || '';
+  if(tenantInput && storedTenant){
+    tenantInput.value = storedTenant;
+    if(rememberToggle) rememberToggle.checked = true;
+  }
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
     err.textContent = '';
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
-    const tenantCode = (document.getElementById('login-tenant').value.trim() || 'default').toLowerCase();
+    const tenantCode = (tenantInput?.value.trim() || 'default').toLowerCase();
     if(!email || !password){ err.textContent = 'Email and password required'; return; }
+    if(rememberToggle?.checked){
+      localStorage.setItem('rememberTenantCode', tenantCode);
+    }else{
+      localStorage.removeItem('rememberTenantCode');
+    }
     try{
       const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,tenantCode})});
       if(!r.ok){
