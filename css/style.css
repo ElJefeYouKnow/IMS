@@ -257,6 +257,25 @@ select:disabled{
   .mode-tabs{flex-wrap:wrap}
   .mode-btn{flex:1 1 160px;padding:8px 10px;font-size:0.9rem}
 }
+.report-cards{display:flex;flex-direction:column;gap:12px;margin-top:8px}
+.report-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 10px 24px rgba(10,27,43,0.08)}
+.report-card-header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.report-card-title{font-weight:800;font-size:1rem}
+.report-card-sub{color:var(--muted);font-size:0.85rem;margin-top:2px}
+.report-card-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.report-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px}
+.report-chip{background:rgba(15,122,87,0.06);border:1px solid rgba(15,122,87,0.16);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.report-chip span{font-size:0.75rem;color:var(--muted);font-weight:700;letter-spacing:0.2px;text-transform:uppercase}
+.report-chip strong{font-size:0.95rem;color:inherit}
+.report-metrics{display:flex;gap:12px;margin-top:12px;flex-wrap:wrap}
+.report-metric{flex:1 1 140px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:10px}
+.report-metric span{font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.2px}
+.report-metric strong{display:block;font-size:1.1rem;margin-top:4px;color:#0f7a57}
+.report-notes{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px;font-size:0.9rem;color:var(--muted)}
+.report-card-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.report-detail{margin-top:10px}
+.report-empty{padding:16px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);text-align:center;background:rgba(15,122,87,0.04)}
+.dark .report-metric{background:#0f172a;border-color:#1f2937}
 .page-grid{display:grid;grid-template-columns:2fr 1.3fr;gap:14px;align-items:start}
 @media(max-width:960px){
   .page-grid{grid-template-columns:1fr}

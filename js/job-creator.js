@@ -69,6 +69,15 @@ function formatNotes(val){
   return note.slice(0,57) + '...';
 }
 
+function formatProjectDates(meta){
+  const startLabel = formatDate(meta.startDate);
+  const endLabel = formatDate(meta.endDate);
+  if(startLabel !== FALLBACK && endLabel !== FALLBACK) return `Start ${startLabel} / End ${endLabel}`;
+  if(startLabel !== FALLBACK) return `Start ${startLabel}`;
+  if(endLabel !== FALLBACK) return `End ${endLabel}`;
+  return FALLBACK;
+}
+
 function parseDateValue(val){
   if(val === undefined || val === null) return null;
   if(typeof val === 'string'){
@@ -360,7 +369,6 @@ function aggregateByProject(entries){
 }
 
 const GENERAL_LABEL = 'General';
-const reportDetailMap = new Map();
 let reportExpanded = false;
 
 function isGeneralProject(value){
@@ -495,42 +503,29 @@ function buildDetailTable(items){
 }
 
 function openProjectDetail(btn){
-  const key = btn.dataset.project;
-  const row = btn.closest('tr');
-  if(!row) return;
-  let detailRow = row.nextElementSibling;
-  if(detailRow && detailRow.classList.contains('report-detail') && detailRow.dataset.project === key){
-    detailRow.style.display = '';
-    btn.textContent = 'Hide Items';
-    return;
+  const card = btn.closest('.report-card');
+  if(!card) return;
+  const detail = card.querySelector('.report-detail');
+  if(detail){
+    detail.style.display = '';
+    card.classList.add('expanded');
   }
-  const items = reportDetailMap.get(key) || [];
-  detailRow = document.createElement('tr');
-  detailRow.className = 'report-detail';
-  detailRow.dataset.project = key;
-  const colCount = isAdmin ? 11 : 10;
-  detailRow.innerHTML = `<td colspan="${colCount}">${buildDetailTable(items)}</td>`;
-  row.parentNode.insertBefore(detailRow, row.nextSibling);
   btn.textContent = 'Hide Items';
 }
 
 function closeProjectDetail(btn){
-  const row = btn.closest('tr');
-  const detailRow = row?.nextElementSibling;
-  if(detailRow && detailRow.classList.contains('report-detail')){
-    detailRow.style.display = 'none';
-  }
+  const card = btn.closest('.report-card');
+  const detail = card?.querySelector('.report-detail');
+  if(detail) detail.style.display = 'none';
+  if(card) card.classList.remove('expanded');
   btn.textContent = 'View Items';
 }
 
 function toggleProjectDetail(btn){
-  const row = btn.closest('tr');
-  const detailRow = row?.nextElementSibling;
-  if(detailRow && detailRow.classList.contains('report-detail') && detailRow.style.display !== 'none'){
-    closeProjectDetail(btn);
-  }else{
-    openProjectDetail(btn);
-  }
+  const card = btn.closest('.report-card');
+  const detail = card?.querySelector('.report-detail');
+  if(detail && detail.style.display !== 'none') closeProjectDetail(btn);
+  else openProjectDetail(btn);
 }
 
 function setExpandAllState(expand){
@@ -540,9 +535,9 @@ function setExpandAllState(expand){
 }
 
 async function renderReport(){
-  const tbody = document.querySelector('#reportTable tbody');
-  if(!tbody) return;
-  tbody.innerHTML = '';
+  const list = document.getElementById('reportCards');
+  if(!list) return;
+  list.innerHTML = '';
   await loadJobs();
   const entries = await loadEntries();
   const items = aggregateByProject(entries);
@@ -550,20 +545,16 @@ async function renderReport(){
   const filtered = applyReportFilters(summary);
   updateReportSummary(filtered);
 
-  reportDetailMap.clear();
-  filtered.forEach(p=>{
-    const key = encodeKey(p.projectId);
-    reportDetailMap.set(key, p.items || []);
+  const lastActivityMap = new Map();
+  (entries || []).forEach(e=>{
+    const projectId = getEntryJobId(e) || 'General';
+    const ts = Number(e.ts || 0);
+    if(ts > (lastActivityMap.get(projectId) || 0)) lastActivityMap.set(projectId, ts);
   });
 
-  const actionsHeader = document.getElementById('reportActionsHeader');
-  if(actionsHeader) actionsHeader.style.display = isAdmin ? '' : 'none';
-  const colCount = isAdmin ? 11 : 10;
   if(!filtered.length){
-    const tr = document.createElement('tr');
     const message = (jobCache.length === 0 && items.length === 0) ? 'No projects created yet' : 'No matching projects';
-    tr.innerHTML = `<td colspan="${colCount}" style="text-align:center;color:#6b7280;">${message}</td>`;
-    tbody.appendChild(tr);
+    list.innerHTML = `<div class="report-empty">${message}</div>`;
     setExpandAllState(false);
     return;
   }
@@ -571,39 +562,51 @@ async function renderReport(){
   const rows = filtered.sort((a,b)=> a.projectId.localeCompare(b.projectId));
   rows.forEach(project=>{
     const meta = project.meta || {};
-    const onHand = (project.inQty || 0) - (project.outQty || 0);
     const statusLabel = meta.status ? formatStatus(meta.status) : (isGeneralProject(project.projectId) ? GENERAL_LABEL : FALLBACK);
-    const startLabel = formatDate(meta.startDate);
-    const endLabel = formatDate(meta.endDate);
-    const locationLabel = meta.location || '';
+    const datesLabel = formatProjectDates(meta);
+    const locationLabel = meta.location || FALLBACK;
+    const notesLabel = (meta.notes || '').toString().trim();
     const key = encodeKey(project.projectId);
     const statusRaw = (meta.status || '').toLowerCase();
     const isComplete = ['complete','completed','closed','archived'].includes(statusRaw);
-    let actionCell = '';
+    let actionButton = '';
     if(isAdmin){
-      if(isGeneralProject(project.projectId)){
-        actionCell = `<td>${FALLBACK}</td>`;
-      }else if(isComplete){
-        actionCell = `<td><span class="badge info">Completed</span></td>`;
-      }else{
-        actionCell = `<td><button class="action-btn complete-btn" data-code="${key}">Mark Complete</button></td>`;
+      if(!isGeneralProject(project.projectId) && !isComplete){
+        actionButton = `<button class="action-btn complete-btn" data-code="${key}">Mark Complete</button>`;
       }
     }
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${escapeHtml(project.projectId)}</td>
-      <td>${escapeHtml(statusLabel)}</td>
-      <td>${startLabel}</td>
-      <td>${endLabel}</td>
-      <td>${escapeHtml(locationLabel)}</td>
-      <td>${onHand}</td>
-      <td>${project.outQty}</td>
-      <td>${project.reserveQty}</td>
-      <td>${project.netUsage}</td>
-      <td><button class="action-btn report-toggle" data-project="${key}">View Items</button></td>
-      ${actionCell}
+    const lastActivityTs = lastActivityMap.get(project.projectId) || 0;
+    const lastActivityLabel = lastActivityTs ? formatDateTime(lastActivityTs) : FALLBACK;
+    const nameLabel = (meta.name || '').toString().trim();
+    const card = document.createElement('div');
+    card.className = 'report-card';
+    card.innerHTML = `
+      <div class="report-card-header">
+        <div>
+          <div class="report-card-title">${escapeHtml(project.projectId)}</div>
+          ${nameLabel ? `<div class="report-card-sub">${escapeHtml(nameLabel)}</div>` : ''}
+        </div>
+        <div class="report-card-controls">
+          <span class="badge info">${escapeHtml(statusLabel)}</span>
+          ${actionButton}
+        </div>
+      </div>
+      <div class="report-card-grid">
+        <div class="report-chip"><span>Dates</span><strong>${escapeHtml(datesLabel)}</strong></div>
+        <div class="report-chip"><span>Location</span><strong>${escapeHtml(locationLabel)}</strong></div>
+        <div class="report-chip"><span>Last Activity</span><strong>${escapeHtml(lastActivityLabel)}</strong></div>
+      </div>
+      <div class="report-metrics">
+        <div class="report-metric"><span>Checked Out</span><strong>${Number(project.outQty || 0)}</strong></div>
+        <div class="report-metric"><span>Reserved</span><strong>${Number(project.reserveQty || 0)}</strong></div>
+      </div>
+      <div class="report-notes"><strong>Notes:</strong> ${escapeHtml(notesLabel || FALLBACK)}</div>
+      <div class="report-card-actions">
+        <button class="action-btn report-toggle" data-project="${key}">View Items</button>
+      </div>
+      <div class="report-detail" data-project="${key}" style="display:none;">${buildDetailTable(project.items || [])}</div>
     `;
-    tbody.appendChild(tr);
+    list.appendChild(card);
   });
 
   document.querySelectorAll('.report-toggle').forEach(btn=>{
