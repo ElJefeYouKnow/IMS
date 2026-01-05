@@ -502,28 +502,42 @@ function buildDetailTable(items){
   </table>`;
 }
 
-function openProjectDetail(btn){
-  const card = btn.closest('.report-card');
-  if(!card) return;
+function closestReportCard(node){
+  let cur = node;
+  while(cur && cur !== document.body){
+    if(cur.classList && cur.classList.contains('report-card')) return cur;
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+function getReportDetail(btn){
+  const card = closestReportCard(btn);
+  if(!card) return { card: null, detail: null };
   const detail = card.querySelector('.report-detail');
+  return { card, detail };
+}
+
+function openProjectDetail(btn){
+  const { card, detail } = getReportDetail(btn);
   if(detail){
     detail.style.display = '';
-    card.classList.add('expanded');
+    card?.classList.add('expanded');
+    btn.textContent = 'Hide Items';
   }
-  btn.textContent = 'Hide Items';
 }
 
 function closeProjectDetail(btn){
-  const card = btn.closest('.report-card');
-  const detail = card?.querySelector('.report-detail');
-  if(detail) detail.style.display = 'none';
-  if(card) card.classList.remove('expanded');
-  btn.textContent = 'View Items';
+  const { card, detail } = getReportDetail(btn);
+  if(detail){
+    detail.style.display = 'none';
+    card?.classList.remove('expanded');
+    btn.textContent = 'View Items';
+  }
 }
 
 function toggleProjectDetail(btn){
-  const card = btn.closest('.report-card');
-  const detail = card?.querySelector('.report-detail');
+  const { detail } = getReportDetail(btn);
   if(detail && detail.style.display !== 'none') closeProjectDetail(btn);
   else openProjectDetail(btn);
 }
@@ -572,7 +586,7 @@ async function renderReport(){
     let actionButton = '';
     if(isAdmin){
       if(!isGeneralProject(project.projectId) && !isComplete){
-        actionButton = `<button class="action-btn complete-btn" data-code="${key}">Mark Complete</button>`;
+          actionButton = `<button type="button" class="action-btn complete-btn" data-code="${key}">Mark Complete</button>`;
       }
     }
     const lastActivityTs = lastActivityMap.get(project.projectId) || 0;
@@ -601,9 +615,9 @@ async function renderReport(){
         <div class="report-metric"><span>Reserved</span><strong>${Number(project.reserveQty || 0)}</strong></div>
       </div>
       <div class="report-notes"><strong>Notes:</strong> ${escapeHtml(notesLabel || FALLBACK)}</div>
-      <div class="report-card-actions">
-        <button class="action-btn report-toggle" data-project="${key}">View Items</button>
-      </div>
+        <div class="report-card-actions">
+          <button type="button" class="action-btn report-toggle" data-project="${key}">View Items</button>
+        </div>
       <div class="report-detail" data-project="${key}" style="display:none;">${buildDetailTable(project.items || [])}</div>
     `;
     list.appendChild(card);
