@@ -518,7 +518,7 @@ function buildDetailTable(items){
       const onHand = Math.max(0, inQty - outQty);
       return { code: item.code || '', checkedOut, reserved, onHand };
     })
-    .filter(item=> item.reserved > 0 || item.onHand > 0)
+    .filter(item=> item.checkedOut > 0 || item.reserved > 0 || item.onHand > 0)
     .sort((a,b)=> a.code.localeCompare(b.code))
     .map(item=> `<tr><td>${escapeHtml(item.code)}</td><td>${item.checkedOut}</td><td>${item.reserved}</td><td>${item.onHand}</td></tr>`)
     .join('');
