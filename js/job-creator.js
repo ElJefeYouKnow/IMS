@@ -307,10 +307,15 @@ function initProjectForm(){
 function initTabs(){
   const buttons = document.querySelectorAll('.mode-btn');
   const contents = document.querySelectorAll('.mode-content');
+  const refreshActiveTab = (tab)=>{
+    if(tab === 'projects') renderProjects();
+    else if(tab === 'report') renderReport();
+  };
   const setTab = (tab)=>{
     buttons.forEach(b=> b.classList.toggle('active', b.dataset.tab === tab));
     contents.forEach(c=> c.classList.toggle('active', c.id === `${tab}-tab`));
     if(history.replaceState) history.replaceState(null, '', `#${tab}`);
+    refreshActiveTab(tab);
   };
   buttons.forEach(btn=>{
     btn.addEventListener('click', ()=> setTab(btn.dataset.tab));
@@ -318,6 +323,15 @@ function initTabs(){
   const hash = (window.location.hash || '').replace('#','');
   const startTab = (hash === 'report' || hash === 'projects') ? hash : (isAdmin ? 'projects' : 'report');
   setTab(startTab);
+  window.addEventListener('pageshow', ()=>{
+    const active = document.querySelector('.mode-btn.active')?.dataset.tab || '';
+    if(active) refreshActiveTab(active);
+  });
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState !== 'visible') return;
+    const active = document.querySelector('.mode-btn.active')?.dataset.tab || '';
+    if(active) refreshActiveTab(active);
+  });
 }
 
 async function loadEntries(){
