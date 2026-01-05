@@ -25,7 +25,21 @@ function getEntryJobId(entry){
 }
 const CLOSED_JOB_STATUSES = new Set(['complete','completed','closed','archived','cancelled','canceled']);
 function parseDateValue(value){
-  if(!value) return null;
+  if(value === undefined || value === null) return null;
+  if(typeof value === 'string'){
+    const trimmed = value.trim();
+    if(!trimmed) return null;
+    if(/^\d+$/.test(trimmed)){
+      const num = Number(trimmed);
+      const d = new Date(num);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if(match){
+      const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
