@@ -446,7 +446,7 @@ function renderIncomingSummary(rows){
   if(orderSummaryTop){
     orderSummaryTop.innerHTML = '';
     if(!topItems.length){
-      orderSummaryTop.textContent = 'No open orders.';
+      orderSummaryTop.innerHTML = '<div class="ds-empty">No open orders.</div>';
     }else{
       topItems.forEach(item=>{
         const row = document.createElement('div');
@@ -462,7 +462,7 @@ function renderIncomingSummary(rows){
     orderSummaryEta.innerHTML = '';
     const list = upcoming.slice(0,5);
     if(!list.length){
-      orderSummaryEta.textContent = 'No upcoming ETAs.';
+      orderSummaryEta.innerHTML = '<div class="ds-empty">No upcoming ETAs.</div>';
     }else{
       list.forEach(item=>{
         const row = document.createElement('div');
@@ -513,7 +513,7 @@ async function renderRecentOrders(){
   const recent = filtered.sort((a,b)=> (b.lastOrderTs||0)-(a.lastOrderTs||0)).slice(0,12);
   if(!recent.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No orders yet</td>`;
+    tr.innerHTML=`<td colspan="6" class="ds-table-empty">No orders yet</td>`;
     tbody.appendChild(tr);
   }else{
     recent.forEach(o=>{
@@ -761,7 +761,7 @@ function initReserve(){
     });
     if(!filtered.length){
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No reservations</td>`;
+      tr.innerHTML=`<td colspan="5" class="ds-table-empty">No reservations</td>`;
       reserveTable.appendChild(tr);
       return;
     }
