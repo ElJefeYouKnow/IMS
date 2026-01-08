@@ -33,7 +33,6 @@
         <a href="settings.html" data-role="admin">Settings</a>
         <a href="settings-employee.html" data-role="employee">Settings</a>
         <a href="item-history.html" data-role="admin">Audit</a>
-        <a href="dev-settings.html" data-dev-only style="display:none;">Dev Settings</a>
         <a class="active" href="seller-admin.html" data-dev-only>Seller Admin</a>
       </nav>
     </aside>
@@ -176,6 +175,94 @@
           <thead>
             <tr><th>Client</th><th>Subject</th><th>Priority</th><th>Status</th><th>Updated</th><th>Actions</th></tr>
           </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card" id="devControls">
+        <div class="data-toolbar">
+          <span class="badge warn">Dev Controls</span>
+        </div>
+        <h3>Developer Settings</h3>
+        <p class="muted-text">For dev tenant only. Destructive tools live here.</p>
+        <div class="summary-grid">
+          <div class="summary-item">
+            <span>Signed in as</span>
+            <strong id="devUserEmail">-</strong>
+          </div>
+          <div class="summary-item">
+            <span>Tenant</span>
+            <strong id="devTenant">-</strong>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Dev token
+            <input id="devToken" type="password" placeholder="optional override token" />
+          </label>
+        </div>
+        <div class="form-row">
+          <div style="flex:1">
+            <strong>Hard Reset (truncate)</strong>
+            <p class="muted-text">Clears all data, reseeds admin + dev users. Requires reset token.</p>
+          </div>
+          <button id="devResetBtn" type="button" class="muted">Run dev reset</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Delete User (dev only)</h3>
+        <p class="muted-text">Removes a specific user and their audit/inventory references.</p>
+        <div class="form-row">
+          <label>Tenant code
+            <input id="delUserTenant" placeholder="tenant code (e.g. dev)" />
+          </label>
+          <label>Email
+            <input id="delUserEmail" type="email" placeholder="user@example.com" />
+          </label>
+        </div>
+        <div class="form-row">
+          <button id="deleteUserBtn" type="button" class="muted">Delete user</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Delete Tenant (dev only)</h3>
+        <p class="muted-text">Deletes tenant and all data. Protected: default/dev tenants.</p>
+        <div class="form-row">
+          <label>Tenant code
+            <input id="delTenantCode" placeholder="tenant code" />
+          </label>
+        </div>
+        <div class="form-row">
+          <button id="deleteTenantBtn" type="button" class="muted">Delete tenant</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <div>
+            <h3>Tenants</h3>
+            <p class="muted-text">List all tenants (dev view only).</p>
+          </div>
+          <button id="loadTenantsBtn" type="button" class="muted">Refresh</button>
+        </div>
+        <table id="tenantsTable">
+          <thead><tr><th>Code</th><th>Name</th><th>ID</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h3>Users by Tenant</h3>
+        <p class="muted-text">View users for a specific tenant code.</p>
+        <div class="form-row">
+          <label>Tenant code
+            <input id="listUsersTenant" placeholder="tenant code" />
+          </label>
+          <button id="loadUsersBtn" type="button" class="muted">Load users</button>
+        </div>
+        <table id="usersTable">
+          <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Tenant</th></tr></thead>
           <tbody></tbody>
         </table>
       </section>

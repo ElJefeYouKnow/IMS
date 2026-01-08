@@ -357,6 +357,130 @@ function renderAll(){
   renderMetrics();
 }
 
+function setTableMessage(tbody, colspan, message){
+  if(!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;color:#6b7280;">${message}</td></tr>`;
+}
+
+function initDevControls(){
+  const devEmail = document.getElementById('devUserEmail');
+  if(!devEmail) return;
+  const user = window.utils?.getSession?.();
+  if(!user) return;
+  devEmail.textContent = user.email || 'Unknown';
+  const tenant = user.tenantId || user.tenantid || 'default';
+  const devTenant = document.getElementById('devTenant');
+  if(devTenant) devTenant.textContent = tenant;
+
+  const delUserTenant = document.getElementById('delUserTenant');
+  const listUsersTenant = document.getElementById('listUsersTenant');
+  if(delUserTenant && tenant) delUserTenant.value = tenant;
+  if(listUsersTenant && tenant) listUsersTenant.value = tenant;
+
+  const tokenInput = document.getElementById('devToken');
+  const getToken = ()=> (tokenInput?.value || '').trim();
+
+  document.getElementById('devResetBtn')?.addEventListener('click', async ()=>{
+    const token = prompt('Enter dev reset token (this will wipe all data).');
+    if(!token) return;
+    if(!confirm('This will TRUNCATE all data for this environment. Continue?')) return;
+    try{
+      await apiRequest('/api/dev/reset', {
+        method: 'POST',
+        headers: {
+          'x-dev-reset': token,
+          'x-dev-token': getToken()
+        }
+      });
+      alert('Reset complete. You will be logged out.');
+      localStorage.removeItem('sessionUser');
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(()=>{});
+      window.location.href = 'login.html';
+    }catch(e){
+      alert(e.message || 'Reset failed');
+    }
+  });
+
+  document.getElementById('deleteUserBtn')?.addEventListener('click', async ()=>{
+    const tcode = delUserTenant?.value.trim();
+    const email = document.getElementById('delUserEmail')?.value.trim();
+    if(!tcode || !email) return alert('Tenant code and email required');
+    if(!confirm(`Delete user ${email} in tenant ${tcode}? This cannot be undone.`)) return;
+    try{
+      await apiRequest('/api/dev/delete-user', {
+        method: 'POST',
+        headers: { 'x-dev-token': getToken() },
+        body: JSON.stringify({ tenantCode: tcode, email })
+      });
+      alert('User deleted.');
+    }catch(e){
+      alert(e.message || 'Delete failed');
+    }
+  });
+
+  document.getElementById('deleteTenantBtn')?.addEventListener('click', async ()=>{
+    const tcode = document.getElementById('delTenantCode')?.value.trim();
+    if(!tcode) return alert('Tenant code required');
+    if(!confirm(`Delete tenant ${tcode} and ALL its data? This cannot be undone.`)) return;
+    try{
+      await apiRequest('/api/dev/delete-tenant', {
+        method: 'POST',
+        headers: { 'x-dev-token': getToken() },
+        body: JSON.stringify({ tenantCode: tcode })
+      });
+      alert('Tenant deleted.');
+    }catch(e){
+      alert(e.message || 'Delete failed');
+    }
+  });
+
+  const tenantsTableBody = document.querySelector('#tenantsTable tbody');
+  document.getElementById('loadTenantsBtn')?.addEventListener('click', async ()=>{
+    setTableMessage(tenantsTableBody, 3, 'Loading...');
+    try{
+      const data = await apiRequest('/api/dev/tenants', {
+        headers: { 'x-dev-token': getToken() }
+      });
+      if(!Array.isArray(data) || !data.length){
+        setTableMessage(tenantsTableBody, 3, 'None');
+        return;
+      }
+      tenantsTableBody.innerHTML = '';
+      data.forEach(t=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${t.code}</td><td>${t.name}</td><td>${t.id}</td>`;
+        tenantsTableBody.appendChild(tr);
+      });
+    }catch(e){
+      setTableMessage(tenantsTableBody, 3, 'Error');
+    }
+  });
+
+  const usersTableBody = document.querySelector('#usersTable tbody');
+  document.getElementById('loadUsersBtn')?.addEventListener('click', async ()=>{
+    const tcode = listUsersTenant?.value.trim();
+    if(!tcode) return alert('Tenant code required');
+    setTableMessage(usersTableBody, 4, 'Loading...');
+    try{
+      const data = await apiRequest(`/api/dev/users?tenantCode=${encodeURIComponent(tcode)}`, {
+        headers: { 'x-dev-token': getToken() }
+      });
+      if(!Array.isArray(data) || !data.length){
+        setTableMessage(usersTableBody, 4, 'None');
+        return;
+      }
+      usersTableBody.innerHTML = '';
+      data.forEach(u=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${u.email}</td><td>${u.name || ''}</td><td>${u.role}</td><td>${u.tenantid || u.tenantId || ''}</td>`;
+        usersTableBody.appendChild(tr);
+      });
+    }catch(e){
+      setTableMessage(usersTableBody, 4, 'Error');
+    }
+  });
+}
+
 async function refreshData(){
   try{
     await loadData();
@@ -379,6 +503,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   initClientForm();
   initTicketForm();
   attachTableHandlers();
+  initDevControls();
   await refreshData();
   document.getElementById('clientFilter')?.addEventListener('input', renderAll);
   document.getElementById('ticketFilter')?.addEventListener('input', renderAll);
