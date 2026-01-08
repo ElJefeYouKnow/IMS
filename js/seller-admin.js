@@ -95,22 +95,25 @@ function renderClientTable(){
   tbody.innerHTML = '';
   const rows = clients.filter(c=>{
     if(!filter) return true;
-    return c.name.toLowerCase().includes(filter) || c.email.toLowerCase().includes(filter);
+    return c.name.toLowerCase().includes(filter) || c.email.toLowerCase().includes(filter) || (c.code || '').toLowerCase().includes(filter);
   });
   if(!rows.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="7" style="text-align:center;color:#6b7280;">No clients</td>`;
+    tr.innerHTML = `<td colspan="8" style="text-align:center;color:#6b7280;">No clients</td>`;
     tbody.appendChild(tr);
     return;
   }
   rows.forEach(client=>{
     const tr = document.createElement('tr');
+    const seatLimit = client.seatLimit ?? null;
+    const userLabel = seatLimit ? `${client.activeUsers} / ${seatLimit}` : `${client.activeUsers}`;
     tr.innerHTML = `
+      <td>${client.code || ''}</td>
       <td>${client.name}</td>
       <td>${client.email}</td>
       <td>${client.plan}</td>
       <td>${statusPill(client.status)}</td>
-      <td>${client.activeUsers || 0}</td>
+      <td>${userLabel}</td>
       <td>${fmtTime(client.updatedAt)}</td>
       <td>
         <button class="muted" data-action="edit" data-id="${client.id}">Edit</button>
@@ -149,7 +152,8 @@ function renderTicketTable(){
   const filter = (document.getElementById('ticketFilter')?.value || '').toLowerCase();
   tbody.innerHTML = '';
   const rows = tickets.filter(t=>{
-    const client = clients.find(c=> c.id === t.clientId);
+    const tenantId = t.tenantId || t.clientId;
+    const client = clients.find(c=> c.id === tenantId);
     const clientName = client?.name || '';
     return !filter || clientName.toLowerCase().includes(filter) || t.subject.toLowerCase().includes(filter);
   });
@@ -160,14 +164,15 @@ function renderTicketTable(){
     return;
   }
   rows.forEach(ticket=>{
-    const client = clients.find(c=> c.id === ticket.clientId);
+    const tenantId = ticket.tenantId || ticket.clientId;
+    const client = clients.find(c=> c.id === tenantId);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${client?.name || 'Unknown'}</td>
       <td>${ticket.subject}</td>
       <td>${statusPill(ticket.priority)}</td>
       <td>${statusPill(ticket.status)}</td>
-      <td>${fmtTime(ticket.updatedAt)}</td>
+      <td>${fmtTime(ticket.updatedAt || ticket.updatedat)}</td>
       <td>
         <button class="muted" data-action="edit-ticket" data-id="${ticket.id}">Edit</button>
         <button class="muted" data-action="close-ticket" data-id="${ticket.id}">Close</button>
@@ -185,7 +190,7 @@ function refreshTicketClientOptions(){
   clients.forEach(c=>{
     const opt = document.createElement('option');
     opt.value = c.id;
-    opt.textContent = c.name;
+    opt.textContent = c.code ? `${c.code} - ${c.name}` : c.name;
     select.appendChild(opt);
   });
   if(current) select.value = current;
@@ -193,6 +198,10 @@ function refreshTicketClientOptions(){
 
 function resetClientForm(){
   document.getElementById('client-id').value = '';
+  const codeInput = document.getElementById('client-code');
+  if(codeInput) codeInput.disabled = false;
+  const passwordInput = document.getElementById('client-password');
+  if(passwordInput) passwordInput.disabled = false;
   document.getElementById('clientForm').reset();
   document.getElementById('clientMsg').textContent = '';
 }
@@ -211,32 +220,45 @@ function initClientForm(){
   form.addEventListener('submit', async (event)=>{
     event.preventDefault();
     const id = document.getElementById('client-id').value;
+    const code = document.getElementById('client-code').value.trim();
     const name = document.getElementById('client-name').value.trim();
     const email = document.getElementById('client-email').value.trim();
     const plan = document.getElementById('client-plan').value;
     const status = document.getElementById('client-status').value;
-    const activeUsers = Number(document.getElementById('client-users').value || 0);
+    const seatsRaw = document.getElementById('client-users').value;
+    const activeUsers = seatsRaw === '' ? null : Number(seatsRaw);
     const notes = document.getElementById('client-notes').value.trim();
+    const adminPassword = document.getElementById('client-password').value;
     if(!name || !email){
       msg.style.color = '#b91c1c';
       msg.textContent = 'Name and email are required.';
       return;
     }
+    if(!id && !code){
+      msg.style.color = '#b91c1c';
+      msg.textContent = 'Tenant code is required for new clients.';
+      return;
+    }
     try{
+      let savedMessage = '';
       if(id){
         await apiRequest(`/api/seller/clients/${id}`, {
           method: 'PUT',
           body: JSON.stringify({ name, email, plan, status, activeUsers, notes })
         });
       }else{
-        await apiRequest('/api/seller/clients', {
+        const result = await apiRequest('/api/seller/clients', {
           method: 'POST',
-          body: JSON.stringify({ name, email, plan, status, activeUsers, notes })
+          body: JSON.stringify({ name, email, plan, status, activeUsers, notes, code, adminPassword })
         });
+        if(result?.tempPassword){
+          savedMessage = `Saved. Temp password: ${result.tempPassword}`;
+        }
       }
       msg.style.color = '#15803d';
-      msg.textContent = 'Saved.';
+      if(!savedMessage) savedMessage = 'Saved.';
       resetClientForm();
+      msg.textContent = savedMessage;
       await refreshData();
     }catch(e){
       msg.style.color = '#b91c1c';
@@ -297,17 +319,28 @@ function attachTableHandlers(){
     if(!client) return;
     if(action === 'edit'){
       document.getElementById('client-id').value = client.id;
+      const codeInput = document.getElementById('client-code');
+      if(codeInput){
+        codeInput.value = client.code || '';
+        codeInput.disabled = true;
+      }
       document.getElementById('client-name').value = client.name;
       document.getElementById('client-email').value = client.email;
       document.getElementById('client-plan').value = client.plan;
       document.getElementById('client-status').value = client.status;
-      document.getElementById('client-users').value = client.activeUsers || 0;
+      document.getElementById('client-users').value = client.seatLimit ?? '';
       document.getElementById('client-notes').value = client.notes || '';
+      const passwordInput = document.getElementById('client-password');
+      if(passwordInput){
+        passwordInput.value = '';
+        passwordInput.disabled = true;
+      }
       document.getElementById('clientMsg').textContent = 'Editing client.';
       return;
     }
     if(action === 'delete'){
-      if(!confirm(`Delete client ${client.name}?`)) return;
+      const label = client.code ? `${client.code} (${client.name})` : client.name;
+      if(!confirm(`Delete tenant ${label}? This removes all tenant data.`)) return;
       apiRequest(`/api/seller/clients/${id}`, { method: 'DELETE' })
         .then(refreshData)
         .catch(err=>{
@@ -327,9 +360,10 @@ function attachTableHandlers(){
     const action = btn.dataset.action;
     const ticket = tickets.find(t=> t.id === id);
     if(!ticket) return;
+    const tenantId = ticket.tenantId || ticket.clientId;
     if(action === 'edit-ticket'){
       document.getElementById('ticket-id').value = ticket.id;
-      document.getElementById('ticket-client').value = ticket.clientId;
+      document.getElementById('ticket-client').value = tenantId || '';
       document.getElementById('ticket-subject').value = ticket.subject;
       document.getElementById('ticket-priority').value = ticket.priority;
       document.getElementById('ticket-status').value = ticket.status;

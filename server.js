@@ -284,6 +284,12 @@ async function initDb() {
     name TEXT NOT NULL,
     createdAt BIGINT
   )`);
+  await runAsync(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan TEXT`);
+  await runAsync(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS status TEXT`);
+  await runAsync(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS contactEmail TEXT`);
+  await runAsync(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await runAsync(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS seatLimit INTEGER`);
+  await runAsync(`ALTER TABLE tenants ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
   // Ensure default tenant exists before applying FK defaults
   const defaultTenantId = 'default';
   await runAsync(`INSERT INTO tenants(id,code,name,createdAt)
@@ -354,6 +360,15 @@ async function initDb() {
     countedBy TEXT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS support_tickets(
+    id TEXT PRIMARY KEY,
+    tenantId TEXT REFERENCES tenants(id),
+    subject TEXT NOT NULL,
+    priority TEXT,
+    status TEXT,
+    createdAt BIGINT,
+    updatedAt BIGINT
+  )`);
   // Backfill tenant columns if the DB was created earlier
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
@@ -377,6 +392,9 @@ async function initDb() {
   await runAsync(`UPDATE jobs SET updatedAt = COALESCE(updatedAt, $1::bigint)`, [Date.now()]);
   await runAsync(`UPDATE users SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE inventory_counts SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE tenants SET status = 'active' WHERE status IS NULL OR status = ''`);
+  await runAsync(`UPDATE tenants SET plan = 'starter' WHERE plan IS NULL OR plan = ''`);
+  await runAsync(`UPDATE tenants SET updatedAt = COALESCE(updatedAt, createdAt, $1::bigint)`, [Date.now()]);
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory(code)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_job ON inventory(jobId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(sourceType, sourceId)');
@@ -385,6 +403,7 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_jobs_tenant ON jobs(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_counts_tenant ON inventory_counts(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_support_tickets_tenant ON support_tickets(tenantId)');
   await runAsync(`CREATE TABLE IF NOT EXISTS audit_events(
     id TEXT PRIMARY KEY,
     tenantId TEXT REFERENCES tenants(id),
@@ -1436,6 +1455,8 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
     await withTransaction(async (client) => {
       await client.query('TRUNCATE inventory');
       await client.query('TRUNCATE audit_events');
+      await client.query('TRUNCATE inventory_counts');
+      await client.query('TRUNCATE support_tickets');
       await client.query('TRUNCATE items');
       await client.query('TRUNCATE jobs');
       await client.query('TRUNCATE users');
@@ -1625,114 +1646,269 @@ app.get('/api/notifications', async (req, res) => {
 });
 
 // SELLER ADMIN (dev-only)
-app.get('/api/seller/data', requireDev, (req, res) => {
+function formatAuditMessage(entry) {
+  const action = entry.action || '';
+  let details = entry.details || {};
+  if (typeof details === 'string') {
+    try { details = JSON.parse(details); } catch (e) { details = {}; }
+  }
+  const code = details.code || details.itemCode || '';
+  const qty = details.qty || details.quantity || '';
+  const jobId = details.jobId || details.jobid || '';
+  const actionMap = {
+    'auth.login': 'User login',
+    'auth.register': 'User registered',
+    'inventory.in': 'Checked in',
+    'inventory.out': 'Checked out',
+    'inventory.reserve': 'Reserved',
+    'inventory.return': 'Returned',
+    'inventory.order': 'Ordered',
+    'inventory.count': 'Cycle count',
+    'items.create': 'Item created',
+    'items.update': 'Item updated',
+    'items.delete': 'Item deleted'
+  };
+  const label = actionMap[action] || action.replace('.', ' ');
+  const parts = [label];
+  if (code) parts.push(code);
+  if (qty) parts.push(`x${qty}`);
+  if (jobId) parts.push(`job ${jobId}`);
+  const who = entry.useremail || entry.userEmail;
+  if (who) parts.push(`by ${who}`);
+  const tenantCode = entry.tenantcode || entry.tenantCode || 'default';
+  return `${tenantCode}: ${parts.join(' ')}`;
+}
+
+app.get('/api/seller/data', requireDev, async (req, res) => {
   try {
-    ensureSellerStoreShape();
-    res.json({ clients: sellerStore.clients, tickets: sellerStore.tickets, activities: sellerStore.activities });
-  } catch (e) { res.status(500).json({ error: 'server error' }); }
+    const tenants = await allAsync(
+      'SELECT id, code, name, plan, status, contactEmail, notes, seatLimit, updatedAt, createdAt FROM tenants ORDER BY code ASC'
+    );
+    const userCounts = await allAsync('SELECT tenantId, COUNT(*)::int as count FROM users GROUP BY tenantId', []);
+    const countMap = new Map(userCounts.map(r => [(r.tenantid || r.tenantId), Number(r.count || 0)]));
+    const clients = tenants.map(t => {
+      const tenantId = t.id;
+      return {
+        id: tenantId,
+        code: t.code,
+        name: t.name,
+        email: t.contactemail || t.contactEmail || '',
+        plan: t.plan || 'starter',
+        status: t.status || 'active',
+        notes: t.notes || '',
+        seatLimit: t.seatlimit ?? t.seatLimit ?? null,
+        activeUsers: countMap.get(tenantId) || 0,
+        updatedAt: t.updatedat || t.updatedAt || t.createdat || t.createdAt || Date.now()
+      };
+    });
+    const ticketRows = await allAsync(
+      'SELECT id, tenantId, subject, priority, status, updatedAt, createdAt FROM support_tickets ORDER BY updatedAt DESC NULLS LAST, createdAt DESC NULLS LAST'
+    );
+    const tickets = ticketRows.map(t => ({
+      id: t.id,
+      tenantId: t.tenantid || t.tenantId,
+      subject: t.subject,
+      priority: t.priority,
+      status: t.status,
+      updatedAt: t.updatedat || t.updatedAt || t.createdat || t.createdAt
+    }));
+    const activityRows = await allAsync(`
+      SELECT a.id, a.action, a.details, a.ts, t.code as tenantCode, u.email as userEmail
+      FROM audit_events a
+      LEFT JOIN tenants t ON t.id = a.tenantId
+      LEFT JOIN users u ON u.id = a.userId
+      ORDER BY a.ts DESC
+      LIMIT 30
+    `);
+    const activities = activityRows.map(row => ({
+      id: row.id,
+      message: formatAuditMessage(row),
+      ts: row.ts
+    }));
+    res.json({ clients, tickets, activities });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
 });
 
-app.post('/api/seller/clients', requireDev, (req, res) => {
+app.post('/api/seller/clients', requireDev, async (req, res) => {
   try {
-    const name = (req.body?.name || '').trim();
-    const email = normalizeEmail(req.body?.email || '');
-    const plan = (req.body?.plan || 'starter').toString().trim();
-    const status = (req.body?.status || 'active').toString().trim();
-    const activeUsers = Number(req.body?.activeUsers || 0);
-    const notes = (req.body?.notes || '').trim();
+    const { name, email, plan, status, activeUsers, notes, code, adminPassword, adminName } = req.body || {};
     if (!name || !email) return res.status(400).json({ error: 'name and email required' });
-    const client = { id: newSellerId('cli_'), name, email, plan, status, activeUsers, notes, updatedAt: Date.now() };
-    sellerStore.clients.push(client);
-    recordSellerActivity(`Created client ${name}`);
-    saveSellerStore();
-    res.status(201).json(client);
+    const tCode = normalizeTenantCode(code || name);
+    if (!tCode) return res.status(400).json({ error: 'tenant code required' });
+    const existing = await getAsync('SELECT id FROM tenants WHERE code=$1', [tCode]);
+    if (existing) return res.status(400).json({ error: 'tenant code already exists' });
+    const adminEmail = normalizeEmail(email);
+    if (!adminEmail) return res.status(400).json({ error: 'valid email required' });
+    const existingUser = await getAsync('SELECT 1 FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1', [adminEmail]);
+    if (existingUser) return res.status(400).json({ error: 'email already exists' });
+    const now = Date.now();
+    const tenantId = newId();
+    const planVal = plan || 'starter';
+    const statusVal = status || 'active';
+    const seatLimit = Number.isFinite(Number(activeUsers)) ? Number(activeUsers) : null;
+    const password = (adminPassword || '').trim() || 'ChangeMe123!';
+    const { salt, hash } = await hashPassword(password);
+    await withTransaction(async (client) => {
+      await client.query(
+        `INSERT INTO tenants(id,code,name,createdAt,plan,status,contactEmail,notes,seatLimit,updatedAt)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [tenantId, tCode, name, now, planVal, statusVal, adminEmail, notes || '', seatLimit, now]
+      );
+      await client.query(
+        'INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+        [newId(), adminEmail, adminName || name || 'Admin', 'admin', salt, hash, now, tenantId]
+      );
+    });
+    res.status(201).json({
+      id: tenantId,
+      code: tCode,
+      name,
+      email: adminEmail,
+      plan: planVal,
+      status: statusVal,
+      notes: notes || '',
+      seatLimit,
+      activeUsers: 1,
+      updatedAt: now,
+      tempPassword: adminPassword ? null : password
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.put('/api/seller/clients/:id', requireDev, async (req, res) => {
+  try {
+    const { name, email, plan, status, activeUsers, notes } = req.body || {};
+    const tenant = await getAsync('SELECT * FROM tenants WHERE id=$1', [req.params.id]);
+    if (!tenant) return res.status(404).json({ error: 'client not found' });
+    const now = Date.now();
+    const planVal = plan || tenant.plan || 'starter';
+    const statusVal = status || tenant.status || 'active';
+    const seatLimit = Number.isFinite(Number(activeUsers)) ? Number(activeUsers) : null;
+    const contactEmail = normalizeEmail(email || tenant.contactemail || tenant.contactEmail || '');
+    if (!contactEmail) return res.status(400).json({ error: 'valid email required' });
+    await runAsync(
+      `UPDATE tenants
+       SET name=$1, plan=$2, status=$3, contactEmail=$4, notes=$5, seatLimit=$6, updatedAt=$7
+       WHERE id=$8`,
+      [
+        name || tenant.name,
+        planVal,
+        statusVal,
+        contactEmail,
+        notes || '',
+        seatLimit,
+        now,
+        req.params.id
+      ]
+    );
+    res.json({
+      id: req.params.id,
+      code: tenant.code,
+      name: name || tenant.name,
+      email: contactEmail,
+      plan: planVal,
+      status: statusVal,
+      notes: notes || '',
+      seatLimit,
+      updatedAt: now
+    });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.put('/api/seller/clients/:id', requireDev, (req, res) => {
+app.delete('/api/seller/clients/:id', requireDev, async (req, res) => {
   try {
-    const client = sellerStore.clients.find(c => c.id === req.params.id);
-    if (!client) return res.status(404).json({ error: 'client not found' });
-    const name = (req.body?.name || client.name || '').trim();
-    const email = normalizeEmail(req.body?.email || client.email || '');
-    const plan = (req.body?.plan || client.plan || 'starter').toString().trim();
-    const status = (req.body?.status || client.status || 'active').toString().trim();
-    const activeUsers = Number(req.body?.activeUsers ?? client.activeUsers ?? 0);
-    const notes = (req.body?.notes ?? client.notes ?? '').toString().trim();
-    if (!name || !email) return res.status(400).json({ error: 'name and email required' });
-    client.name = name;
-    client.email = email;
-    client.plan = plan;
-    client.status = status;
-    client.activeUsers = activeUsers;
-    client.notes = notes;
-    client.updatedAt = Date.now();
-    recordSellerActivity(`Updated client ${client.name}`);
-    saveSellerStore();
-    res.json(client);
-  } catch (e) { res.status(500).json({ error: 'server error' }); }
-});
-
-app.delete('/api/seller/clients/:id', requireDev, (req, res) => {
-  try {
-    const client = sellerStore.clients.find(c => c.id === req.params.id);
-    if (!client) return res.status(404).json({ error: 'client not found' });
-    sellerStore.clients = sellerStore.clients.filter(c => c.id !== req.params.id);
-    sellerStore.tickets = sellerStore.tickets.filter(t => t.clientId !== req.params.id);
-    recordSellerActivity(`Deleted client ${client.name}`);
-    saveSellerStore();
+    const tenant = await getAsync('SELECT * FROM tenants WHERE id=$1', [req.params.id]);
+    if (!tenant) return res.status(404).json({ error: 'client not found' });
+    const protectedTenants = new Set(['default', normalizeTenantCode(DEV_TENANT_CODE)]);
+    if (protectedTenants.has(normalizeTenantCode(tenant.code))) {
+      return res.status(400).json({ error: 'cannot delete protected tenant' });
+    }
+    await withTransaction(async (client) => {
+      await client.query('DELETE FROM inventory WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM audit_events WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM inventory_counts WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM users WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM inventory_counts WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM tenants WHERE id=$1', [tenant.id]);
+    });
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/seller/tickets', requireDev, (req, res) => {
+app.post('/api/seller/tickets', requireDev, async (req, res) => {
   try {
-    const clientId = (req.body?.clientId || '').trim();
-    const subject = (req.body?.subject || '').trim();
-    const priority = (req.body?.priority || 'low').toString().trim();
-    const status = (req.body?.status || 'open').toString().trim();
+    const { clientId, subject, priority, status } = req.body || {};
     if (!clientId || !subject) return res.status(400).json({ error: 'clientId and subject required' });
-    const client = sellerStore.clients.find(c => c.id === clientId);
-    if (!client) return res.status(400).json({ error: 'invalid clientId' });
-    const ticket = { id: newSellerId('tkt_'), clientId, subject, priority, status, updatedAt: Date.now() };
-    sellerStore.tickets.push(ticket);
-    recordSellerActivity(`New ticket: ${subject}`);
-    saveSellerStore();
+    const tenant = await getAsync('SELECT id FROM tenants WHERE id=$1', [clientId]);
+    if (!tenant) return res.status(400).json({ error: 'invalid clientId' });
+    const now = Date.now();
+    const ticket = {
+      id: newId(),
+      tenantId: clientId,
+      subject,
+      priority: priority || 'medium',
+      status: status || 'open',
+      createdAt: now,
+      updatedAt: now
+    };
+    await runAsync(
+      `INSERT INTO support_tickets(id,tenantId,subject,priority,status,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      [ticket.id, ticket.tenantId, ticket.subject, ticket.priority, ticket.status, ticket.createdAt, ticket.updatedAt]
+    );
     res.status(201).json(ticket);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.put('/api/seller/tickets/:id', requireDev, (req, res) => {
+app.put('/api/seller/tickets/:id', requireDev, async (req, res) => {
   try {
-    const ticket = sellerStore.tickets.find(t => t.id === req.params.id);
+    const { clientId, subject, priority, status } = req.body || {};
+    const ticket = await getAsync('SELECT * FROM support_tickets WHERE id=$1', [req.params.id]);
     if (!ticket) return res.status(404).json({ error: 'ticket not found' });
-    const clientId = (req.body?.clientId || ticket.clientId || '').trim();
-    const subject = (req.body?.subject || ticket.subject || '').trim();
-    const priority = (req.body?.priority || ticket.priority || 'low').toString().trim();
-    const status = (req.body?.status || ticket.status || 'open').toString().trim();
-    if (!clientId || !subject) return res.status(400).json({ error: 'clientId and subject required' });
-    const client = sellerStore.clients.find(c => c.id === clientId);
-    if (!client) return res.status(400).json({ error: 'invalid clientId' });
-    ticket.clientId = clientId;
-    ticket.subject = subject;
-    ticket.priority = priority;
-    ticket.status = status;
-    ticket.updatedAt = Date.now();
-    recordSellerActivity(`Updated ticket "${subject}"`);
-    saveSellerStore();
-    res.json(ticket);
+    if (clientId) {
+      const tenant = await getAsync('SELECT id FROM tenants WHERE id=$1', [clientId]);
+      if (!tenant) return res.status(400).json({ error: 'invalid clientId' });
+    }
+    const now = Date.now();
+    await runAsync(
+      `UPDATE support_tickets
+       SET tenantId=$1, subject=$2, priority=$3, status=$4, updatedAt=$5
+       WHERE id=$6`,
+      [
+        clientId || ticket.tenantid || ticket.tenantId,
+        subject || ticket.subject,
+        priority || ticket.priority,
+        status || ticket.status,
+        now,
+        req.params.id
+      ]
+    );
+    res.json({
+      id: req.params.id,
+      tenantId: clientId || ticket.tenantid || ticket.tenantId,
+      subject: subject || ticket.subject,
+      priority: priority || ticket.priority,
+      status: status || ticket.status,
+      updatedAt: now
+    });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/seller/tickets/:id/close', requireDev, (req, res) => {
+app.post('/api/seller/tickets/:id/close', requireDev, async (req, res) => {
   try {
-    const ticket = sellerStore.tickets.find(t => t.id === req.params.id);
+    const ticket = await getAsync('SELECT * FROM support_tickets WHERE id=$1', [req.params.id]);
     if (!ticket) return res.status(404).json({ error: 'ticket not found' });
-    ticket.status = 'closed';
-    ticket.updatedAt = Date.now();
-    recordSellerActivity(`Closed ticket "${ticket.subject}"`);
-    saveSellerStore();
-    res.json(ticket);
+    const now = Date.now();
+    await runAsync('UPDATE support_tickets SET status=$1, updatedAt=$2 WHERE id=$3', ['closed', now, req.params.id]);
+    res.json({ id: req.params.id, status: 'closed', updatedAt: now });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 

@@ -86,9 +86,9 @@
         <form id="clientForm" class="inventory-form" autocomplete="off">
           <input type="hidden" id="client-id" />
           <div class="form-row">
+            <label>Tenant Code<input id="client-code" required placeholder="acme"></label>
             <label>Client Name<input id="client-name" required placeholder="Acme Builders"></label>
-            <label>Contact Email<input id="client-email" type="email" required placeholder="owner@acme.com"></label>
-            <label style="max-width:140px;">Active Users<input id="client-users" type="number" min="1" value="1"></label>
+            <label>Primary Contact Email<input id="client-email" type="email" required placeholder="owner@acme.com"></label>
           </div>
           <div class="form-row">
             <label>Plan
@@ -106,7 +106,13 @@
                 <option value="cancelled">Cancelled</option>
               </select>
             </label>
+            <label style="max-width:140px;">User Seats<input id="client-users" type="number" min="1" value="1"></label>
+          </div>
+          <div class="form-row">
             <label>Notes<input id="client-notes" placeholder="Optional notes"></label>
+            <label>Admin Password (new tenant)
+              <input id="client-password" type="password" placeholder="Defaults to ChangeMe123!">
+            </label>
           </div>
           <div class="form-row sticky-actions-mobile">
             <button id="clientSaveBtn" type="submit">Save Client</button>
@@ -117,7 +123,7 @@
 
         <table id="clientTable">
           <thead>
-            <tr><th>Name</th><th>Email</th><th>Plan</th><th>Status</th><th>Users</th><th>Updated</th><th>Actions</th></tr>
+            <tr><th>Code</th><th>Name</th><th>Email</th><th>Plan</th><th>Status</th><th>Users</th><th>Updated</th><th>Actions</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -143,7 +149,7 @@
         <form id="ticketForm" class="inventory-form" autocomplete="off">
           <input type="hidden" id="ticket-id" />
           <div class="form-row">
-            <label>Client
+            <label>Tenant
               <select id="ticket-client">
                 <option value="">Select client...</option>
               </select>
