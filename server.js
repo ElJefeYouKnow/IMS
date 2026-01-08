@@ -369,6 +369,13 @@ async function initDb() {
     createdAt BIGINT,
     updatedAt BIGINT
   )`);
+  await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS body TEXT`);
+  await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS userId TEXT`);
+  await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS userEmail TEXT`);
+  await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS userName TEXT`);
+  await runAsync(`UPDATE support_tickets SET status = 'open' WHERE status IS NULL OR status = ''`);
+  await runAsync(`UPDATE support_tickets SET priority = 'medium' WHERE priority IS NULL OR priority = ''`);
+  await runAsync(`UPDATE support_tickets SET updatedAt = COALESCE(updatedAt, createdAt, $1::bigint)`, [Date.now()]);
   // Backfill tenant columns if the DB was created earlier
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
@@ -404,6 +411,7 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_counts_tenant ON inventory_counts(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_support_tickets_tenant ON support_tickets(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(userId)');
   await runAsync(`CREATE TABLE IF NOT EXISTS audit_events(
     id TEXT PRIMARY KEY,
     tenantId TEXT REFERENCES tenants(id),
@@ -1642,6 +1650,70 @@ app.get('/api/notifications', async (req, res) => {
     const t = tenantId(req);
     const rows = await allAsync('SELECT * FROM audit_events WHERE tenantId=$1 ORDER BY ts DESC LIMIT 20', [t]);
     res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+// SUPPORT TICKETS (authenticated)
+app.get('/api/support/tickets', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const role = (req.user?.role || '').toLowerCase();
+    let rows = [];
+    if (role === 'admin' || role === 'dev') {
+      rows = await allAsync(
+        'SELECT * FROM support_tickets WHERE tenantId=$1 ORDER BY updatedAt DESC NULLS LAST, createdAt DESC NULLS LAST',
+        [t]
+      );
+    } else {
+      rows = await allAsync(
+        'SELECT * FROM support_tickets WHERE tenantId=$1 AND userId=$2 ORDER BY updatedAt DESC NULLS LAST, createdAt DESC NULLS LAST',
+        [t, currentUserId(req)]
+      );
+    }
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/support/tickets', async (req, res) => {
+  try {
+    const subject = (req.body?.subject || '').trim();
+    const priority = (req.body?.priority || 'medium').toString().trim().toLowerCase();
+    const body = (req.body?.body || '').trim();
+    if (!subject) return res.status(400).json({ error: 'subject required' });
+    const t = tenantId(req);
+    const user = req.user || {};
+    const now = Date.now();
+    const ticket = {
+      id: newId(),
+      tenantId: t,
+      subject,
+      priority: ['low','medium','high'].includes(priority) ? priority : 'medium',
+      status: 'open',
+      body,
+      userId: user.id || null,
+      userEmail: user.email || '',
+      userName: user.name || '',
+      createdAt: now,
+      updatedAt: now
+    };
+    await runAsync(
+      `INSERT INTO support_tickets(id,tenantId,subject,priority,status,body,userId,userEmail,userName,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        ticket.id,
+        ticket.tenantId,
+        ticket.subject,
+        ticket.priority,
+        ticket.status,
+        ticket.body,
+        ticket.userId,
+        ticket.userEmail,
+        ticket.userName,
+        ticket.createdAt,
+        ticket.updatedAt
+      ]
+    );
+    res.status(201).json(ticket);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 

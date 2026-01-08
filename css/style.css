@@ -321,6 +321,9 @@ body.role-employee .admin-only{display:none}
 .settings-msg{font-size:0.9rem;color:#6b7280;margin-top:8px}
 .settings-action{padding:10px 12px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-weight:700;box-shadow:0 8px 16px rgba(15,122,87,0.25);cursor:pointer}
 .settings-action:disabled{opacity:0.6;cursor:not-allowed;box-shadow:none}
+.ticket-subject{font-weight:700;color:#0f172a}
+.ticket-body{color:var(--muted);font-size:0.85rem;margin-top:4px}
+.dark .ticket-subject{color:#e5e7eb}
 
 /* Design system preview scope (order-register.html) */
 [data-ds="v1"]{

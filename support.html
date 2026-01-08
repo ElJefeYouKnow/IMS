@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Support</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div>
+        <div class="brand">Inventory Management System</div>
+        <div class="subtitle">Navigation</div>
+        <div class="user-chip">
+          <div class="avatar">US</div>
+          <div>
+            <div style="font-weight:700;">User</div>
+            <div style="font-size:12px;opacity:0.8;"></div>
+          </div>
+        </div>
+      </div>
+      <nav>
+        <a href="dashboard.html" data-role="admin">Admin Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Dashboard</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="item-master.html" data-role="admin">Item Master</a>
+        <a href="job-creator.html" data-role="admin">Project Manager</a>
+        <a href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
+        <a href="field-purchase.html">Field Purchases</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="item-history.html" data-role="admin">Audit</a>
+        <a class="active" href="support.html">Support</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Support</h1>
+        <div class="topbar-right">
+          <button id="logoutBtn" class="muted">Logout</button>
+        </div>
+      </header>
+
+      <section class="card">
+        <h3>Submit a Ticket</h3>
+        <form id="supportForm" class="inventory-form" autocomplete="off">
+          <div class="form-row">
+            <label>Subject
+              <input id="ticketSubject" required placeholder="Short summary of the issue">
+            </label>
+            <label style="max-width:200px;">Priority
+              <select id="ticketPriority">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row">
+            <label style="flex:1">Details
+              <textarea id="ticketBody" rows="4" placeholder="What happened, when, and any relevant steps."></textarea>
+            </label>
+          </div>
+          <div class="form-row sticky-actions-mobile">
+            <button type="submit">Submit Ticket</button>
+            <button id="ticketClear" type="button" class="muted">Clear</button>
+          </div>
+          <div id="supportMsg" class="settings-msg"></div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h3 id="ticketListTitle">My Tickets</h3>
+        <table id="supportTable">
+          <thead><tr><th>Ticket</th><th>Priority</th><th>Status</th><th>Updated</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/support.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', ()=>{
+      if(window.utils){
+        if(!utils.requireSession?.()) return;
+        utils.wrapFetchWithRole?.();
+        utils.applyStoredTheme?.();
+        utils.applyNavVisibility?.();
+        utils.setupLogout?.();
+      }
+    });
+  </script>
+</body>
+</html>
+
