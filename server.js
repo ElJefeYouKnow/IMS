@@ -448,6 +448,18 @@ async function initDb() {
   `);
   await runAsync('ALTER TABLE items DROP CONSTRAINT IF EXISTS items_pkey');
   await runAsync('ALTER TABLE items ADD CONSTRAINT items_pkey PRIMARY KEY (code, tenantId)');
+  // Clean any legacy duplicate jobs per tenant before enforcing composite PK
+  await runAsync(`
+    WITH dup AS (
+      SELECT ctid FROM (
+        SELECT ctid, code, tenantId, ROW_NUMBER() OVER (PARTITION BY code, tenantId ORDER BY ctid) AS rn
+        FROM jobs
+      ) t WHERE rn > 1
+    )
+    DELETE FROM jobs WHERE ctid IN (SELECT ctid FROM dup)
+  `);
+  await runAsync('ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_pkey');
+  await runAsync('ALTER TABLE jobs ADD CONSTRAINT jobs_pkey PRIMARY KEY (code, tenantId)');
   // Backfill missing items per tenant for existing inventory rows to satisfy FK
   await runAsync(`
     INSERT INTO items(code,name,category,description,tenantId)
