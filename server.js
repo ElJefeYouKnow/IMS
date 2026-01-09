@@ -1301,7 +1301,10 @@ app.post('/api/jobs', requireRole('admin'), async (req, res) => {
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
       ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, startDate=EXCLUDED.startDate, endDate=EXCLUDED.endDate, status=EXCLUDED.status, location=EXCLUDED.location, notes=EXCLUDED.notes, updatedAt=EXCLUDED.updatedAt`, [code, name || '', start, endDate || null, statusValue, location || null, notes || null, updatedAt, t]);
     res.status(201).json({ code, name: name || '', startDate: start || null, endDate: endDate || null, status: statusValue, location: location || null, notes: notes || null, updatedAt, tenantId: t });
-  } catch (e) { res.status(500).json({ error: 'server error' }); }
+  } catch (e) {
+    console.warn('Job save failed', e.message || e);
+    res.status(500).json({ error: e.message || 'server error' });
+  }
 });
 
 app.delete('/api/jobs/:code', requireRole('admin'), async (req, res) => {
