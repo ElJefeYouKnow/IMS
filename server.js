@@ -701,7 +701,7 @@ async function ensureItem(client, { code, name, category, unitPrice, tenantIdVal
   const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
   await client.query(`INSERT INTO items(code,name,category,unitPrice,tenantId)
     VALUES($1,$2,$3,$4,$5)
-    ON CONFLICT (code) DO NOTHING`, [code, name, category || null, price, tenantIdVal]);
+    ON CONFLICT (code, tenantId) DO NOTHING`, [code, name, category || null, price, tenantIdVal]);
   item = await loadItem(client, code, tenantIdVal);
   return item;
 }
