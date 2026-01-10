@@ -3,74 +3,22 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Audit</title>
+  <title>Audit Moved</title>
+  <meta http-equiv="refresh" content="0; url=analytics.html#audit" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body data-ds="pro">
   <div class="app">
-    <aside class="sidebar">
-      <div>
-        <div class="brand">Inventory Management System</div>
-        <div class="subtitle">Navigation</div>
-        <div class="user-chip">
-          <div class="avatar">US</div>
-          <div>
-            <div style="font-weight:700;">User</div>
-            <div style="font-size:12px;opacity:0.8;"></div>
-          </div>
-        </div>
-      </div>
-      <nav>
-        <a  href="dashboard.html" data-role="admin">Admin Dashboard</a>
-        <a  href="employee-dashboard.html" data-role="employee">Dashboard</a>
-        <a href="inventory-operations.html">Operations</a>
-        <a href="inventory-list.html">Inventory</a>
-        <a href="item-master.html" data-role="admin">Item Master</a>
-        <a href="job-creator.html" data-role="admin">Project Manager</a>
-        <a href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
-        <a href="field-purchase.html" >Field Purchases</a>
-
-        <a href="settings.html" data-role="admin">Settings</a>
-        <a href="settings-employee.html" data-role="employee">Settings</a>
-        <a class="active" href="item-history.html" data-role="admin">Audit</a>
-        <a href="support.html">Support</a>
-
-      </nav>
-    </aside>
-
     <main class="main">
-      <header class="topbar">
-        <h1>Audit (Admin)</h1>
-        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
-      </header>
-
       <section class="card">
-        <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
-          <input id="histSearch" type="text" placeholder="Search code or job..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;max-width:220px;">
-          <select id="histType" style="padding:8px;border-radius:6px;border:1px solid #e6edf3;">
-            <option value="">All types</option>
-            <option value="ordered">Ordered</option>
-            <option value="purchase">Field Purchase</option>
-            <option value="in">Check-In</option>
-            <option value="out">Check-Out</option>
-            <option value="reserve">Reserve</option>
-            <option value="return">Return</option>
-          </select>
-        </div>
-        <table id="historyTable">
-          <thead><tr><th>Type</th><th>Status</th><th>Code</th><th>Qty</th><th>Job</th><th>User</th><th>When</th><th>Notes</th></tr></thead>
-          <tbody></tbody>
-        </table>
+        <h3>Audit has moved</h3>
+        <p class="muted-text">The audit log is now under Analytics.</p>
+        <a class="action-btn" href="analytics.html#audit">Go to Analytics</a>
       </section>
     </main>
   </div>
-
-  <script src="js/utils.js"></script>
-  <script src="js/item-history.js"></script>
-  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
+  <script>
+    window.location.replace('analytics.html#audit');
+  </script>
 </body>
 </html>
-
-
-
-
