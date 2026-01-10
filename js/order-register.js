@@ -151,6 +151,26 @@ function refreshSkuDatalist(){
     });
 }
 
+function getGeneralInventoryItems(){
+  return (itemsCache || []).filter(item=> availableFor(item.code) > 0);
+}
+
+function refreshReserveSkuDatalist(){
+  const list = document.getElementById('reserve-sku-options');
+  if(!list) return;
+  list.innerHTML = '';
+  getGeneralInventoryItems()
+    .slice()
+    .sort((a,b)=> (a.code || '').localeCompare(b.code || ''))
+    .forEach(item=>{
+      if(!item.code) return;
+      const opt = document.createElement('option');
+      opt.value = item.code;
+      if(item.name) opt.label = `${item.code} - ${item.name}`;
+      list.appendChild(opt);
+    });
+}
+
 function refreshOrderLineJobOptions(){
   const selects = document.querySelectorAll('.order-line select[name="jobId"]');
   selects.forEach(sel=>{
@@ -528,6 +548,7 @@ async function renderRecentOrders(){
 
   renderIncomingSummary(rows);
   updateReserveAvailability();
+  refreshReserveSkuDatalist();
 }
 
 function initTabs(){
@@ -675,6 +696,14 @@ function updateReserveAvailability(){
   });
 }
 
+async function refreshInventoryAvailability(){
+  const inventory = await utils.fetchJsonSafe('/api/inventory', {}, []) || [];
+  inventoryCache = inventory;
+  computeAvailability(inventory);
+  updateReserveAvailability();
+  refreshReserveSkuDatalist();
+}
+
 function initReserve(){
   const reserveLines = document.getElementById('reserve-lines');
   if(!reserveLines) return;
@@ -704,9 +733,10 @@ function initReserve(){
     if(prefill.code){ codeInput.value = prefill.code; }
     if(prefill.qty){ row.querySelector('input[name="qty"]').value = prefill.qty; }
 
+    codeInput.setAttribute('list', 'reserve-sku-options');
     if(window.utils && utils.attachItemLookup){
       utils.attachItemLookup({
-        getItems: ()=> itemsCache,
+        getItems: ()=> getGeneralInventoryItems(),
         codeInputId: codeId,
         nameInputId: nameId,
         suggestionsId: suggId
@@ -803,6 +833,7 @@ function initReserve(){
     }
     if(okAll){
       reserveMsg.style.color = '#15803d'; reserveMsg.textContent = 'Reserved';
+      await refreshInventoryAvailability();
       reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); renderReserves();
     }
   });
@@ -857,6 +888,7 @@ function initReserve(){
         const data = await r.json().catch(()=>({}));
         if(!r.ok){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = data.error || 'Bulk reserve failed'; return; }
         reserveMsg.style.color = '#15803d'; reserveMsg.textContent = `Reserved ${data.count} lines`;
+        await refreshInventoryAvailability();
         reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); reserveBulkArea.value=''; renderReserves();
       }catch(e){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'Bulk reserve failed'; }
     });
@@ -901,6 +933,7 @@ function initReassign(){
       if(!r.ok){ msg.style.color = '#b91c1c'; msg.textContent = data.error || 'Reassign failed'; return; }
       msg.style.color = '#15803d'; msg.textContent = 'Reassigned reserved stock';
       form.reset();
+      await refreshInventoryAvailability();
       document.getElementById('reserveFilter')?.dispatchEvent(new Event('input'));
     }catch(e){
       msg.style.color = '#b91c1c'; msg.textContent = 'Reassign failed';

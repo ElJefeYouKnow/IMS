@@ -198,21 +198,6 @@
           </section>
 
           <section class="card">
-            <h3>Bulk Reserve (paste)</h3>
-            <p class="muted" style="margin-top:-2px;">Format: code,qty per line. Uses selected job above.</p>
-            <div class="form-row bulk-box">
-              <label style="flex:1">Lines
-                <textarea id="reserve-bulk" rows="3" placeholder="ABC123,2&#10;XYZ9,5"></textarea>
-              </label>
-              <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
-                <button id="reserve-bulk-load" type="button" class="muted" style="margin-top:22px;">Load to lines</button>
-                <button id="reserve-bulk-apply" type="button" class="muted">Reserve bulk</button>
-                <button id="reserve-bulk-clear" type="button" class="muted">Clear bulk</button>
-              </div>
-            </div>
-          </section>
-
-          <section class="card">
             <h3>Reassign Reserved Stock</h3>
             <p class="muted" style="margin-top:-2px;">Move reserved stock between projects or back to general inventory.</p>
             <form id="reassignForm" class="inventory-form" autocomplete="off">
@@ -245,11 +230,27 @@
               <div id="reassignMsg" style="font-size:0.9rem;"></div>
             </form>
           </section>
+
+          <section class="card">
+            <h3>Bulk Reserve (paste)</h3>
+            <p class="muted" style="margin-top:-2px;">Format: code,qty per line. Uses selected job above.</p>
+            <div class="form-row bulk-box">
+              <label style="flex:1">Lines
+                <textarea id="reserve-bulk" rows="3" placeholder="ABC123,2&#10;XYZ9,5"></textarea>
+              </label>
+              <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
+                <button id="reserve-bulk-load" type="button" class="muted" style="margin-top:22px;">Load to lines</button>
+                <button id="reserve-bulk-apply" type="button" class="muted">Reserve bulk</button>
+                <button id="reserve-bulk-clear" type="button" class="muted">Clear bulk</button>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </main>
   </div>
   <datalist id="order-sku-options"></datalist>
+  <datalist id="reserve-sku-options"></datalist>
 
   <div id="orderReviewModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-content">
