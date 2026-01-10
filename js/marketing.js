@@ -17,14 +17,19 @@
 
   const links = document.querySelectorAll('[data-app-link]');
   if (links.length) {
+    const root = document.documentElement;
+    const hostOverride = root.dataset.appHost || document.body?.dataset.appHost;
+    const pathOverride = root.dataset.appPath || 'login.html';
+    const protocolOverride = root.dataset.appProtocol || '';
     const host = window.location.hostname || '';
     const base = host.replace(/^www\./, '');
-    if (!base) return;
+    if (!base && !hostOverride) return;
     const port = window.location.port ? `:${window.location.port}` : '';
     const isLocal = base === 'localhost' || base === '127.0.0.1';
-    const appHost = isLocal ? base : (base.startsWith('app.') ? base : `app.${base}`);
-    const protocol = window.location.protocol === 'http:' ? 'http:' : 'https:';
-    const appUrl = `${protocol}//${appHost}${port}/login.html`;
+    const appHost = hostOverride || (isLocal ? base : (base.startsWith('app.') ? base : `app.${base}`));
+    const protocol = protocolOverride || (window.location.protocol === 'http:' ? 'http:' : 'https:');
+    const path = pathOverride.startsWith('/') ? pathOverride : `/${pathOverride}`;
+    const appUrl = `${protocol}//${appHost}${hostOverride ? '' : port}${path}`;
     links.forEach(link => link.setAttribute('href', appUrl));
   }
 })();
