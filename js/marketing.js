@@ -20,9 +20,11 @@
     const host = window.location.hostname || '';
     const base = host.replace(/^www\./, '');
     if (!base) return;
-    const appHost = base.startsWith('app.') ? base : `app.${base}`;
+    const port = window.location.port ? `:${window.location.port}` : '';
+    const isLocal = base === 'localhost' || base === '127.0.0.1';
+    const appHost = isLocal ? base : (base.startsWith('app.') ? base : `app.${base}`);
     const protocol = window.location.protocol === 'http:' ? 'http:' : 'https:';
-    const appUrl = `${protocol}//${appHost}/login`;
+    const appUrl = `${protocol}//${appHost}${port}/login.html`;
     links.forEach(link => link.setAttribute('href', appUrl));
   }
 })();
