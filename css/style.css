@@ -1,14 +1,14 @@
 :root{
-  --font-body: "Manrope", "Segoe UI", sans-serif;
-  --font-display: "Space Grotesk", "Segoe UI", sans-serif;
-  --bg:#f7f9fb;
+  --font-body: "Sora", "Segoe UI", sans-serif;
+  --font-display: "Chakra Petch", "Segoe UI", sans-serif;
+  --bg:#e6ebf1;
   --card:#ffffff;
   --accent:#0f7a57; /* dark green */
   --accent-strong:#0a1b2b; /* dark blue */
   --muted:#5c6470;
-  --line: #e4e8ee;
+  --line: #d2dbe6;
 }
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Sora:wght@400;500;600;700&display=swap");
 *{box-sizing:border-box}
 body{margin:0;font-family:var(--font-body);background:var(--bg);color:#0f172a}
 h1,h2,h3,.brand,.mode-btn,.tab-btn,.filter-btn{font-family:var(--font-display)}
@@ -31,8 +31,16 @@ h1,h2,h3,.brand,.mode-btn,.tab-btn,.filter-btn{font-family:var(--font-display)}
 .sidebar a.active{background:rgba(15,122,87,0.22);border-color:rgba(15,122,87,0.4);color:#e8fff6}
 .sidebar a:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.12)}
 .collapse{display:none}
-.main{flex:1;padding:20px}
-.dark .main{background:#0b1020;color:#e5e7eb}
+.main{
+  flex:1;
+  padding:20px;
+  background-color:var(--bg);
+  background-image:
+    linear-gradient(180deg, rgba(248,250,252,0.9), rgba(230,235,241,0.85)),
+    repeating-linear-gradient(90deg, rgba(15,23,42,0.05) 0 1px, transparent 1px 120px),
+    repeating-linear-gradient(0deg, rgba(15,23,42,0.04) 0 1px, transparent 1px 120px);
+}
+.dark .main{background:#0b1020;color:#e5e7eb;background-image:none}
 .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:14px 16px;border-radius:12px;background:linear-gradient(90deg,#0a1b2b,#0f7a57);color:#fff;box-shadow:0 10px 30px rgba(10,27,43,0.28)}
 .topbar h1{margin:0;font-size:1.3rem;letter-spacing:0.2px}
 .topbar-right{display:flex;align-items:center;gap:12px}
