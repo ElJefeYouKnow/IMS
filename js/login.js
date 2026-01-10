@@ -9,6 +9,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
     tenantInput.value = storedTenant;
     if(rememberToggle) rememberToggle.checked = true;
   }
+  const backBtn = document.getElementById('backToMarketing');
+  if(backBtn){
+    const protocol = window.location.protocol === 'http:' ? 'http:' : 'https:';
+    const hostname = window.location.hostname || '';
+    const port = window.location.port ? `:${window.location.port}` : '';
+    let baseHost = hostname;
+    if(baseHost.startsWith('app.')) baseHost = baseHost.slice(4);
+    const target = baseHost ? `${protocol}//${baseHost}${port}/index.html` : 'index.html';
+    backBtn.addEventListener('click', ()=>{ window.location.href = target; });
+  }
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
     err.textContent = '';

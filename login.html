@@ -15,6 +15,8 @@
     label{color:#cbd5f5;}
     input{background:#0f172a;color:#e5e7eb;border:1px solid #1f2937;}
     button{background:linear-gradient(135deg,#0f7a57,#14a26d);border:none;color:#fff;font-weight:800;box-shadow:0 10px 30px rgba(20,162,109,0.35);}
+    .back-link{margin-top:14px;width:100%;background:transparent;border:1px solid rgba(255,255,255,0.18);box-shadow:none;color:#e5e7eb;font-weight:700;}
+    .back-link:hover{background:rgba(255,255,255,0.06);}
     .auth-actions{align-items:center;justify-content:space-between;gap:12px;}
     .auth-actions .remember-label{display:flex;align-items:center;gap:10px;font-size:0.85rem;color:#cbd5f5;flex:1;flex-direction:row;}
     .auth-actions input[type="checkbox"]{width:16px;height:16px;margin:0;accent-color:#14a26d;border-radius:4px;box-shadow:0 0 0 1px rgba(255,255,255,0.12);}
@@ -45,6 +47,7 @@
         <div style="font-size:0.9rem;color:#6b7280;">Need access? Contact your administrator.</div>
         <div id="login-error" style="color:#b91c1c;font-size:0.9rem;margin-top:8px;"></div>
       </form>
+      <button id="backToMarketing" class="back-link" type="button">Back to website</button>
     </div>
   </div>
   <script src="js/utils.js"></script>
