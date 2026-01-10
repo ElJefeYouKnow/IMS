@@ -2,9 +2,9 @@
   --bg: #e6ebf1;
   --ink: #0b111a;
   --muted: #445261;
-  --primary: #f97316;
-  --primary-dark: #c2410c;
-  --accent: #fbbf24;
+  --primary: #0f7a57;
+  --primary-dark: #0b5f5a;
+  --accent: #0f7a57;
   --surface: #f8fafc;
   --surface-2: #e2e8f0;
   --border: #c7d2de;
@@ -170,16 +170,16 @@ img {
 .btn-primary {
   background: var(--primary);
   color: #fff;
-  box-shadow: 0 16px 30px rgba(249, 115, 22, 0.3);
+  box-shadow: 0 16px 30px rgba(15,122,87, 0.3);
 }
 
 .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 20px 32px rgba(249, 115, 22, 0.34);
+  box-shadow: 0 20px 32px rgba(15,122,87, 0.34);
 }
 
 .btn-secondary {
-  border-color: rgba(249, 115, 22, 0.4);
+  border-color: rgba(15,122,87, 0.4);
   color: var(--primary-dark);
   background: var(--surface);
 }
@@ -202,7 +202,7 @@ img {
 .hero::before {
   width: 360px;
   height: 360px;
-  background: repeating-linear-gradient(135deg, rgba(249, 115, 22, 0.25) 0 12px, rgba(15, 23, 42, 0.08) 12px 24px);
+  background: repeating-linear-gradient(135deg, rgba(15,122,87, 0.25) 0 12px, rgba(15, 23, 42, 0.08) 12px 24px);
   top: -140px;
   right: 10%;
   border-radius: 24px;
@@ -369,7 +369,7 @@ img {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: rgba(249, 115, 22, 0.16);
+  background: rgba(15,122,87, 0.16);
   color: var(--primary-dark);
   font-size: 0.8rem;
   font-weight: 700;
