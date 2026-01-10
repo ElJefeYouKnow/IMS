@@ -25,10 +25,21 @@ h1,h2,h3,.brand,.mode-btn,.tab-btn,.filter-btn{font-family:var(--font-display)}
 .user-chip .avatar{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#0f7a57,#0b5f5a);display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff;letter-spacing:0.5px}
 .user-chip .avatar.has-photo{color:transparent}
 .sidebar nav{display:flex;flex-direction:column;gap:6px;margin-top:6px}
-.sidebar a{color:rgba(255,255,255,0.9);text-decoration:none;padding:10px 12px;border-radius:10px;display:flex;align-items:center;gap:10px;font-weight:600;border:1px solid transparent;transition:all .2s}
+.sidebar a{position:relative;overflow:hidden;color:rgba(255,255,255,0.9);text-decoration:none;padding:10px 12px;border-radius:10px;display:flex;align-items:center;gap:10px;font-weight:600;border:1px solid transparent;transition:all .2s}
 .sidebar a[data-role]{display:none}
 .sidebar a.always-visible{display:block}
-.sidebar a.active{background:rgba(15,122,87,0.18);border-color:rgba(15,122,87,0.45);color:#fff}
+.sidebar a.active{background:linear-gradient(90deg,rgba(15,122,87,0.22),rgba(17,24,39,0.12));border-color:rgba(15,122,87,0.5);color:#fff}
+.sidebar a.active::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:6px;
+  bottom:6px;
+  width:4px;
+  border-radius:999px;
+  background:linear-gradient(180deg,#0f7a57,#0b5f5a);
+  box-shadow:0 0 12px rgba(15,122,87,0.5);
+}
 .sidebar a:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.12)}
 .collapse{display:none}
 .main{
