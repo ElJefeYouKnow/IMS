@@ -482,18 +482,26 @@ function renderOnhand(){
       <td>${discrepancyHtml}</td>
     `;
 
-    const jobRows = [];
+    const outRows = [];
+    const reserveRows = [];
     if(item.jobs && item.jobs.size){
       item.jobs.forEach((stats, jobId)=>{
         const checkedOut = Math.max(0, Number(stats.out || 0));
         if(checkedOut > 0){
-          jobRows.push(`<div class="job-row"><span>${jobId}</span><span>${checkedOut} out</span></div>`);
+          outRows.push(`<div class="job-row"><span>${jobId}</span><span>${checkedOut} out</span></div>`);
+        }
+        const reserved = Math.max(0, Number(stats.reserve || 0));
+        if(reserved > 0){
+          reserveRows.push(`<div class="job-row"><span>${jobId}</span><span>${reserved} reserved</span></div>`);
         }
       });
     }
-    const jobListHtml = jobRows.length
-      ? `<div class="job-breakdown">${jobRows.join('')}</div>`
+    const outListHtml = outRows.length
+      ? `<div class="job-breakdown">${outRows.join('')}</div>`
       : `<div class="job-empty">No active job checkouts.</div>`;
+    const reserveListHtml = reserveRows.length
+      ? `<div class="job-breakdown">${reserveRows.join('')}</div>`
+      : `<div class="job-empty">No active reservations.</div>`;
 
     const detail=document.createElement('tr');
     detail.className='row-detail';
@@ -509,7 +517,11 @@ function renderOnhand(){
         </div>
         <div style="margin-top:10px;">
           <strong style="display:block;margin-bottom:6px;color:var(--muted);">Checked Out by Project</strong>
-          ${jobListHtml}
+          ${outListHtml}
+        </div>
+        <div style="margin-top:10px;">
+          <strong style="display:block;margin-bottom:6px;color:var(--muted);">Reserved by Project</strong>
+          ${reserveListHtml}
         </div>
       </td>
     `;
