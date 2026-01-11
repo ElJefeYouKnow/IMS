@@ -48,7 +48,10 @@ async function renderTable(){
   const type = document.getElementById('histType').value;
   let rows = entries.slice().sort((a,b)=> (b.ts||0)-(a.ts||0));
   if(search){
-    rows = rows.filter(e=> (e.code||'').toLowerCase().includes(search) || (e.jobId||'').toLowerCase().includes(search));
+    rows = rows.filter(e=>{
+      const jobIdVal = e.jobId || e.jobid || '';
+      return (e.code||'').toLowerCase().includes(search) || jobIdVal.toLowerCase().includes(search);
+    });
   }
   if(type){
     rows = rows.filter(e=> e.type === type);
@@ -61,10 +64,13 @@ async function renderTable(){
   }
   rows.forEach(e=>{
     const tr=document.createElement('tr');
-    const user = e.userName ? `${e.userName} (${e.userEmail||''})` : (e.userEmail||'');
+    const jobId = e.jobId || e.jobid || '';
+    const userName = e.userName || e.username || '';
+    const userEmail = e.userEmail || e.useremail || '';
+    const user = userName ? `${userName} (${userEmail||''})` : (userEmail||'');
     const when = formatWhen(e.ts);
     const notes = e.notes || e.reason || e.location || '';
-    tr.innerHTML=`<td>${typeLabel(e.type)}</td><td>${e.status||''}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||''}</td><td>${user}</td><td>${when}</td><td>${notes}</td>`;
+    tr.innerHTML=`<td>${typeLabel(e.type)}</td><td>${e.status||''}</td><td>${e.code}</td><td>${e.qty}</td><td>${jobId}</td><td>${user}</td><td>${when}</td><td>${notes}</td>`;
     tbody.appendChild(tr);
   });
 }
