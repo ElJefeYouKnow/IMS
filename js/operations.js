@@ -979,6 +979,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     resetLines('checkin');
     await loadOpenOrders();
     populateOrderSelect();
+    await updateOpsMetrics();
   });
   
   document.getElementById('checkin-clearBtn').addEventListener('click', async ()=>{
@@ -1003,6 +1004,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     checkoutForm.reset();
     resetLines('checkout');
     ensureJobOption(jobId);
+    await updateOpsMetrics();
     return okAll;
   };
 
@@ -1079,6 +1081,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       reserveForm.reset();
       resetLines('reserve');
       ensureJobOption(jobId);
+      await updateOpsMetrics();
     });
     
     const reserveClearBtn = document.getElementById('reserve-clearBtn');
@@ -1121,6 +1124,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const select = document.getElementById('return-fromCheckout');
       if(select) await refreshReturnDropdown(select);
       ensureJobOption(jobId);
+      await updateOpsMetrics();
     });
   }
   
