@@ -1,6 +1,20 @@
 const FALLBACK = 'N/A';
+const DEFAULT_CATEGORY_NAME = 'Uncategorized';
+const DEFAULT_CATEGORY_RULES = {
+  requireJobId: false,
+  requireLocation: false,
+  requireNotes: false,
+  allowFieldPurchase: true,
+  allowCheckout: true,
+  allowReserve: true,
+  maxCheckoutQty: null,
+  returnWindowDays: 5,
+  lowStockThreshold: 5
+};
 
 let currentEditId = null;
+let currentCategoryId = null;
+let categoriesCache = [];
 
 function parseCsvLine(line){
   const out = [];
@@ -67,6 +81,67 @@ function parseCsv(text){
   return { items, skipped };
 }
 
+function normalizeCategoryRules(raw){
+  const input = (raw && typeof raw === 'object') ? raw : {};
+  const out = { ...DEFAULT_CATEGORY_RULES };
+  if(Object.prototype.hasOwnProperty.call(input, 'requireJobId')) out.requireJobId = !!input.requireJobId;
+  if(Object.prototype.hasOwnProperty.call(input, 'requireLocation')) out.requireLocation = !!input.requireLocation;
+  if(Object.prototype.hasOwnProperty.call(input, 'requireNotes')) out.requireNotes = !!input.requireNotes;
+  if(Object.prototype.hasOwnProperty.call(input, 'allowFieldPurchase')) out.allowFieldPurchase = !!input.allowFieldPurchase;
+  if(Object.prototype.hasOwnProperty.call(input, 'allowCheckout')) out.allowCheckout = !!input.allowCheckout;
+  if(Object.prototype.hasOwnProperty.call(input, 'allowReserve')) out.allowReserve = !!input.allowReserve;
+  const maxCheckoutQty = Number(input.maxCheckoutQty);
+  out.maxCheckoutQty = Number.isFinite(maxCheckoutQty) && maxCheckoutQty > 0 ? Math.floor(maxCheckoutQty) : null;
+  const returnWindowDays = Number(input.returnWindowDays);
+  out.returnWindowDays = Number.isFinite(returnWindowDays) && returnWindowDays > 0 ? Math.floor(returnWindowDays) : DEFAULT_CATEGORY_RULES.returnWindowDays;
+  const lowStockThreshold = Number(input.lowStockThreshold);
+  out.lowStockThreshold = Number.isFinite(lowStockThreshold) && lowStockThreshold >= 0 ? Math.floor(lowStockThreshold) : DEFAULT_CATEGORY_RULES.lowStockThreshold;
+  return out;
+}
+
+async function loadCategories(){
+  try{
+    const r = await fetch('/api/categories', { credentials:'include' });
+    if(r.status === 401){ window.location.href='login.html'; return []; }
+    if(r.ok){
+      const rows = await r.json();
+      categoriesCache = (rows || []).map(c=> ({ ...c, rules: normalizeCategoryRules(c.rules) }));
+      categoriesCache.sort((a,b)=> (a.name || '').localeCompare(b.name || ''));
+      return categoriesCache;
+    }
+  }catch(e){}
+  categoriesCache = [];
+  return categoriesCache;
+}
+
+function renderCategoryOptions(){
+  const select = document.getElementById('category');
+  if(!select) return;
+  const list = categoriesCache.length ? categoriesCache : [{ name: DEFAULT_CATEGORY_NAME }];
+  const current = select.value;
+  select.innerHTML = '';
+  list.forEach(cat=>{
+    const opt = document.createElement('option');
+    opt.value = cat.name;
+    opt.textContent = cat.name;
+    select.appendChild(opt);
+  });
+  if(current && list.some(c=> c.name === current)){
+    select.value = current;
+  }else if(list.length){
+    select.value = list.find(c=> c.name === DEFAULT_CATEGORY_NAME)?.name || list[0].name;
+  }
+}
+
+function setMode(mode){
+  document.querySelectorAll('.mode-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  document.querySelectorAll('.mode-content').forEach(panel=>{
+    panel.classList.toggle('active', panel.id === `${mode}-mode`);
+  });
+}
+
 async function loadItems(){
   try{
     const r = await fetch('/api/items',{credentials:'include'});
@@ -97,6 +172,107 @@ async function renderTable(){
   });
   document.querySelectorAll('.edit-btn').forEach(btn=> btn.addEventListener('click',editItem));
   document.querySelectorAll('.delete-btn').forEach(btn=> btn.addEventListener('click',deleteItem));
+}
+
+function formatCategoryRequirements(rules){
+  const reqs = [];
+  if(rules.requireJobId) reqs.push('Project');
+  if(rules.requireLocation) reqs.push('Location');
+  if(rules.requireNotes) reqs.push('Notes');
+  return reqs.length ? reqs.join(', ') : 'None';
+}
+
+function formatCategoryPermissions(rules){
+  const perms = [];
+  perms.push(rules.allowFieldPurchase === false ? 'No field purchase' : 'Field purchase');
+  perms.push(rules.allowCheckout === false ? 'No checkout' : 'Checkout');
+  perms.push(rules.allowReserve === false ? 'No reserve' : 'Reserve');
+  return perms.join(', ');
+}
+
+function formatCategoryThresholds(rules){
+  const parts = [];
+  if(rules.maxCheckoutQty) parts.push(`Max checkout ${rules.maxCheckoutQty}`);
+  parts.push(`Return ${rules.returnWindowDays}d`);
+  parts.push(`Low stock ${rules.lowStockThreshold}`);
+  return parts.join(', ');
+}
+
+async function renderCategoryTable(){
+  const tbody = document.querySelector('#categoryTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  if(!categoriesCache.length){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="5" style="text-align:center;color:#6b7280;">No categories yet</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  categoriesCache.forEach(cat=>{
+    const rules = normalizeCategoryRules(cat.rules);
+    const tr = document.createElement('tr');
+    const disabled = (cat.name || '').toLowerCase() === DEFAULT_CATEGORY_NAME.toLowerCase();
+    tr.innerHTML = `<td>${cat.name}</td><td>${formatCategoryRequirements(rules)}</td><td>${formatCategoryPermissions(rules)}</td><td>${formatCategoryThresholds(rules)}</td><td><button class="cat-edit-btn" data-id="${cat.id}">Edit</button> <button class="cat-delete-btn muted" data-id="${cat.id}" ${disabled ? 'disabled' : ''}>Delete</button></td>`;
+    tbody.appendChild(tr);
+  });
+  document.querySelectorAll('.cat-edit-btn').forEach(btn=> btn.addEventListener('click', editCategory));
+  document.querySelectorAll('.cat-delete-btn').forEach(btn=> btn.addEventListener('click', deleteCategory));
+}
+
+function fillCategoryForm(category){
+  const rules = normalizeCategoryRules(category?.rules);
+  document.getElementById('categoryName').value = category?.name || '';
+  document.getElementById('categoryLowStock').value = Number.isFinite(Number(rules.lowStockThreshold)) ? rules.lowStockThreshold : '';
+  document.getElementById('categoryMaxCheckout').value = rules.maxCheckoutQty || '';
+  document.getElementById('categoryReturnWindow').value = rules.returnWindowDays || '';
+  document.getElementById('ruleRequireJob').checked = !!rules.requireJobId;
+  document.getElementById('ruleRequireLocation').checked = !!rules.requireLocation;
+  document.getElementById('ruleRequireNotes').checked = !!rules.requireNotes;
+  document.getElementById('ruleAllowFieldPurchase').checked = rules.allowFieldPurchase !== false;
+  document.getElementById('ruleAllowCheckout').checked = rules.allowCheckout !== false;
+  document.getElementById('ruleAllowReserve').checked = rules.allowReserve !== false;
+  document.getElementById('categorySaveBtn').textContent = currentCategoryId ? 'Update Category' : 'Save Category';
+  document.getElementById('categoryName').disabled = (category?.name || '').toLowerCase() === DEFAULT_CATEGORY_NAME.toLowerCase();
+}
+
+function clearCategoryForm(){
+  currentCategoryId = null;
+  document.getElementById('categoryForm').reset();
+  document.getElementById('categoryName').disabled = false;
+  document.getElementById('categorySaveBtn').textContent = 'Save Category';
+  const msg = document.getElementById('categoryMsg');
+  if(msg) msg.textContent = '';
+}
+
+async function editCategory(e){
+  const id = e.target.dataset.id;
+  const category = categoriesCache.find(c=> c.id === id);
+  if(!category) return;
+  currentCategoryId = id;
+  fillCategoryForm(category);
+  setMode('categories');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function deleteCategory(e){
+  const id = e.target.dataset.id;
+  const category = categoriesCache.find(c=> c.id === id);
+  if(!category) return;
+  if(!confirm(`Delete category "${category.name}"? Items will move to ${DEFAULT_CATEGORY_NAME}.`)) return;
+  try{
+    const r = await fetch(`/api/categories/${id}`, { method:'DELETE', credentials:'include' });
+    const data = await r.json().catch(()=>({}));
+    if(!r.ok){
+      alert(data.error || 'Failed to delete category');
+      return;
+    }
+    await loadCategories();
+    renderCategoryOptions();
+    await renderCategoryTable();
+    await renderTable();
+  }catch(e){
+    alert('Failed to delete category');
+  }
 }
 
 async function addItem(item){
@@ -132,7 +308,7 @@ async function editItem(e){
   document.getElementById('itemCode').value = item.code;
   document.getElementById('itemCode').disabled = true;
   document.getElementById('itemName').value = item.name;
-  document.getElementById('category').value = item.category || '';
+  document.getElementById('category').value = item.category || DEFAULT_CATEGORY_NAME;
   document.getElementById('unitPrice').value = item.unitPrice || '';
   document.getElementById('description').value = item.description || '';
   document.getElementById('addBtn').textContent = 'Update Item';
@@ -152,9 +328,13 @@ function clearForm(){
   document.getElementById('itemForm').reset();
   document.getElementById('itemCode').disabled = false;
   document.getElementById('addBtn').textContent = 'Add Item';
+  const categorySelect = document.getElementById('category');
+  if(categorySelect){
+    categorySelect.value = categoriesCache.find(c=> c.name === DEFAULT_CATEGORY_NAME)?.name || categorySelect.value;
+  }
 }
 
-document.addEventListener('DOMContentLoaded',()=>{
+document.addEventListener('DOMContentLoaded', async ()=>{
   if(window.utils){
     if(!utils.requireSession?.()) return;
     utils.requireRole?.('admin');
@@ -167,9 +347,26 @@ document.addEventListener('DOMContentLoaded',()=>{
   fetch('/api/auth/me',{credentials:'include'})
     .then(r=>{ if(r.status===401) window.location.href='login.html'; return r; })
     .catch(()=>{});
-  renderTable();
+  await loadCategories();
+  renderCategoryOptions();
+  await renderCategoryTable();
+  await renderTable();
   const searchBox = document.getElementById('searchBox');
   if(searchBox) searchBox.addEventListener('input', renderTable);
+  const hash = (window.location.hash || '').replace('#','').toLowerCase();
+  const initial = hash === 'categories' ? 'categories' : 'items';
+  setMode(initial);
+  document.querySelectorAll('.mode-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const mode = btn.dataset.mode;
+      setMode(mode);
+      if(mode === 'categories'){
+        window.location.hash = 'categories';
+      }else{
+        history.replaceState(null, '', window.location.pathname);
+      }
+    });
+  });
 
   const importBtn = document.getElementById('importBtn');
   const importFile = document.getElementById('importFile');
@@ -251,4 +448,58 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
   
   document.getElementById('clearBtn').addEventListener('click',clearForm);
+
+  const categoryForm = document.getElementById('categoryForm');
+  categoryForm.addEventListener('submit', async ev=>{
+    ev.preventDefault();
+    const name = document.getElementById('categoryName').value.trim();
+    if(!name){ alert('Category name is required'); return; }
+    const rules = {
+      requireJobId: document.getElementById('ruleRequireJob').checked,
+      requireLocation: document.getElementById('ruleRequireLocation').checked,
+      requireNotes: document.getElementById('ruleRequireNotes').checked,
+      allowFieldPurchase: document.getElementById('ruleAllowFieldPurchase').checked,
+      allowCheckout: document.getElementById('ruleAllowCheckout').checked,
+      allowReserve: document.getElementById('ruleAllowReserve').checked,
+      maxCheckoutQty: document.getElementById('categoryMaxCheckout').value,
+      returnWindowDays: document.getElementById('categoryReturnWindow').value,
+      lowStockThreshold: document.getElementById('categoryLowStock').value
+    };
+    const payload = { name, rules };
+    const msg = document.getElementById('categoryMsg');
+    if(msg){ msg.textContent = ''; msg.style.color = '#6b7280'; }
+    try{
+      const url = currentCategoryId ? `/api/categories/${currentCategoryId}` : '/api/categories';
+      const method = currentCategoryId ? 'PUT' : 'POST';
+      const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify(payload) });
+      const data = await r.json().catch(()=>({}));
+      if(!r.ok){
+        if(msg){
+          msg.textContent = data.error || 'Failed to save category';
+          msg.style.color = '#b91c1c';
+        }else{
+          alert(data.error || 'Failed to save category');
+        }
+        return;
+      }
+      await loadCategories();
+      renderCategoryOptions();
+      await renderCategoryTable();
+      await renderTable();
+      clearCategoryForm();
+      const okMsg = document.getElementById('categoryMsg');
+      if(okMsg){
+        okMsg.textContent = 'Category saved.';
+        okMsg.style.color = '#15803d';
+      }
+    }catch(e){
+      if(msg){
+        msg.textContent = 'Failed to save category';
+        msg.style.color = '#b91c1c';
+      }else{
+        alert('Failed to save category');
+      }
+    }
+  });
+  document.getElementById('categoryClearBtn').addEventListener('click', clearCategoryForm);
 });

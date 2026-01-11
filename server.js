@@ -27,6 +27,18 @@ const DEV_TENANT_ID = process.env.DEV_TENANT_ID || DEV_TENANT_CODE;
 const DEV_RESET_TOKEN = process.env.DEV_RESET_TOKEN || 'reset-all-data-now';
 const SELLER_DATA_PATH = path.join(__dirname, 'data', 'seller-admin.json');
 const SELLER_ACTIVITY_LIMIT = 8;
+const DEFAULT_CATEGORY_NAME = 'Uncategorized';
+const DEFAULT_CATEGORY_RULES = {
+  requireJobId: false,
+  requireLocation: false,
+  requireNotes: false,
+  allowFieldPurchase: true,
+  allowCheckout: true,
+  allowReserve: true,
+  maxCheckoutQty: null,
+  returnWindowDays: 5,
+  lowStockThreshold: 5
+};
 let sellerStore = { clients: [], tickets: [], activities: [] };
 
 const app = express();
@@ -192,6 +204,57 @@ function normalizeJobId(value) {
   if (['general', 'general inventory', 'none', 'unassigned'].includes(lowered)) return '';
   return val;
 }
+function normalizeCategoryName(value) {
+  return (value || '').toString().trim();
+}
+function parseCategoryRules(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch (e) { return {}; }
+  }
+  if (typeof raw === 'object') return raw;
+  return {};
+}
+function normalizeCategoryRules(raw) {
+  const input = parseCategoryRules(raw);
+  const out = { ...DEFAULT_CATEGORY_RULES };
+  if (Object.prototype.hasOwnProperty.call(input, 'requireJobId')) out.requireJobId = !!input.requireJobId;
+  if (Object.prototype.hasOwnProperty.call(input, 'requireLocation')) out.requireLocation = !!input.requireLocation;
+  if (Object.prototype.hasOwnProperty.call(input, 'requireNotes')) out.requireNotes = !!input.requireNotes;
+  if (Object.prototype.hasOwnProperty.call(input, 'allowFieldPurchase')) out.allowFieldPurchase = !!input.allowFieldPurchase;
+  if (Object.prototype.hasOwnProperty.call(input, 'allowCheckout')) out.allowCheckout = !!input.allowCheckout;
+  if (Object.prototype.hasOwnProperty.call(input, 'allowReserve')) out.allowReserve = !!input.allowReserve;
+  const maxCheckoutQty = Number(input.maxCheckoutQty);
+  out.maxCheckoutQty = Number.isFinite(maxCheckoutQty) && maxCheckoutQty > 0 ? Math.floor(maxCheckoutQty) : null;
+  const returnWindowDays = Number(input.returnWindowDays);
+  out.returnWindowDays = Number.isFinite(returnWindowDays) && returnWindowDays > 0
+    ? Math.floor(returnWindowDays)
+    : DEFAULT_CATEGORY_RULES.returnWindowDays;
+  const lowStockThreshold = Number(input.lowStockThreshold);
+  out.lowStockThreshold = Number.isFinite(lowStockThreshold) && lowStockThreshold >= 0
+    ? Math.floor(lowStockThreshold)
+    : DEFAULT_CATEGORY_RULES.lowStockThreshold;
+  return out;
+}
+function getReturnWindowMs(rules) {
+  const days = Number(rules?.returnWindowDays);
+  const safeDays = Number.isFinite(days) && days > 0 ? days : DEFAULT_CATEGORY_RULES.returnWindowDays;
+  return safeDays * 24 * 60 * 60 * 1000;
+}
+function enforceCategoryRules(rules, { action, jobId, location, notes, qty }) {
+  const jobVal = normalizeJobId(jobId || '');
+  if (rules?.requireJobId && !jobVal) throw new Error('jobId required for category');
+  const needsLocation = ['checkin', 'return', 'field-purchase'].includes(action);
+  if (rules?.requireLocation && needsLocation && !(location || '').trim()) throw new Error('location required for category');
+  if (rules?.requireNotes && !(notes || '').trim()) throw new Error('notes required for category');
+  if (action === 'checkout' && rules?.allowCheckout === false) throw new Error('checkout not allowed for category');
+  if (action === 'reserve' && rules?.allowReserve === false) throw new Error('reserve not allowed for category');
+  if (action === 'field-purchase' && rules?.allowFieldPurchase === false) throw new Error('field purchase not allowed for category');
+  if (action === 'checkout') {
+    const max = Number(rules?.maxCheckoutQty);
+    if (Number.isFinite(max) && max > 0 && Number(qty) > max) throw new Error(`max checkout qty is ${max}`);
+  }
+}
 async function logAudit({ tenantId: tid, userId, action, details }) {
   const tenantId = tid || 'default';
   if (!AUDIT_ACTIONS.includes(action)) return;
@@ -228,6 +291,87 @@ async function withTransaction(fn) {
   } finally {
     client.release();
   }
+}
+async function getCategoryByNameTx(client, tenantIdVal, name) {
+  const norm = normalizeCategoryName(name);
+  if (!norm) return null;
+  const row = await client.query(
+    'SELECT * FROM categories WHERE tenantId=$1 AND LOWER(name)=LOWER($2) LIMIT 1',
+    [tenantIdVal, norm]
+  );
+  return row.rows[0] || null;
+}
+async function getCategoryByName(tenantIdVal, name) {
+  const norm = normalizeCategoryName(name);
+  if (!norm) return null;
+  return getAsync(
+    'SELECT * FROM categories WHERE tenantId=$1 AND LOWER(name)=LOWER($2) LIMIT 1',
+    [tenantIdVal, norm]
+  );
+}
+async function ensureDefaultCategoryTx(client, tenantIdVal) {
+  const now = Date.now();
+  await client.query(
+    `INSERT INTO categories(id,name,rules,tenantId,createdAt,updatedAt)
+     VALUES($1,$2,$3,$4,$5,$6)
+     ON CONFLICT DO NOTHING`,
+    [newId(), DEFAULT_CATEGORY_NAME, DEFAULT_CATEGORY_RULES, tenantIdVal, now, now]
+  );
+  return getCategoryByNameTx(client, tenantIdVal, DEFAULT_CATEGORY_NAME);
+}
+async function ensureDefaultCategory(tenantIdVal) {
+  const now = Date.now();
+  await runAsync(
+    `INSERT INTO categories(id,name,rules,tenantId,createdAt,updatedAt)
+     VALUES($1,$2,$3,$4,$5,$6)
+     ON CONFLICT DO NOTHING`,
+    [newId(), DEFAULT_CATEGORY_NAME, DEFAULT_CATEGORY_RULES, tenantIdVal, now, now]
+  );
+  return getCategoryByName(tenantIdVal, DEFAULT_CATEGORY_NAME);
+}
+async function resolveCategoryInputTx(client, tenantIdVal, name) {
+  const norm = normalizeCategoryName(name);
+  if (!norm) {
+    const def = await ensureDefaultCategoryTx(client, tenantIdVal);
+    return { name: def.name, rules: normalizeCategoryRules(def.rules) };
+  }
+  const row = await getCategoryByNameTx(client, tenantIdVal, norm);
+  if (!row) throw new Error(`category not found: ${norm}`);
+  return { name: row.name, rules: normalizeCategoryRules(row.rules) };
+}
+async function resolveCategoryInput(tenantIdVal, name) {
+  const norm = normalizeCategoryName(name);
+  if (!norm) {
+    const def = await ensureDefaultCategory(tenantIdVal);
+    return { name: def.name, rules: normalizeCategoryRules(def.rules) };
+  }
+  const row = await getCategoryByName(tenantIdVal, norm);
+  if (!row) throw new Error(`category not found: ${norm}`);
+  return { name: row.name, rules: normalizeCategoryRules(row.rules) };
+}
+async function getItemCategoryRulesTx(client, tenantIdVal, code, categoryInput) {
+  const item = await loadItem(client, code, tenantIdVal);
+  const inputNorm = normalizeCategoryName(categoryInput);
+  if (item) {
+    const current = normalizeCategoryName(item.category);
+    if (current) {
+      if (inputNorm && inputNorm.toLowerCase() !== current.toLowerCase()) {
+        throw new Error(`category mismatch for item ${code}`);
+      }
+      const row = await getCategoryByNameTx(client, tenantIdVal, current);
+      if (row) {
+        return { item, categoryName: row.name, rules: normalizeCategoryRules(row.rules) };
+      }
+      const def = await ensureDefaultCategoryTx(client, tenantIdVal);
+      await client.query('UPDATE items SET category=$1 WHERE code=$2 AND tenantId=$3', [def.name, code, tenantIdVal]);
+      return { item, categoryName: def.name, rules: normalizeCategoryRules(def.rules) };
+    }
+    const resolved = await resolveCategoryInputTx(client, tenantIdVal, inputNorm);
+    await client.query('UPDATE items SET category=$1 WHERE code=$2 AND tenantId=$3', [resolved.name, code, tenantIdVal]);
+    return { item, categoryName: resolved.name, rules: resolved.rules };
+  }
+  const resolved = await resolveCategoryInputTx(client, tenantIdVal, inputNorm);
+  return { item: null, categoryName: resolved.name, rules: resolved.rules };
 }
 
 function parseCookies(req) {
@@ -309,6 +453,19 @@ async function initDb() {
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS unitPrice NUMERIC`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS description TEXT`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS categories(
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    rules JSONB,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default',
+    createdAt BIGINT,
+    updatedAt BIGINT
+  )`);
+  await runAsync(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS rules JSONB`);
+  await runAsync(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS createdAt BIGINT`);
+  await runAsync(`ALTER TABLE categories ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
+  await runAsync(`CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_tenant_name ON categories(tenantId, LOWER(name))`);
   await runAsync(`CREATE TABLE IF NOT EXISTS inventory(
     id TEXT PRIMARY KEY,
     code TEXT REFERENCES items(code),
@@ -392,6 +549,8 @@ async function initDb() {
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`UPDATE items SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE items SET category=$1 WHERE category IS NULL OR category=''`, [DEFAULT_CATEGORY_NAME]);
+  await runAsync(`UPDATE categories SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE inventory SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE jobs SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE jobs SET startDate = scheduleDate WHERE startDate IS NULL AND scheduleDate IS NOT NULL`);
@@ -402,6 +561,10 @@ async function initDb() {
   await runAsync(`UPDATE tenants SET status = 'active' WHERE status IS NULL OR status = ''`);
   await runAsync(`UPDATE tenants SET plan = 'starter' WHERE plan IS NULL OR plan = ''`);
   await runAsync(`UPDATE tenants SET updatedAt = COALESCE(updatedAt, createdAt, $1::bigint)`, [Date.now()]);
+  const tenants = await allAsync('SELECT id FROM tenants', []);
+  for (const tenant of tenants) {
+    await ensureDefaultCategory(tenant.id);
+  }
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory(code)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_job ON inventory(jobId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(sourceType, sourceId)');
@@ -696,12 +859,20 @@ async function calcOpenSourceQtyTx(client, sourceId, code, tenantIdVal) {
 
 async function ensureItem(client, { code, name, category, unitPrice, tenantIdVal }) {
   let item = await loadItem(client, code, tenantIdVal);
-  if (item) return item;
+  if (item) {
+    if (!normalizeCategoryName(item.category)) {
+      const resolved = await resolveCategoryInputTx(client, tenantIdVal, category);
+      await client.query('UPDATE items SET category=$1 WHERE code=$2 AND tenantId=$3', [resolved.name, code, tenantIdVal]);
+      item = await loadItem(client, code, tenantIdVal);
+    }
+    return item;
+  }
   if (!name) throw new Error('unknown item code; include a name to add it');
+  const resolved = await resolveCategoryInputTx(client, tenantIdVal, category);
   const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
   await client.query(`INSERT INTO items(code,name,category,unitPrice,tenantId)
     VALUES($1,$2,$3,$4,$5)
-    ON CONFLICT (code, tenantId) DO NOTHING`, [code, name, category || null, price, tenantIdVal]);
+    ON CONFLICT (code, tenantId) DO NOTHING`, [code, name, resolved.name || null, price, tenantIdVal]);
   item = await loadItem(client, code, tenantIdVal);
   return item;
 }
@@ -727,6 +898,7 @@ async function ensureDevAccount() {
     VALUES($1,$2,$3,$4)
     ON CONFLICT (id) DO UPDATE SET code=EXCLUDED.code, name=EXCLUDED.name`,
     [tenantId, code, 'Dev Tenant', Date.now()]);
+  await ensureDefaultCategory(tenantId);
   const { salt, hash } = await hashPassword(DEV_PASSWORD);
   await runAsync(`INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8)
@@ -734,7 +906,7 @@ async function ensureDevAccount() {
     [newId(), normalizeEmail(DEV_EMAIL), 'Dev', 'dev', salt, hash, Date.now(), tenantId]);
 }
 
-async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn, sourceType, sourceId, sourceMeta }) {
+async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn, returnWindowDays, sourceType, sourceId, sourceMeta }) {
   const qtyNum = Number(qty);
   if (!code || !qtyNum || qtyNum <= 0) throw new Error('code and positive qty required');
   const jobIdVal = (jobId || '').trim() || null;
@@ -770,7 +942,9 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
     if (qtyNum > outstanding) throw new Error('return exceeds outstanding checkout');
     if (requireRecentReturn) {
       const last = await getLastCheckoutTs(client, code, jobIdVal, tenantIdVal);
-      if (!last || (nowTs - last) > CHECKOUT_RETURN_WINDOW_MS) throw new Error('return window exceeded (5 days)');
+      const windowMs = getReturnWindowMs({ returnWindowDays });
+      const windowDays = Math.round(windowMs / (24 * 60 * 60 * 1000));
+      if (!last || (nowTs - last) > windowMs) throw new Error(`return window exceeded (${windowDays} days)`);
     }
   }
   if (type === 'consume') {
@@ -841,9 +1015,27 @@ app.post('/api/inventory', async (req, res) => {
         if (!reassignReason) throw new Error('reassign reason required to override project');
       }
       jobIdVal = jobIdVal || null;
-      const checkin = await processInventoryEvent(client, { type: 'in', code, name, category, unitPrice, qty, location, jobId: jobIdVal, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, sourceType, sourceId });
+      const categoryInfo = await getItemCategoryRulesTx(client, t, code, category);
+      enforceCategoryRules(categoryInfo.rules, { action: 'checkin', jobId: jobIdVal, location, notes, qty: qtyNum });
+      const checkin = await processInventoryEvent(client, {
+        type: 'in',
+        code,
+        name,
+        category: categoryInfo.categoryName,
+        unitPrice,
+        qty,
+        location,
+        jobId: jobIdVal,
+        notes,
+        ts,
+        userEmail: actor.userEmail,
+        userName: actor.userName,
+        tenantIdVal: t,
+        sourceType,
+        sourceId
+      });
       // If a project is selected, auto-reserve the same qty to earmark stock for that project.
-      if (jobIdVal && autoReserve) {
+      if (jobIdVal && autoReserve && categoryInfo.rules.allowReserve !== false) {
         const avail = await calcAvailabilityTx(client, code, t);
         const reserveQty = Math.min(qtyNum, Math.max(0, avail));
         if (reserveQty > 0) {
@@ -863,8 +1055,10 @@ app.post('/api/inventory-checkout', async (req, res) => {
     const t = tenantId(req);
     const actor = actorInfo(req);
     const entry = await withTransaction(async (client) => {
+      const { rules } = await getItemCategoryRulesTx(client, t, code);
+      enforceCategoryRules(rules, { action: 'checkout', jobId, notes: notes || reason, qty });
       const tsNow = ts || Date.now();
-      const due = tsNow + CHECKOUT_RETURN_WINDOW_MS;
+      const due = tsNow + getReturnWindowMs(rules);
       return processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty, jobId } });
@@ -903,6 +1097,8 @@ app.post('/api/inventory-reserve', async (req, res) => {
     const t = tenantId(req);
     const actor = actorInfo(req);
     const entry = await withTransaction(async (client) => {
+      const { rules } = await getItemCategoryRulesTx(client, t, code);
+      enforceCategoryRules(rules, { action: 'reserve', jobId, notes, qty });
       return processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty, jobId, returnDate } });
@@ -925,6 +1121,8 @@ app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) =
         const code = (line?.code || '').trim();
         const qty = Number(line?.qty || 0);
         if (!code || qty <= 0) throw new Error(`Invalid line for code ${code || ''}`);
+        const { rules } = await getItemCategoryRulesTx(client, t, code);
+        enforceCategoryRules(rules, { action: 'reserve', jobId, notes, qty });
         const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts: line?.ts || Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
         results.push(ev);
       }
@@ -956,6 +1154,8 @@ app.post('/api/inventory-reassign', requireRole('admin'), async (req, res) => {
     const fromId = normalizeJobId(fromJobId);
     const toId = normalizeJobId(toJobId);
     const result = await withTransaction(async (client) => {
+      const { rules } = await getItemCategoryRulesTx(client, t, code);
+      enforceCategoryRules(rules, { action: 'reserve', jobId: fromId, notes: reason, qty: qtyNum });
       const reserved = await calcReservedOutstandingTx(client, code, fromId, t);
       if (qtyNum > reserved) throw new Error('reassign exceeds reserved qty');
       const release = await processInventoryEvent(client, { type: 'reserve_release', code, jobId: fromId, qty: qtyNum, notes: `reassign: ${reason}`, ts: Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
@@ -987,7 +1187,9 @@ app.post('/api/inventory-return', async (req, res) => {
     const actor = actorInfo(req);
     const entry = await withTransaction(async (client) => {
       const resolvedJobId = await resolveReturnJobIdTx(client, code, t, jobId);
-      return processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, requireRecentReturn: true });
+      const { rules } = await getItemCategoryRulesTx(client, t, code);
+      enforceCategoryRules(rules, { action: 'return', jobId: resolvedJobId, location, notes: notes || reason, qty });
+      return processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, requireRecentReturn: true, returnWindowDays: rules.returnWindowDays });
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.return', details: { code, qty, jobId: entry.jobId || null, reason } });
     res.status(201).json(entry);
@@ -1067,14 +1269,15 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
     if (!code || !name) return res.status(400).json({ error: 'code and name required' });
     const t = tenantId(req);
     const exists = await itemExists(code, t);
+    const categoryInfo = await resolveCategoryInput(t, category);
     const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
     if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [oldCode, t]);
     await runAsync(`INSERT INTO items(code,name,category,unitPrice,description,tenantId)
       VALUES($1,$2,$3,$4,$5,$6)
       ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tenantId=EXCLUDED.tenantId`,
-      [code, name, category, price, description, t]);
+      [code, name, categoryInfo.name, price, description, t]);
     await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: { code } });
-    res.status(201).json({ code, name, category, unitPrice: price, description, tenantId: t });
+    res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, description, tenantId: t });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
@@ -1098,7 +1301,7 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
         const code = (raw?.code || '').trim();
         const name = (raw?.name || '').trim();
         if (!code || !name) throw new Error('code and name required');
-        const category = (raw?.category || '').trim() || null;
+        const categoryInfo = await resolveCategoryInputTx(client, t, raw?.category);
         const description = (raw?.description || '').trim() || null;
         const unitPrice = raw?.unitPrice === undefined || raw?.unitPrice === null || Number.isNaN(Number(raw.unitPrice))
           ? null
@@ -1106,7 +1309,7 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
         await client.query(`INSERT INTO items(code,name,category,unitPrice,description,tenantId)
           VALUES($1,$2,$3,$4,$5,$6)
           ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tenantId=EXCLUDED.tenantId`,
-          [code, name, category, unitPrice, description, t]);
+          [code, name, categoryInfo.name, unitPrice, description, t]);
         results.push(code);
       }
     });
@@ -1115,6 +1318,90 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }
+});
+
+// CATEGORIES
+app.get('/api/categories', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    await ensureDefaultCategory(t);
+    const rows = await allAsync('SELECT * FROM categories WHERE tenantId=$1 ORDER BY name ASC', [t]);
+    const categories = rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      rules: normalizeCategoryRules(r.rules),
+      tenantId: r.tenantid || r.tenantId,
+      createdAt: r.createdat || r.createdAt || null,
+      updatedAt: r.updatedat || r.updatedAt || null
+    }));
+    res.json(categories);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/categories', requireRole('admin'), async (req, res) => {
+  try {
+    const name = normalizeCategoryName(req.body?.name);
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const t = tenantId(req);
+    await ensureDefaultCategory(t);
+    const existing = await getAsync('SELECT id FROM categories WHERE tenantId=$1 AND LOWER(name)=LOWER($2) LIMIT 1', [t, name]);
+    if (existing) return res.status(409).json({ error: 'category already exists' });
+    const rules = normalizeCategoryRules(req.body?.rules || req.body);
+    const now = Date.now();
+    const id = newId();
+    await runAsync(
+      `INSERT INTO categories(id,name,rules,tenantId,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6)`,
+      [id, name, rules, t, now, now]
+    );
+    res.status(201).json({ id, name, rules, tenantId: t, createdAt: now, updatedAt: now });
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
+});
+
+app.put('/api/categories/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getAsync('SELECT * FROM categories WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    if (!existing) return res.status(404).json({ error: 'category not found' });
+    const existingName = existing.name || '';
+    const isDefault = existingName.toLowerCase() === DEFAULT_CATEGORY_NAME.toLowerCase();
+    const name = normalizeCategoryName(req.body?.name) || existingName;
+    if (isDefault && name.toLowerCase() !== existingName.toLowerCase()) {
+      return res.status(400).json({ error: 'default category cannot be renamed' });
+    }
+    if (name.toLowerCase() !== existingName.toLowerCase()) {
+      const dup = await getAsync(
+        'SELECT id FROM categories WHERE tenantId=$1 AND LOWER(name)=LOWER($2) AND id<>$3 LIMIT 1',
+        [t, name, req.params.id]
+      );
+      if (dup) return res.status(409).json({ error: 'category name already exists' });
+    }
+    const rules = normalizeCategoryRules(req.body?.rules || req.body);
+    const now = Date.now();
+    await runAsync('UPDATE categories SET name=$1, rules=$2, updatedAt=$3 WHERE id=$4 AND tenantId=$5', [name, rules, now, req.params.id, t]);
+    if (name.toLowerCase() !== existingName.toLowerCase()) {
+      await runAsync('UPDATE items SET category=$1 WHERE tenantId=$2 AND LOWER(category)=LOWER($3)', [name, t, existingName]);
+    }
+    res.json({ id: req.params.id, name, rules, tenantId: t, updatedAt: now });
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
+});
+
+app.delete('/api/categories/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getAsync('SELECT * FROM categories WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    if (!existing) return res.status(404).json({ error: 'category not found' });
+    const existingName = existing.name || '';
+    if (existingName.toLowerCase() === DEFAULT_CATEGORY_NAME.toLowerCase()) {
+      return res.status(400).json({ error: 'default category cannot be deleted' });
+    }
+    await withTransaction(async (client) => {
+      await client.query('DELETE FROM categories WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+      const def = await ensureDefaultCategoryTx(client, t);
+      await client.query('UPDATE items SET category=$1 WHERE tenantId=$2 AND LOWER(category)=LOWER($3)', [def.name, t, existingName]);
+    });
+    res.json({ status: 'ok', id: req.params.id });
+  } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
 // AUTH + USERS
@@ -1400,6 +1687,8 @@ app.post('/api/field-purchase', async (req, res) => {
         const notes = (line?.notes || req.body?.notes || '').trim();
         const tsVal = line?.ts || req.body?.purchasedAt || Date.now();
         const unitPrice = line?.unitPrice ?? null;
+        const categoryInfo = await getItemCategoryRulesTx(client, t, code, category);
+        enforceCategoryRules(categoryInfo.rules, { action: 'field-purchase', jobId: jobIdVal, location, notes, qty: qtyNum });
         const sourceMeta = {
           vendor: line?.vendor || req.body?.vendor || '',
           receipt: line?.receipt || req.body?.receipt || '',
@@ -1410,7 +1699,7 @@ app.post('/api/field-purchase', async (req, res) => {
           type: 'purchase',
           code,
           name,
-          category,
+          category: categoryInfo.categoryName,
           unitPrice,
           qty: qtyNum,
           location,
@@ -1427,7 +1716,7 @@ app.post('/api/field-purchase', async (req, res) => {
           type: 'in',
           code,
           name,
-          category,
+          category: categoryInfo.categoryName,
           unitPrice,
           qty: qtyNum,
           location,
@@ -1441,7 +1730,7 @@ app.post('/api/field-purchase', async (req, res) => {
           sourceId: purchase.id,
           sourceMeta
         });
-        if (jobIdVal) {
+        if (jobIdVal && categoryInfo.rules.allowReserve !== false) {
           const avail = await calcAvailabilityTx(client, code, t);
           const reserveQty = Math.min(qtyNum, Math.max(0, avail));
           if (reserveQty > 0) {
@@ -1483,9 +1772,15 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       await client.query('TRUNCATE items');
       await client.query('TRUNCATE jobs');
       await client.query('TRUNCATE users');
+      await client.query('TRUNCATE categories');
       await client.query("DELETE FROM tenants WHERE id <> 'default'");
       await client.query(`INSERT INTO tenants(id,code,name,createdAt) VALUES('default','default','Default Tenant',$1)
         ON CONFLICT (id) DO NOTHING`, [Date.now()]);
+      await client.query(
+        `INSERT INTO categories(id,name,rules,tenantId,createdAt,updatedAt)
+         VALUES($1,$2,$3,$4,$5,$6)`,
+        [newId(), DEFAULT_CATEGORY_NAME, DEFAULT_CATEGORY_RULES, 'default', Date.now(), Date.now()]
+      );
       const adminPwd = 'ChangeMe123!';
       const adminHash = await hashPassword(adminPwd);
       const devHash = await hashPassword(DEV_PASSWORD);
@@ -1596,17 +1891,18 @@ END),0) as available,
 END),0) as reserve
       FROM items i
       LEFT JOIN inventory inv ON inv.code = i.code AND inv.tenantId = i.tenantId
+      LEFT JOIN categories c ON c.tenantId = i.tenantId AND LOWER(c.name)=LOWER(COALESCE(NULLIF(i.category,''), $2))
       WHERE i.tenantId=$1
-      GROUP BY i.code, i.name
+      GROUP BY i.code, i.name, c.rules
       HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
 inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
 END),0) > 0
         AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
 inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
-END),0) <= 5
+END),0) <= COALESCE((c.rules->>'lowStockThreshold')::int, $3)
       ORDER BY available ASC
       LIMIT 20
-    `, [t]);
+    `, [t, DEFAULT_CATEGORY_NAME, DEFAULT_CATEGORY_RULES.lowStockThreshold]);
     res.json({ ...row, lowStockCount: lowRows.length });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -1623,17 +1919,18 @@ END),0) as available,
 END),0) as reserve
       FROM items i
       LEFT JOIN inventory inv ON inv.code = i.code AND inv.tenantId = i.tenantId
+      LEFT JOIN categories c ON c.tenantId = i.tenantId AND LOWER(c.name)=LOWER(COALESCE(NULLIF(i.category,''), $2))
       WHERE i.tenantId=$1
-      GROUP BY i.code, i.name
+      GROUP BY i.code, i.name, c.rules
       HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
 inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
 END),0) > 0
         AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
 inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
-END),0) <= 5
+END),0) <= COALESCE((c.rules->>'lowStockThreshold')::int, $3)
       ORDER BY available ASC
       LIMIT 20
-    `, [t]);
+    `, [t, DEFAULT_CATEGORY_NAME, DEFAULT_CATEGORY_RULES.lowStockThreshold]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -1837,7 +2134,7 @@ app.post('/api/seller/clients', requireDev, async (req, res) => {
     const seatLimit = Number.isFinite(Number(activeUsers)) ? Number(activeUsers) : null;
     const password = (adminPassword || '').trim() || 'ChangeMe123!';
     const { salt, hash } = await hashPassword(password);
-    await withTransaction(async (client) => {
+  await withTransaction(async (client) => {
       await client.query(
         `INSERT INTO tenants(id,code,name,createdAt,plan,status,contactEmail,notes,seatLimit,updatedAt)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
@@ -1848,6 +2145,7 @@ app.post('/api/seller/clients', requireDev, async (req, res) => {
         [newId(), adminEmail, adminName || name || 'Admin', 'admin', salt, hash, now, tenantId]
       );
     });
+    await ensureDefaultCategory(tenantId);
     res.status(201).json({
       id: tenantId,
       code: tCode,

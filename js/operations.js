@@ -6,8 +6,10 @@ let openOrders = [];
 let openOrdersMap = new Map();
 let pendingCheckout = null;
 const FALLBACK = 'N/A';
+const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const MIN_LINES = 1;
 const SESSION_KEY = 'sessionUser';
+let categoriesCache = [];
 
 function uid(){ return Math.random().toString(16).slice(2,8); }
 function getSessionUser(){
@@ -89,6 +91,31 @@ function jobOptionLabel(job){
 async function loadItems(){
   allItems = await utils.fetchJsonSafe('/api/items', {}, []) || [];
 }
+
+async function loadCategories(){
+  categoriesCache = await utils.fetchJsonSafe('/api/categories', {}, []) || [];
+  refreshCategorySelects();
+}
+
+function refreshCategorySelects(){
+  document.querySelectorAll('select[name="category"]').forEach(select=>{
+    const list = categoriesCache.length ? categoriesCache : [{ name: DEFAULT_CATEGORY_NAME }];
+    const current = select.value;
+    select.innerHTML = '';
+    list.forEach(cat=>{
+      const opt = document.createElement('option');
+      opt.value = cat.name;
+      opt.textContent = cat.name;
+      select.appendChild(opt);
+    });
+    if(current && list.some(c=> c.name === current)){
+      select.value = current;
+    }else if(list.length){
+      const def = list.find(c=> c.name === DEFAULT_CATEGORY_NAME);
+      select.value = def ? def.name : list[0].name;
+    }
+  });
+}
 function addItemLocally(item){
   if(!item || !item.code) return;
   const exists = allItems.find(i=> i.code === item.code);
@@ -168,12 +195,13 @@ function addLine(prefix){
       <div id="${suggId}" class="suggestions"></div>
     </label>
     <label>Item Name<input id="${nameId}" name="name" placeholder="Enter name if new"></label>
-    <label>Category<input id="${categoryId}" name="category" placeholder="Category / type"></label>
+    <label>Category<select id="${categoryId}" name="category"></select></label>
     <label style="max-width:120px;">Qty<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
     <button type="button" class="muted remove-line">Remove</button>
     ${sourceFields}
   `;
   container.appendChild(row);
+  refreshCategorySelects();
   row.querySelector('.remove-line').addEventListener('click', ()=>{
     if(container.querySelectorAll('.line-row').length > MIN_LINES){
       row.remove();
@@ -201,7 +229,7 @@ function gatherLines(prefix){
   rows.forEach(r=>{
     const code = r.querySelector('input[name="code"]')?.value.trim() || '';
     const name = r.querySelector('input[name="name"]')?.value.trim() || '';
-    const category = r.querySelector('input[name="category"]')?.value.trim() || '';
+    const category = r.querySelector('select[name="category"]')?.value.trim() || '';
     const qty = parseInt(r.querySelector('input[name="qty"]')?.value || '0', 10) || 0;
     if(code && qty>0){
       const sourceId = r.querySelector('input[name="sourceId"]')?.value || '';
@@ -388,6 +416,9 @@ function addOrderLine(sourceId){
   if(!row) return;
   row.querySelector('input[name="code"]').value = order.code;
   row.querySelector('input[name="name"]').value = order.name || '';
+  const meta = allItems.find(i=> i.code === order.code);
+  const catSelect = row.querySelector('select[name="category"]');
+  if(catSelect) catSelect.value = meta?.category || DEFAULT_CATEGORY_NAME;
   row.querySelector('input[name="qty"]').value = order.openQty;
   row.querySelector('input[name="sourceId"]').value = order.sourceId;
   row.querySelector('input[name="sourceType"]').value = order.sourceType;
@@ -487,7 +518,7 @@ function fillCheckoutLines(items, { force } = {}){
     const meta = allItems.find(i=> i.code === item.code);
     row.querySelector('input[name="code"]').value = item.code;
     row.querySelector('input[name="name"]').value = item.name || meta?.name || '';
-    row.querySelector('input[name="category"]').value = meta?.category || '';
+    row.querySelector('select[name="category"]').value = meta?.category || DEFAULT_CATEGORY_NAME;
     row.querySelector('input[name="qty"]').value = item.qty;
   });
 }
@@ -796,6 +827,7 @@ function switchMode(mode){
 // ===== DOM READY =====
 document.addEventListener('DOMContentLoaded', async ()=>{
   await loadItems();
+  await loadCategories();
   await loadJobOptions();
   await loadOpenOrders();
   populateOrderSelect();

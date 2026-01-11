@@ -44,50 +44,106 @@
         <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
-      <section class="card inventory-card">
-        <h3>Add / Edit Item</h3>
-        <form id="itemForm" class="inventory-form">
-          <div class="form-row">
-            <label>SKU / Part Number<input id="itemCode" required placeholder="Unique identifier"></label>
-            <label>Item Name<input id="itemName" required placeholder="Item description"></label>
-          </div>
-          <div class="form-row">
-            <label>Category<input id="category" placeholder="e.g., Electronics, Hardware"></label>
-            <label>Unit Price<input id="unitPrice" type="number" step="0.01" placeholder="Optional"></label>
-          </div>
-          <div class="form-row">
-            <label style="flex:1">Description<textarea id="description" rows="2" placeholder="Additional details"></textarea></label>
-          </div>
-          <div class="form-row">
-            <button id="addBtn" type="submit">Add Item</button>
-            <button id="clearBtn" type="button" class="muted">Clear</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="card inventory-card">
-        <h3>Import Item Master (CSV)</h3>
-        <p class="muted-text">Columns: code,name,category,unitPrice,description. Header row optional.</p>
-        <div class="form-row">
-          <input id="importFile" type="file" accept=".csv,text/csv">
-          <button id="downloadTemplateBtn" type="button" class="muted">Download Template</button>
-        </div>
-        <div class="form-row">
-          <button id="importBtn" type="button">Import CSV</button>
-          <div id="importMsg" style="font-size:0.9rem;"></div>
+      <section class="card" style="margin-bottom:12px;">
+        <div class="mode-tabs inventory-tabs">
+          <button class="mode-btn active" data-mode="items" type="button">Items</button>
+          <button class="mode-btn" data-mode="categories" type="button">Categories</button>
         </div>
       </section>
 
-      <section class="card">
-        <h3>Item Catalog</h3>
-        <div style="margin-bottom:12px;">
-          <input id="searchBox" type="text" placeholder="Search by code or name..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
-        </div>
-        <table id="itemTable">
-          <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit Price</th><th>Actions</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </section>
+      <div id="items-mode" class="mode-content active">
+        <section class="card inventory-card">
+          <h3>Add / Edit Item</h3>
+          <form id="itemForm" class="inventory-form">
+            <div class="form-row">
+              <label>SKU / Part Number<input id="itemCode" required placeholder="Unique identifier"></label>
+              <label>Item Name<input id="itemName" required placeholder="Item description"></label>
+            </div>
+            <div class="form-row">
+              <label>Category
+                <select id="category"></select>
+              </label>
+              <label>Unit Price<input id="unitPrice" type="number" step="0.01" placeholder="Optional"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1">Description<textarea id="description" rows="2" placeholder="Additional details"></textarea></label>
+            </div>
+            <div class="form-row">
+              <button id="addBtn" type="submit">Add Item</button>
+              <button id="clearBtn" type="button" class="muted">Clear</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card inventory-card">
+          <h3>Import Item Master (CSV)</h3>
+          <p class="muted-text">Columns: code,name,category,unitPrice,description. Header row optional.</p>
+          <div class="form-row">
+            <input id="importFile" type="file" accept=".csv,text/csv">
+            <button id="downloadTemplateBtn" type="button" class="muted">Download Template</button>
+          </div>
+          <div class="form-row">
+            <button id="importBtn" type="button">Import CSV</button>
+            <div id="importMsg" style="font-size:0.9rem;"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Item Catalog</h3>
+          <div style="margin-bottom:12px;">
+            <input id="searchBox" type="text" placeholder="Search by code or name..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
+          </div>
+          <table id="itemTable">
+            <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit Price</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+
+      <div id="categories-mode" class="mode-content">
+        <section class="card inventory-card">
+          <h3>Category Rules</h3>
+          <form id="categoryForm" class="inventory-form">
+            <div class="form-row">
+              <label>Category Name<input id="categoryName" required placeholder="e.g., Electrical, Safety"></label>
+              <label>Low Stock Alert
+                <input id="categoryLowStock" type="number" min="0" step="1" placeholder="Default 5">
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Max Checkout Qty
+                <input id="categoryMaxCheckout" type="number" min="1" step="1" placeholder="Optional">
+              </label>
+              <label>Return Window (days)
+                <input id="categoryReturnWindow" type="number" min="1" step="1" placeholder="Default 5">
+              </label>
+            </div>
+            <div class="form-row" style="flex-wrap:wrap;gap:12px;">
+              <label style="display:flex;align-items:center;gap:8px;"><input id="ruleRequireJob" type="checkbox">Require Project ID</label>
+              <label style="display:flex;align-items:center;gap:8px;"><input id="ruleRequireLocation" type="checkbox">Require Location</label>
+              <label style="display:flex;align-items:center;gap:8px;"><input id="ruleRequireNotes" type="checkbox">Require Notes</label>
+            </div>
+            <div class="form-row" style="flex-wrap:wrap;gap:12px;">
+              <label style="display:flex;align-items:center;gap:8px;"><input id="ruleAllowFieldPurchase" type="checkbox" checked>Allow Field Purchase</label>
+              <label style="display:flex;align-items:center;gap:8px;"><input id="ruleAllowCheckout" type="checkbox" checked>Allow Checkout</label>
+              <label style="display:flex;align-items:center;gap:8px;"><input id="ruleAllowReserve" type="checkbox" checked>Allow Reserve</label>
+            </div>
+            <div class="form-row">
+              <button id="categorySaveBtn" type="submit">Save Category</button>
+              <button id="categoryClearBtn" type="button" class="muted">Clear</button>
+            </div>
+            <div id="categoryMsg" style="font-size:0.9rem;"></div>
+          </form>
+        </section>
+
+        <section class="card">
+          <h3>Categories</h3>
+          <table id="categoryTable">
+            <thead><tr><th>Name</th><th>Requirements</th><th>Permissions</th><th>Thresholds</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
     </main>
   </div>
 

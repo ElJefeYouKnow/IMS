@@ -1,5 +1,6 @@
 const FALLBACK = 'N/A';
-const LOW_STOCK_THRESHOLD = 5;
+const DEFAULT_LOW_STOCK_THRESHOLD = 5;
+const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const COUNT_STALE_DAYS = 30;
 const RECENT_DAYS = 3;
 
@@ -8,6 +9,8 @@ let onhandBaseRows = [];
 let overdueByCode = {};
 let overdueRows = [];
 let countCache = {};
+let itemMetaByCode = new Map();
+let categoryRulesByName = new Map();
 
 async function loadEntries(){
   try{
@@ -15,6 +18,65 @@ async function loadEntries(){
     if(r.ok) return await r.json();
   }catch(e){}
   return [];
+}
+
+function normalizeCategoryRules(raw){
+  const input = (raw && typeof raw === 'object') ? raw : {};
+  const out = {
+    requireJobId: false,
+    requireLocation: false,
+    requireNotes: false,
+    allowFieldPurchase: true,
+    allowCheckout: true,
+    allowReserve: true,
+    maxCheckoutQty: null,
+    returnWindowDays: 5,
+    lowStockThreshold: DEFAULT_LOW_STOCK_THRESHOLD
+  };
+  if(Object.prototype.hasOwnProperty.call(input, 'maxCheckoutQty')){
+    const max = Number(input.maxCheckoutQty);
+    out.maxCheckoutQty = Number.isFinite(max) && max > 0 ? Math.floor(max) : null;
+  }
+  if(Object.prototype.hasOwnProperty.call(input, 'returnWindowDays')){
+    const days = Number(input.returnWindowDays);
+    out.returnWindowDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : out.returnWindowDays;
+  }
+  if(Object.prototype.hasOwnProperty.call(input, 'lowStockThreshold')){
+    const low = Number(input.lowStockThreshold);
+    out.lowStockThreshold = Number.isFinite(low) && low >= 0 ? Math.floor(low) : out.lowStockThreshold;
+  }
+  return out;
+}
+
+async function loadItemsMeta(){
+  const rows = (window.utils && utils.fetchJsonSafe)
+    ? await utils.fetchJsonSafe('/api/items', {}, [])
+    : await fetch('/api/items').then(r=> r.ok ? r.json() : []);
+  itemMetaByCode = new Map();
+  (rows || []).forEach(item=>{
+    if(!item?.code) return;
+    itemMetaByCode.set(item.code, item);
+  });
+  return itemMetaByCode;
+}
+
+async function loadCategoryRules(){
+  const rows = (window.utils && utils.fetchJsonSafe)
+    ? await utils.fetchJsonSafe('/api/categories', {}, [])
+    : await fetch('/api/categories').then(r=> r.ok ? r.json() : []);
+  categoryRulesByName = new Map();
+  (rows || []).forEach(cat=>{
+    if(!cat?.name) return;
+    categoryRulesByName.set(cat.name.toLowerCase(), normalizeCategoryRules(cat.rules));
+  });
+  return categoryRulesByName;
+}
+
+function getLowStockThresholdForCode(code){
+  const item = itemMetaByCode.get(code);
+  const name = (item?.category || DEFAULT_CATEGORY_NAME || '').toString().trim();
+  const rules = categoryRulesByName.get(name.toLowerCase());
+  return rules?.lowStockThreshold ?? DEFAULT_LOW_STOCK_THRESHOLD;
 }
 
 function normalizeJobId(value){
@@ -168,11 +230,14 @@ function aggregateStock(entries){
     }
     const checkedOut = Math.max(0, s.outQty - s.returnQty);
     const available = Math.max(0, s.inQty - s.outQty - s.reserveQty);
+    const lowStockThreshold = getLowStockThresholdForCode(s.code);
     return {
       ...s,
       jobsList: activeJobs.length ? activeJobs.sort().join(', ') : FALLBACK,
       checkedOut,
       available,
+      category: itemMetaByCode.get(s.code)?.category || DEFAULT_CATEGORY_NAME,
+      lowStockThreshold,
       lastDate: s.lastTs ? fmtDT(s.lastTs) : FALLBACK
     };
   });
@@ -292,7 +357,8 @@ function applyOnhandFilters(items){
 
   return items.filter(item=>{
     if(search && !(item.code.toLowerCase().includes(search) || (item.name||'').toLowerCase().includes(search))) return false;
-    if(low && item.available > LOW_STOCK_THRESHOLD) return false;
+    const lowThreshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
+    if(low && item.available > lowThreshold) return false;
     if(overdue && !item.overdue) return false;
     if(project && item.jobsList === FALLBACK) return false;
     if(recent && !item.recent) return false;
@@ -318,7 +384,10 @@ function updateSummary(){
   setText('incomingTotal', incomingTotal || 0);
   setText('incomingMeta', `${incomingBaseRows.length} open orders - ${overdueIncoming} late`);
 
-  const lowStockCount = onhandBaseRows.filter(item=> item.available <= LOW_STOCK_THRESHOLD).length;
+  const lowStockCount = onhandBaseRows.filter(item=>{
+    const lowThreshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
+    return item.available <= lowThreshold;
+  }).length;
   setText('lowStockCount', lowStockCount);
 
   const overdueCount = Object.keys(overdueByCode || {}).length;
@@ -686,7 +755,7 @@ async function refreshAll(){
     ? utils.fetchJsonSafe('/api/inventory?type=ordered', {}, [])
     : fetch('/api/inventory?type=ordered').then(r=> r.ok ? r.json() : []);
   const [inventory, orders] = await Promise.all([loadEntries(), ordersPromise]);
-  await fetchCounts();
+  await Promise.all([fetchCounts(), loadItemsMeta(), loadCategoryRules()]);
   window.__cachedInventory = inventory;
   incomingBaseRows = buildIncomingRows(orders, inventory);
   onhandBaseRows = computeOnhandRows(inventory);

@@ -1,5 +1,7 @@
 let itemsCache = [];
 let jobOptions = [];
+let categoriesCache = [];
+const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const SESSION_KEY = 'sessionUser';
 
 function getSession(){
@@ -9,6 +11,34 @@ function getSession(){
 async function loadItems(){
   itemsCache = await utils.fetchJsonSafe('/api/items', {}, []) || [];
   refreshItemOptions();
+}
+
+async function loadCategories(){
+  categoriesCache = await utils.fetchJsonSafe('/api/categories', {}, []) || [];
+  refreshCategorySelects();
+}
+
+function refreshCategorySelects(){
+  const selects = document.querySelectorAll('select[name="category"]');
+  selects.forEach(select=>{
+    const wasDisabled = select.disabled;
+    const list = categoriesCache.length ? categoriesCache : [{ name: DEFAULT_CATEGORY_NAME }];
+    const current = select.value;
+    select.innerHTML = '';
+    list.forEach(cat=>{
+      const opt = document.createElement('option');
+      opt.value = cat.name;
+      opt.textContent = cat.name;
+      select.appendChild(opt);
+    });
+    if(current && list.some(c=> c.name === current)){
+      select.value = current;
+    }else if(list.length){
+      const def = list.find(c=> c.name === DEFAULT_CATEGORY_NAME);
+      select.value = def ? def.name : list[0].name;
+    }
+    select.disabled = wasDisabled;
+  });
 }
 
 async function loadJobs(){
@@ -45,12 +75,13 @@ function addLine(){
       <div id="${suggId}" class="suggestions"></div>
     </label>
     <label>Item Name<input id="${nameId}" name="name" placeholder="Required if new"></label>
-    <label>Category<input id="${categoryId}" name="category" placeholder="Category / type"></label>
+    <label>Category<select id="${categoryId}" name="category"></select></label>
     <label style="max-width:120px;">Qty<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
     <label style="max-width:140px;">Cost<input id="${costId}" name="cost" type="number" min="0" step="0.01" placeholder="Optional"></label>
     <button type="button" class="muted remove-line">Remove</button>
   `;
   container.appendChild(row);
+  refreshCategorySelects();
   row.querySelector('.remove-line').addEventListener('click', ()=>{
     if(container.querySelectorAll('.line-row').length > 1){
       row.remove();
@@ -68,11 +99,20 @@ function addLine(){
   const categoryInput = row.querySelector(`#${categoryId}`);
   const fillFromExisting = ()=>{
     const val = codeInput?.value.trim().toLowerCase() || '';
-    if(!val) return;
+    if(!val){
+      if(categoryInput) categoryInput.disabled = false;
+      return;
+    }
     const match = itemsCache.find(i=> (i.code || '').toLowerCase() === val);
-    if(!match) return;
+    if(!match){
+      if(categoryInput) categoryInput.disabled = false;
+      return;
+    }
     if(nameInput && !nameInput.value) nameInput.value = match.name || '';
-    if(categoryInput && !categoryInput.value) categoryInput.value = match.category || '';
+    if(categoryInput){
+      categoryInput.value = match.category || DEFAULT_CATEGORY_NAME;
+      categoryInput.disabled = true;
+    }
   };
   codeInput?.addEventListener('change', fillFromExisting);
   codeInput?.addEventListener('blur', fillFromExisting);
@@ -84,7 +124,7 @@ function gatherLines(){
   rows.forEach(r=>{
     const code = r.querySelector('input[name="code"]')?.value.trim() || '';
     const name = r.querySelector('input[name="name"]')?.value.trim() || '';
-    const category = r.querySelector('input[name="category"]')?.value.trim() || '';
+    const category = r.querySelector('select[name="category"]')?.value.trim() || '';
     const qty = parseInt(r.querySelector('input[name="qty"]')?.value || '0', 10) || 0;
     const cost = r.querySelector('input[name="cost"]')?.value;
     if(code && qty > 0){
@@ -129,6 +169,7 @@ function refreshItemOptions(){
 
 document.addEventListener('DOMContentLoaded', async ()=>{
   await loadItems();
+  await loadCategories();
   await loadJobs();
   addLine();
   renderPurchaseTable();
