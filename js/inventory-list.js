@@ -3,6 +3,7 @@ const DEFAULT_LOW_STOCK_THRESHOLD = 5;
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const COUNT_STALE_DAYS = 30;
 const RECENT_DAYS = 3;
+const CLOSED_JOB_STATUSES = new Set(['complete', 'completed', 'closed', 'archived', 'cancelled', 'canceled']);
 
 let incomingBaseRows = [];
 let onhandBaseRows = [];
@@ -11,6 +12,7 @@ let overdueRows = [];
 let countCache = {};
 let itemMetaByCode = new Map();
 let categoryRulesByName = new Map();
+let closedJobIds = new Set();
 
 async function loadEntries(){
   try{
@@ -70,6 +72,21 @@ async function loadCategoryRules(){
     categoryRulesByName.set(cat.name.toLowerCase(), normalizeCategoryRules(cat.rules));
   });
   return categoryRulesByName;
+}
+
+async function loadClosedJobs(){
+  const rows = (window.utils && utils.fetchJsonSafe)
+    ? await utils.fetchJsonSafe('/api/jobs', {}, [])
+    : await fetch('/api/jobs').then(r=> r.ok ? r.json() : []);
+  closedJobIds = new Set();
+  (rows || []).forEach(job=>{
+    const code = (job?.code || '').toString().trim();
+    const status = (job?.status || '').toString().trim().toLowerCase();
+    if(code && CLOSED_JOB_STATUSES.has(status)){
+      closedJobIds.add(code.toLowerCase());
+    }
+  });
+  return closedJobIds;
 }
 
 function getLowStockThresholdForCode(code){
@@ -213,7 +230,8 @@ function aggregateStock(entries){
     else if(e.type === 'reserve_release') item.reserveQty -= qty;
 
     const jobId = getEntryJobId(e);
-    if(jobId){
+    const jobKey = jobId ? jobId.toLowerCase() : '';
+    if(jobId && !closedJobIds.has(jobKey)){
       if(!item.jobs.has(jobId)) item.jobs.set(jobId, { out: 0, reserve: 0 });
       const job = item.jobs.get(jobId);
       if(e.type === 'out') job.out += qty;
@@ -767,7 +785,7 @@ async function refreshAll(){
     ? utils.fetchJsonSafe('/api/inventory?type=ordered', {}, [])
     : fetch('/api/inventory?type=ordered').then(r=> r.ok ? r.json() : []);
   const [inventory, orders] = await Promise.all([loadEntries(), ordersPromise]);
-  await Promise.all([fetchCounts(), loadItemsMeta(), loadCategoryRules()]);
+  await Promise.all([fetchCounts(), loadItemsMeta(), loadCategoryRules(), loadClosedJobs()]);
   window.__cachedInventory = inventory;
   incomingBaseRows = buildIncomingRows(orders, inventory);
   onhandBaseRows = computeOnhandRows(inventory);
