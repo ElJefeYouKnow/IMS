@@ -6,28 +6,28 @@
   <title>Login</title>
   <link rel="stylesheet" href="css/style.css" />
   <style>
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;background:linear-gradient(135deg,#0a1b2b 0%,#0f7a57 100%);color:#e5e7eb;}
-    .auth-wrapper{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
-    .auth-card{background:#0c1624;color:#e5e7eb;padding:28px;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.35);width:100%;max-width:420px;border:1px solid rgba(255,255,255,0.08);}
+    body{margin:0;font-family:var(--font-body);background:var(--bg);color:var(--ink);}
+    .auth-wrapper{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;position:relative;z-index:1;}
+    .auth-card{background:var(--card);color:var(--ink);padding:28px;border-radius:16px;box-shadow:0 20px 60px rgba(24,36,32,0.2);width:100%;max-width:420px;border:1px solid var(--line);}
     .auth-card h1{margin-top:0;margin-bottom:10px;font-weight:800;letter-spacing:0.3px;}
     .auth-card .inventory-form{gap:14px;}
-    .auth-card a{color:#8be0c4;font-weight:700;text-decoration:none;}
-    label{color:#cbd5f5;}
-    input{background:#0f172a;color:#e5e7eb;border:1px solid #1f2937;}
-    button{background:linear-gradient(135deg,#0f7a57,#14a26d);border:none;color:#fff;font-weight:800;box-shadow:0 10px 30px rgba(20,162,109,0.35);}
-    .back-link{margin-top:14px;width:100%;background:linear-gradient(135deg,rgba(15,122,87,0.16),rgba(10,27,43,0.18));border:1px solid rgba(15,122,87,0.45);box-shadow:0 10px 24px rgba(15,122,87,0.2);color:#e5e7eb;font-weight:800;text-transform:uppercase;letter-spacing:0.12em;font-size:0.75rem;padding:12px;border-radius:12px;cursor:pointer;transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;}
-    .back-link:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(15,122,87,0.28);border-color:rgba(15,122,87,0.7);}
-    .back-link:focus-visible{outline:3px solid rgba(15,122,87,0.35);outline-offset:2px;}
+    .auth-card a{color:var(--accent);font-weight:700;text-decoration:none;}
+    label{color:var(--muted);}
+    input{background:#fff;color:var(--ink);border:1px solid var(--line);}
+    button{background:linear-gradient(135deg,#1f6f5c,#2b8a71);border:none;color:#fff;font-weight:800;box-shadow:0 10px 30px rgba(31,111,92,0.35);}
+    .back-link{margin-top:14px;width:100%;background:linear-gradient(135deg,rgba(31,111,92,0.14),rgba(19,42,36,0.16));border:1px solid rgba(31,111,92,0.4);box-shadow:0 10px 24px rgba(31,111,92,0.2);color:var(--accent-strong);font-weight:800;text-transform:uppercase;letter-spacing:0.12em;font-size:0.75rem;padding:12px;border-radius:12px;cursor:pointer;transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;}
+    .back-link:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(31,111,92,0.28);border-color:rgba(31,111,92,0.7);}
+    .back-link:focus-visible{outline:3px solid rgba(31,111,92,0.35);outline-offset:2px;}
     .auth-actions{align-items:center;justify-content:space-between;gap:12px;}
-    .auth-actions .remember-label{display:flex;align-items:center;gap:10px;font-size:0.85rem;color:#cbd5f5;flex:1;flex-direction:row;}
-    .auth-actions input[type="checkbox"]{width:16px;height:16px;margin:0;accent-color:#14a26d;border-radius:4px;box-shadow:0 0 0 1px rgba(255,255,255,0.12);}
+    .auth-actions .remember-label{display:flex;align-items:center;gap:10px;font-size:0.85rem;color:var(--muted);flex:1;flex-direction:row;}
+    .auth-actions input[type="checkbox"]{width:16px;height:16px;margin:0;accent-color:#1f6f5c;border-radius:4px;box-shadow:0 0 0 1px rgba(31,111,92,0.2);}
   </style>
 </head>
 <body>
   <div class="auth-wrapper">
     <div class="auth-card">
       <h1>Welcome Back</h1>
-      <p style="color:#6b7280;margin-top:0;margin-bottom:16px;">Sign in to continue.</p>
+      <p style="color:var(--muted);margin-top:0;margin-bottom:16px;">Sign in to continue.</p>
       <form id="loginForm" class="inventory-form" autocomplete="off">
         <div class="form-row">
           <label>Business Code<input id="login-tenant" placeholder="e.g. acme" required autocomplete="off"></label>
@@ -45,7 +45,7 @@
           </label>
           <button type="submit">Login</button>
         </div>
-        <div style="font-size:0.9rem;color:#6b7280;">Need access? Contact your administrator.</div>
+        <div style="font-size:0.9rem;color:var(--muted);">Need access? Contact your administrator.</div>
         <div id="login-error" style="color:#b91c1c;font-size:0.9rem;margin-top:8px;"></div>
       </form>
       <button id="backToMarketing" class="back-link" type="button">Back to website</button>

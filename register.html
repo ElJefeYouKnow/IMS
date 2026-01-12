@@ -6,13 +6,13 @@
   <title>Register</title>
   <link rel="stylesheet" href="css/style.css" />
   <style>
-    .auth-wrapper{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg);}
-    .auth-card{background:var(--card);padding:24px;border-radius:10px;box-shadow:0 4px 20px rgba(15,23,42,0.08);width:100%;max-width:380px;}
+    .auth-wrapper{display:flex;align-items:center;justify-content:center;min-height:100vh;background:transparent;position:relative;z-index:1;}
+    .auth-card{background:var(--card);padding:24px;border-radius:14px;box-shadow:0 14px 28px rgba(24,36,32,0.12);width:100%;max-width:380px;border:1px solid var(--line);}
     .auth-card h1{margin-top:0;margin-bottom:12px;}
     .auth-card .inventory-form{gap:12px;}
     .tab-toggle{display:flex;gap:8px;margin-bottom:12px;}
-    .tab-toggle button{flex:1;padding:10px;border:1px solid #e5e7eb;background:#f8fafc;border-radius:8px;font-weight:700;cursor:pointer;}
-    .tab-toggle button.active{background:linear-gradient(135deg,#0a1b2b,#0f7a57);color:#fff;border-color:rgba(0,0,0,0.05);box-shadow:0 8px 20px rgba(15,122,87,0.25);}
+    .tab-toggle button{flex:1;padding:10px;border:1px solid var(--line);background:#f7f1e8;border-radius:10px;font-weight:700;cursor:pointer;}
+    .tab-toggle button.active{background:linear-gradient(135deg,#132a24,#1f6f5c);color:#fff;border-color:rgba(31,111,92,0.4);box-shadow:0 8px 20px rgba(31,111,92,0.25);}
     .admin-note{font-size:0.9rem;color:#b91c1c;background:#fff5f5;padding:8px;border-radius:8px;border:1px solid #fecdd3;}
   </style>
 </head>
@@ -24,7 +24,7 @@
         <button type="button" class="active" data-mode="user">Employee</button>
         <button type="button" data-mode="admin">Admin</button>
       </div>
-      <p id="reg-subtitle" style="color:#6b7280;margin-top:0;margin-bottom:16px;">Register to start using the app.</p>
+      <p id="reg-subtitle" style="color:var(--muted);margin-top:0;margin-bottom:16px;">Register to start using the app.</p>
       <form id="registerForm" class="inventory-form" autocomplete="off">
         <div class="form-row">
           <label>Business Code<input id="reg-tenant" required placeholder="Your business code" autocomplete="off"></label>
@@ -44,7 +44,7 @@
         <div class="form-row">
           <button type="submit">Register</button>
         </div>
-        <div style="font-size:0.9rem;color:#6b7280;">Already have an account? <a href="login.html">Login</a> &nbsp;|&nbsp; <a href="tenant-create.html">Create a business</a></div>
+        <div style="font-size:0.9rem;color:var(--muted);">Already have an account? <a href="login.html">Login</a> &nbsp;|&nbsp; <a href="tenant-create.html">Create a business</a></div>
         <div id="reg-error" style="color:#b91c1c;font-size:0.9rem;margin-top:8px;"></div>
         <div id="admin-note" class="admin-note" style="display:none;">Admin signup requires the admin key configured on the server (ADMIN_SIGNUP_SECRET).</div>
       </form>
