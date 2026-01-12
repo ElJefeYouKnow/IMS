@@ -274,7 +274,9 @@ select:disabled{
 .mode-content.active{display:block}
 @media(max-width:720px){
   .mode-tabs{flex-wrap:wrap}
-  .mode-btn{flex:1 1 160px;padding:8px 10px;font-size:0.9rem}
+  .mode-btn{flex:1 1 120px;white-space:nowrap;padding:6px 8px;font-size:0.7rem;letter-spacing:0.08em}
+  table{display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  th,td{white-space:nowrap}
 }
 .report-cards{display:flex;flex-direction:column;gap:12px;margin-top:8px}
 .report-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 10px 24px rgba(10,27,43,0.08)}
