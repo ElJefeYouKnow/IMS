@@ -39,6 +39,19 @@ npm start
 
 > The first registered user becomes an admin by default.
 
+## Production (Modulr.pro)
+
+Set these environment variables for the single-domain deployment:
+
+```powershell
+set NODE_ENV=production
+set BASE_DOMAIN=modulr.pro
+set PUBLIC_BASE_URL=https://modulr.pro
+set COOKIE_SECURE=true
+set SESSION_STORE=db
+set SESSION_SECRET=<strong-random-secret>
+```
+
 ## Features
 
 ### Item Master (Admin)

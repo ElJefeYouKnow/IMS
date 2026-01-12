@@ -25,9 +25,7 @@
     const base = host.replace(/^www\./, '');
     if (!base && !hostOverride) return;
     const port = window.location.port ? `:${window.location.port}` : '';
-    const isLocal = base === 'localhost' || base === '127.0.0.1';
-    const isDo = base.endsWith('.ondigitalocean.app');
-    const appHost = hostOverride || ((isLocal || isDo) ? base : (base.startsWith('app.') ? base : `app.${base}`));
+    const appHost = hostOverride || base;
     const protocol = protocolOverride || (window.location.protocol === 'http:' ? 'http:' : 'https:');
     const path = pathOverride.startsWith('/') ? pathOverride : `/${pathOverride}`;
     const appUrl = `${protocol}//${appHost}${hostOverride ? '' : port}${path}`;

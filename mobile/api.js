@@ -1,4 +1,4 @@
-const BASE_URL = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:8000';
+const BASE_URL = process.env.EXPO_PUBLIC_API_BASE || 'https://modulr.pro';
 
 export async function apiRequest(path, { method = 'GET', body, user } = {}) {
   const headers = { 'Content-Type': 'application/json' };

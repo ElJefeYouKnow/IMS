@@ -1,5 +1,8 @@
-// Force Node to ignore self-signed cert errors (managed DBs often use custom CAs).
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = process.env.NODE_TLS_REJECT_UNAUTHORIZED || '0';
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const IS_PROD = NODE_ENV === 'production';
+if (!process.env.NODE_TLS_REJECT_UNAUTHORIZED) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = IS_PROD ? '1' : '0';
+}
 
 const express = require('express');
 const fs = require('fs');
@@ -11,12 +14,28 @@ const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { Parser } = require('json2csv');
 
-// Simple in-memory session store (replace with Redis/DB for production)
+const PORT = process.env.PORT || 8000;
+const BASE_DOMAIN = process.env.BASE_DOMAIN || 'modulr.pro';
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || (IS_PROD ? `https://${BASE_DOMAIN}` : `http://localhost:${PORT}`);
+const COOKIE_SECURE = process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : IS_PROD;
+const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || (IS_PROD ? BASE_DOMAIN : undefined);
+const SESSION_STORE = process.env.SESSION_STORE || (IS_PROD ? 'db' : 'memory');
+const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || (IS_PROD ? PUBLIC_BASE_URL : '')).split(',')
+  .map((value) => value.trim())
+  .filter(Boolean));
+if (!IS_PROD) {
+  ALLOWED_ORIGINS.add(`http://localhost:${PORT}`);
+  ALLOWED_ORIGINS.add(`http://127.0.0.1:${PORT}`);
+}
+
+// Session store (memory by default, DB in production for scalability)
 const sessions = new Map();
 const SESSION_TTL_MS = 1000 * 60 * 60 * 8; // 8 hours
 const SESSION_COOKIE = 'sid';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
-const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true'; // set true in production with HTTPS
+if (IS_PROD && SESSION_SECRET === 'dev-secret-change-me') {
+  throw new Error('SESSION_SECRET must be set in production');
+}
 const loginAttempts = new Map(); // email -> {count, lockUntil}
 const AUDIT_ACTIONS = ['auth.login', 'auth.register', 'inventory.in', 'inventory.out', 'inventory.reserve', 'inventory.return', 'inventory.order', 'inventory.count', 'items.create', 'items.update', 'items.delete'];
 const CHECKOUT_RETURN_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
@@ -42,10 +61,8 @@ const DEFAULT_CATEGORY_RULES = {
 let sellerStore = { clients: [], tickets: [], activities: [] };
 
 const app = express();
-const PORT = process.env.PORT || 8000;
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ims';
-// Force SSL with relaxed cert validation to avoid self-signed errors on managed DBs.
-// Override by setting DATABASE_SSL_REJECT_UNAUTHORIZED=true if you want strict checking with a valid CA.
+// Prefer strict SSL in production; allow relaxed mode for local/dev if explicitly needed.
 const sslRootCertPath = process.env.DATABASE_SSL_CA || process.env.PGSSLROOTCERT;
 let ca;
 if (sslRootCertPath) {
@@ -55,11 +72,11 @@ if (sslRootCertPath) {
     console.warn('Could not read SSL CA file at', sslRootCertPath, e.message);
   }
 }
-const sslConfig = {
-  // Always relax cert validation unless you remove or override this in code.
-  rejectUnauthorized: false,
-  ca,
-};
+const rejectUnauthorized =
+  process.env.DATABASE_SSL_REJECT_UNAUTHORIZED
+    ? process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true'
+    : IS_PROD;
+const sslConfig = { rejectUnauthorized, ca };
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: sslConfig,
@@ -67,8 +84,37 @@ const pool = new Pool({
 
 // Behind proxies (App Platform/Cloudflare), trust forwarded headers for rate limiting + IPs.
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
 
-app.use(express.json());
+app.use((req, res, next) => {
+  if (!IS_PROD) return next();
+  const host = (req.headers.host || '').split(':')[0].toLowerCase();
+  if (host && host !== BASE_DOMAIN) {
+    if (host === `www.${BASE_DOMAIN}`) {
+      return res.redirect(301, `https://${BASE_DOMAIN}${req.originalUrl}`);
+    }
+    return res.status(400).send('Invalid host');
+  }
+  if (req.protocol !== 'https') {
+    return res.redirect(301, `https://${BASE_DOMAIN}${req.originalUrl}`);
+  }
+  return next();
+});
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Vary', 'Origin');
+    if (req.method === 'OPTIONS') return res.status(204).end();
+  }
+  return next();
+});
+
+app.use(express.json({ limit: '1mb' }));
 // Disable etags and caching for HTML/CSS/JS so UI changes propagate immediately
 app.disable('etag');
 app.use((req, res, next) => {
@@ -80,8 +126,19 @@ app.use((req, res, next) => {
   next();
 });
 // Serve static assets but avoid auto-serving empty index.html; we route "/" manually.
-app.use(express.static(path.join(__dirname), { index: false, cacheControl: false, etag: false }));
-app.use(helmet());
+app.use(express.static(path.join(__dirname), {
+  index: false,
+  etag: false,
+  setHeaders: (res, filePath) => {
+    if (/\.(png|jpe?g|gif|svg|webp|ico|woff2?)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
+app.use(helmet({
+  hsts: IS_PROD ? { maxAge: 15552000, includeSubDomains: true, preload: true } : false,
+  crossOriginResourcePolicy: { policy: 'same-site' },
+}));
 
 // Prevent browser caching of HTML so UI changes propagate immediately.
 app.use((req, res, next) => {
@@ -384,15 +441,40 @@ function parseCookies(req) {
   }, {});
 }
 
-function createSession(userId) {
-  const token = crypto.createHmac('sha256', SESSION_SECRET).update(userId + Date.now().toString() + Math.random().toString()).digest('hex');
+function normalizeSessionRow(row) {
+  if (!row) return null;
+  return {
+    userId: row.userId || row.userid,
+    expires: Number(row.expires),
+  };
+}
+
+async function createSession(userId) {
+  const token = crypto.createHmac('sha256', SESSION_SECRET)
+    .update(userId + Date.now().toString() + Math.random().toString())
+    .digest('hex');
   const expires = Date.now() + SESSION_TTL_MS;
-  sessions.set(token, { userId, expires });
+  if (SESSION_STORE === 'db') {
+    await runAsync('INSERT INTO sessions(token,userId,expires,createdAt) VALUES($1,$2,$3,$4)', [token, userId, expires, Date.now()]);
+  } else {
+    sessions.set(token, { userId, expires });
+  }
   return token;
 }
 
-function getSession(token) {
-  const sess = token && sessions.get(token);
+async function getSession(token) {
+  if (!token) return null;
+  if (SESSION_STORE === 'db') {
+    const row = await getAsync('SELECT token,userId,expires FROM sessions WHERE token=$1', [token]);
+    const sess = normalizeSessionRow(row);
+    if (!sess) return null;
+    if (sess.expires < Date.now()) {
+      await runAsync('DELETE FROM sessions WHERE token=$1', [token]);
+      return null;
+    }
+    return sess;
+  }
+  const sess = sessions.get(token);
   if (!sess) return null;
   if (sess.expires < Date.now()) {
     sessions.delete(token);
@@ -400,6 +482,38 @@ function getSession(token) {
   }
   return sess;
 }
+
+async function deleteSession(token) {
+  if (!token) return;
+  if (SESSION_STORE === 'db') {
+    await runAsync('DELETE FROM sessions WHERE token=$1', [token]);
+    return;
+  }
+  sessions.delete(token);
+}
+
+async function clearSessions() {
+  if (SESSION_STORE === 'db') {
+    await runAsync('DELETE FROM sessions');
+    return;
+  }
+  sessions.clear();
+}
+
+async function cleanupExpiredSessions() {
+  const now = Date.now();
+  if (SESSION_STORE === 'db') {
+    await runAsync('DELETE FROM sessions WHERE expires < $1', [now]);
+    return;
+  }
+  for (const [token, sess] of sessions.entries()) {
+    if (sess.expires < now) sessions.delete(token);
+  }
+}
+
+setInterval(() => {
+  cleanupExpiredSessions().catch(() => {});
+}, 60 * 60 * 1000);
 
 async function loadUserById(id) {
   return getAsync('SELECT * FROM users WHERE id=$1', [id]);
@@ -411,11 +525,11 @@ function currentUserId(req) {
 async function requireAuth(req, res, next) {
   const cookies = parseCookies(req);
   const token = cookies[SESSION_COOKIE];
-  const sess = getSession(token);
+  const sess = await getSession(token);
   if (!sess) return res.status(401).json({ error: 'unauthorized' });
   const user = await loadUserById(sess.userId);
   if (!user) {
-    sessions.delete(token);
+    await deleteSession(token);
     return res.status(401).json({ error: 'unauthorized' });
   }
   req.user = user;
@@ -509,6 +623,13 @@ async function initDb() {
     createdAt BIGINT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS sessions(
+    token TEXT PRIMARY KEY,
+    userId TEXT NOT NULL,
+    expires BIGINT NOT NULL,
+    createdAt BIGINT
+  )`);
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires)');
   await runAsync(`CREATE TABLE IF NOT EXISTS inventory_counts(
     id TEXT PRIMARY KEY,
     code TEXT,
@@ -1425,7 +1546,7 @@ app.post('/api/tenants', tenantLimiter, async (req, res) => {
   const user = { id: newId(), email: adminEmailNorm, name: adminName || name || 'Admin', role: 'admin', salt, hash, createdAt: Date.now(), tenantId };
   await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
     [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
-    const token = createSession(user.id);
+    const token = await createSession(user.id);
     setSessionCookie(res, token);
     res.status(201).json({ tenant: { id: tenantId, code: normCode, name }, admin: safeUser(user) });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
@@ -1454,7 +1575,7 @@ app.post('/api/auth/register', async (req, res) => {
     const user = { id: newId(), email: emailNorm, name, role, salt, hash, createdAt: Date.now(), tenantId: tenant.id };
     await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
-    const token = createSession(user.id);
+    const token = await createSession(user.id);
     setSessionCookie(res, token);
     await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.register', details: { email } });
     res.status(201).json(safeUser(user));
@@ -1502,17 +1623,17 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Incorrect password' });
     }
     loginAttempts.delete(attemptKey);
-    const token = createSession(user.id);
+    const token = await createSession(user.id);
     setSessionCookie(res, token);
     await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login', details: { email: emailNorm } });
     res.json(safeUser(user));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
   const cookies = parseCookies(req);
   const token = cookies[SESSION_COOKIE];
-  if (token) sessions.delete(token);
+  if (token) await deleteSession(token);
   clearSessionCookie(res);
   res.status(204).end();
 });
@@ -1772,6 +1893,7 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       await client.query('TRUNCATE items');
       await client.query('TRUNCATE jobs');
       await client.query('TRUNCATE users');
+      await client.query('TRUNCATE sessions');
       await client.query('TRUNCATE categories');
       await client.query("DELETE FROM tenants WHERE id <> 'default'");
       await client.query(`INSERT INTO tenants(id,code,name,createdAt) VALUES('default','default','Default Tenant',$1)
@@ -1789,7 +1911,7 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       await client.query('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
         [newId(), DEV_EMAIL, 'Dev', 'admin', devHash.salt, devHash.hash, Date.now(), 'default']);
     });
-    sessions.clear();
+    await clearSessions();
     res.json({ status: 'ok', message: 'Database truncated. Default admin and dev users reseeded.' });
   } catch (e) {
     res.status(500).json({ error: e.message || 'reset failed' });
@@ -2298,10 +2420,10 @@ app.post('/api/seller/tickets/:id/close', requireDev, async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'login.html'));
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server listening on ${PUBLIC_BASE_URL}`));
 
 // Helpers to read common lists
 async function readItems(tenantIdVal) {
@@ -2311,14 +2433,18 @@ async function readJobs(tenantIdVal) {
   return allAsync('SELECT * FROM jobs WHERE tenantId=$1 ORDER BY code ASC', [tenantIdVal]);
 }
 function setSessionCookie(res, token) {
-  res.cookie(SESSION_COOKIE, token, {
+  const options = {
     httpOnly: true,
     sameSite: 'lax',
     secure: COOKIE_SECURE,
     maxAge: SESSION_TTL_MS,
-  });
+  };
+  if (COOKIE_DOMAIN) options.domain = COOKIE_DOMAIN;
+  res.cookie(SESSION_COOKIE, token, options);
 }
 
 function clearSessionCookie(res) {
-  res.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE });
+  const options = { httpOnly: true, sameSite: 'lax', secure: COOKIE_SECURE };
+  if (COOKIE_DOMAIN) options.domain = COOKIE_DOMAIN;
+  res.clearCookie(SESSION_COOKIE, options);
 }
