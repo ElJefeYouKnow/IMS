@@ -66,7 +66,8 @@ h1,h2,h3,.brand,.mode-btn,.tab-btn,.filter-btn{font-family:var(--font-display)}
 .dark .card h3{color:#cbd5f5}
 .value{font-size:1.8rem;font-weight:800;margin-top:8px;color:var(--accent);letter-spacing:0.12em;text-transform:uppercase}
 .dark .value{color:#5eead4}
-.panel{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+.panel{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:16px}
+.panel:last-of-type{margin-bottom:0}
 .quick-actions .card-header{margin-bottom:10px}
 .quick-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
 .action-tile{display:block;padding:14px;border-radius:16px;border:1px solid var(--line);background:linear-gradient(135deg,rgba(15,122,87,0.12),rgba(17,24,39,0.08));text-decoration:none;color:inherit;box-shadow:0 10px 26px rgba(2,6,23,0.14);transition:transform .15s ease, box-shadow .15s ease}
