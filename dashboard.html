@@ -71,6 +71,21 @@
         </div>
       </section>
 
+      <section class="card">
+        <h3>Operations Pulse</h3>
+        <div class="summary-grid">
+          <div class="summary-item"><span>Available Units</span><strong id="availableUnits">-</strong></div>
+          <div class="summary-item"><span>In Use</span><strong id="checkedOutUnits">-</strong></div>
+          <div class="summary-item"><span>Reserved Units</span><strong id="reservedUnits">-</strong></div>
+          <div class="summary-item"><span>Active Projects</span><strong id="activeJobs">-</strong></div>
+          <div class="summary-item"><span>Low Stock Alerts</span><strong id="lowStockCount">-</strong></div>
+          <div class="summary-item"><span>Open Orders</span><strong id="openOrdersCount">-</strong></div>
+          <div class="summary-item"><span>Overdue Returns</span><strong id="overdueCount">-</strong></div>
+          <div class="summary-item"><span>Out of Stock</span><strong id="outOfStockCount">-</strong></div>
+          <div class="summary-item"><span>Cycle Counts Due</span><strong id="countDueCount">-</strong></div>
+        </div>
+      </section>
+
       <section class="panel">
         <div class="chart-card">
           <h3>Weekly Activity</h3>
@@ -98,6 +113,23 @@
           <h3>Inbound / Ordered</h3>
           <table id="orderedTable">
             <thead><tr><th>Code</th><th>Open Qty</th><th>ETA</th><th>Project</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="table-card">
+          <h3>Top Movers (7 Days)</h3>
+          <table id="topMoversTable">
+            <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>In Use</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="table-card">
+          <h3>Cycle Counts Due</h3>
+          <table id="countDueTable">
+            <thead><tr><th>Code</th><th>Name</th><th>Last Counted</th><th>Days Since</th></tr></thead>
             <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </div>

@@ -2081,6 +2081,7 @@ END),0) as reserve
       LEFT JOIN inventory inv ON inv.code = i.code AND inv.tenantId = i.tenantId
       LEFT JOIN categories c ON c.tenantId = i.tenantId AND LOWER(c.name)=LOWER(COALESCE(NULLIF(i.category,''), $2))
       WHERE i.tenantId=$1
+        AND COALESCE(i.lowStockEnabled, (c.rules->>'lowStockEnabled')::boolean, true) = true
       GROUP BY i.code, i.name, c.rules
       HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
 inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
@@ -2109,6 +2110,7 @@ END),0) as reserve
       LEFT JOIN inventory inv ON inv.code = i.code AND inv.tenantId = i.tenantId
       LEFT JOIN categories c ON c.tenantId = i.tenantId AND LOWER(c.name)=LOWER(COALESCE(NULLIF(i.category,''), $2))
       WHERE i.tenantId=$1
+        AND COALESCE(i.lowStockEnabled, (c.rules->>'lowStockEnabled')::boolean, true) = true
       GROUP BY i.code, i.name, c.rules
       HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN 
 inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 
