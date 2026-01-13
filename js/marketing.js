@@ -19,7 +19,7 @@
   if (links.length) {
     const root = document.documentElement;
     const hostOverride = root.dataset.appHost || document.body?.dataset.appHost;
-    const pathOverride = root.dataset.appPath || 'login.html';
+    const pathOverride = root.dataset.appPath || '/app/login.html';
     const protocolOverride = root.dataset.appProtocol || '';
     const host = window.location.hostname || '';
     const base = host.replace(/^www\./, '');

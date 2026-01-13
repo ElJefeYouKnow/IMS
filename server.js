@@ -126,7 +126,7 @@ app.use((req, res, next) => {
   next();
 });
 // Serve static assets but avoid auto-serving empty index.html; we route "/" manually.
-app.use(express.static(path.join(__dirname), {
+const staticOptions = {
   index: false,
   etag: false,
   setHeaders: (res, filePath) => {
@@ -134,7 +134,9 @@ app.use(express.static(path.join(__dirname), {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   },
-}));
+};
+app.use(express.static(path.join(__dirname), staticOptions));
+app.use('/app', express.static(path.join(__dirname), staticOptions));
 app.use(helmet({
   hsts: IS_PROD ? { maxAge: 15552000, includeSubDomains: true, preload: true } : false,
   crossOriginResourcePolicy: { policy: 'same-site' },
@@ -2421,6 +2423,9 @@ app.post('/api/seller/tickets/:id/close', requireDev, async (req, res) => {
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
+});
+app.get(['/app', '/app/'], (req, res) => {
+  res.redirect(302, '/app/login.html');
 });
 
 app.listen(PORT, () => console.log(`Server listening on ${PUBLIC_BASE_URL}`));
