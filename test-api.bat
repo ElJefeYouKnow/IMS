@@ -1,8 +1,8 @@
 @echo off
-REM Test the IMS Item Master API
+REM Test the IMS Catalog API
 
 echo.
-echo === Testing IMS Item Master API ===
+echo === Testing IMS Catalog API ===
 echo.
 
 REM Check if server is running

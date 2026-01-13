@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Item Master</title>
+  <title>Catalog</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body data-ds="pro">
@@ -26,7 +26,7 @@
         <a href="inventory-operations.html">Operations</a>
         <a href="field-purchase.html" >Field Purchases</a>
         <a href="inventory-list.html">Inventory</a>
-        <a class="active" href="item-master.html" data-role="admin">Item Master</a>
+        <a class="active" href="item-master.html" data-role="admin">Catalog</a>
         <a href="job-creator.html" data-role="admin">Project Manager</a>
         <a href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
         <a href="analytics.html" data-role="admin">Analytics</a>
@@ -38,7 +38,7 @@
 
     <main class="main">
       <header class="topbar">
-        <h1>Item Master - Manage Catalog</h1>
+        <h1>Catalog</h1>
         <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
@@ -83,7 +83,7 @@
         </section>
 
         <section class="card inventory-card">
-          <h3>Import Item Master (CSV)</h3>
+          <h3>Import Catalog (CSV)</h3>
           <p class="muted-text">Columns: code,name,category,unitPrice,description,tags,lowStockEnabled. Header row optional.</p>
           <div class="form-row">
             <input id="importFile" type="file" accept=".csv,text/csv">
@@ -96,7 +96,7 @@
         </section>
 
         <section class="card">
-          <h3>Item Catalog</h3>
+          <h3>Catalog Items</h3>
           <div style="margin-bottom:12px;">
             <input id="searchBox" type="text" placeholder="Search by code or name..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
           </div>

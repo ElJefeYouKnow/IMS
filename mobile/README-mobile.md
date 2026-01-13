@@ -18,4 +18,4 @@ EXPO_PUBLIC_API_BASE=https://modulr.pro npm start
 ## Notes
 - Role header: the app sends `x-user-role` from the logged-in user to satisfy server RBAC.
 - Default admin (if none exist): admin@example.com / ChangeMe123!
-- Next steps: add real navigation (React Navigation), secure token storage (SecureStore/Keychain), offline caching, and feature screens (Operations, Item Master, History, Settings).***
+- Next steps: add real navigation (React Navigation), secure token storage (SecureStore/Keychain), offline caching, and feature screens (Operations, Catalog, History, Settings).***

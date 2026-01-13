@@ -1,6 +1,6 @@
 # Inventory Management System
 
-Full-stack inventory management with dashboard, check-in/check-out, reservations, job tracking, and item master catalog.
+Full-stack inventory management with dashboard, check-in/check-out, reservations, job tracking, and catalog management.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ npm start
 - Operations (all modes: check-in/out/reserve/return): http://localhost:8000/inventory-operations.html
 - Inventory List: http://localhost:8000/inventory-list.html
 - Project Report: http://localhost:8000/job-creator.html#report
-- Item Master (Admin): http://localhost:8000/item-master.html
+- Catalog (Admin): http://localhost:8000/item-master.html
 - Job Creator (Admin): http://localhost:8000/job-creator.html
 - Register Order (Admin): http://localhost:8000/order-register.html
 - Settings: http://localhost:8000/settings.html (admin) or http://localhost:8000/settings-employee.html
@@ -54,7 +54,7 @@ set SESSION_SECRET=<strong-random-secret>
 
 ## Features
 
-### Item Master (Admin)
+### Catalog (Admin)
 - Add, edit, delete items in catalog
 - Define SKU, name, category, unit price
 - Employees use SKU to quickly access item info
@@ -84,7 +84,7 @@ set SESSION_SECRET=<strong-random-secret>
 
 ## API Endpoints
 
-### Items (Master Catalog)
+### Items (Catalog)
 - `GET /api/items` - List all items
 - `POST /api/items` - Add/update item
 - `DELETE /api/items/:code` - Delete item by code
