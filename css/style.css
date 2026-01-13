@@ -240,6 +240,15 @@ body.panel-open{overflow:hidden}
 .onhand-row{cursor:pointer}
 .onhand-row:hover{background:var(--surface-2)}
 .dark .onhand-row:hover{background:#16221f}
+.modal-backdrop{position:fixed;inset:0;background:rgba(6,18,29,0.45);opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:90}
+.modal-backdrop.active{opacity:1;pointer-events:auto}
+.modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:100}
+.modal.open{pointer-events:auto}
+.modal-card{width:min(540px,92vw);background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 60px rgba(0,0,0,0.25);padding:20px;transform:translateY(10px);opacity:0;transition:opacity .2s ease, transform .2s ease}
+.modal.open .modal-card{transform:translateY(0);opacity:1}
+.dark .modal-card{background:#16221f;border-color:#22312d;color:var(--ink)}
+.modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.modal-title{margin:4px 0 0 0;font-size:1.1rem}
 .form-row{display:flex;gap:10px;position:relative}
 .line-items{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
 .line-row{align-items:flex-end}

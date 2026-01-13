@@ -15,6 +15,65 @@ const DEFAULT_CATEGORY_RULES = {
 let currentEditId = null;
 let currentCategoryId = null;
 let categoriesCache = [];
+let editModalOpen = false;
+
+function getEditModalEls(){
+  const modal = document.getElementById('itemEditModal');
+  if(!modal) return null;
+  return {
+    modal,
+    backdrop: document.getElementById('itemEditBackdrop'),
+    close: document.getElementById('itemEditClose'),
+    cancel: document.getElementById('itemEditCancel'),
+    form: document.getElementById('itemEditForm'),
+    code: document.getElementById('itemEditCode'),
+    name: document.getElementById('itemEditName'),
+    category: document.getElementById('itemEditCategory'),
+    unitPrice: document.getElementById('itemEditUnitPrice'),
+    tags: document.getElementById('itemEditTags'),
+    description: document.getElementById('itemEditDescription')
+  };
+}
+
+function syncCategoryOptions(targetSelect){
+  const source = document.getElementById('category');
+  if(!source || !targetSelect) return;
+  targetSelect.innerHTML = '';
+  Array.from(source.options).forEach(opt=>{
+    const cloned = document.createElement('option');
+    cloned.value = opt.value;
+    cloned.textContent = opt.textContent;
+    targetSelect.appendChild(cloned);
+  });
+}
+
+function openEditModal(item){
+  const els = getEditModalEls();
+  if(!els || !item) return;
+  syncCategoryOptions(els.category);
+  currentEditId = item.code;
+  els.code.value = item.code || '';
+  els.name.value = item.name || '';
+  els.category.value = item.category || DEFAULT_CATEGORY_NAME;
+  els.unitPrice.value = item.unitPrice || '';
+  els.tags.value = Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags || '');
+  els.description.value = item.description || '';
+  els.modal.classList.add('open');
+  if(els.backdrop) els.backdrop.classList.add('active');
+  els.modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('panel-open');
+  editModalOpen = true;
+}
+
+function closeEditModal(){
+  const els = getEditModalEls();
+  if(!els) return;
+  els.modal.classList.remove('open');
+  if(els.backdrop) els.backdrop.classList.remove('active');
+  els.modal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('panel-open');
+  editModalOpen = false;
+}
 
 function parseCsvLine(line){
   const out = [];
@@ -323,16 +382,7 @@ async function editItem(e){
   const items = await loadItems();
   const item = items.find(i=> i.code === code);
   if(!item) return;
-  currentEditId = code;
-  document.getElementById('itemCode').value = item.code;
-  document.getElementById('itemCode').disabled = true;
-  document.getElementById('itemName').value = item.name;
-  document.getElementById('category').value = item.category || DEFAULT_CATEGORY_NAME;
-  document.getElementById('unitPrice').value = item.unitPrice || '';
-  document.getElementById('itemTags').value = Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags || '');
-  document.getElementById('description').value = item.description || '';
-  document.getElementById('addBtn').textContent = 'Update Item';
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  openEditModal(item);
 }
 
 async function deleteItem(e){
@@ -468,8 +518,39 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       clearForm();
     }
   });
-  
+
   document.getElementById('clearBtn').addEventListener('click',clearForm);
+
+  const editEls = getEditModalEls();
+  if(editEls){
+    if(editEls.close) editEls.close.addEventListener('click', closeEditModal);
+    if(editEls.cancel) editEls.cancel.addEventListener('click', closeEditModal);
+    if(editEls.backdrop) editEls.backdrop.addEventListener('click', closeEditModal);
+    document.addEventListener('keydown', (e)=>{
+      if(e.key === 'Escape' && editModalOpen) closeEditModal();
+    });
+    editEls.form.addEventListener('submit', async ev=>{
+      ev.preventDefault();
+      const code = editEls.code.value.trim();
+      const name = editEls.name.value.trim();
+      const category = editEls.category.value.trim();
+      const unitPrice = editEls.unitPrice.value;
+      const tagsRaw = editEls.tags.value;
+      const description = editEls.description.value.trim();
+      if(!code || !name){ alert('Code and name are required'); return; }
+      const tags = normalizeTags(tagsRaw);
+      const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags };
+      if(currentEditId){
+        item.oldCode = currentEditId;
+      }
+      const ok = await addItem(item);
+      if(!ok) alert('Failed to save item');
+      else{
+        await renderTable();
+        closeEditModal();
+      }
+    });
+  }
 
   const categoryForm = document.getElementById('categoryForm');
   categoryForm.addEventListener('submit', async ev=>{

@@ -148,6 +148,41 @@
     </main>
   </div>
 
+  <div class="modal-backdrop" id="itemEditBackdrop"></div>
+  <div class="modal" id="itemEditModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <div class="panel-kicker">Edit Item</div>
+          <h2 class="modal-title">Update item details</h2>
+        </div>
+        <button class="icon-btn" id="itemEditClose" type="button" aria-label="Close">×</button>
+      </div>
+      <form id="itemEditForm" class="inventory-form">
+        <div class="form-row">
+          <label>SKU / Part Number<input id="itemEditCode" required disabled></label>
+          <label>Item Name<input id="itemEditName" required placeholder="Item description"></label>
+        </div>
+        <div class="form-row">
+          <label>Category
+            <select id="itemEditCategory"></select>
+          </label>
+          <label>Unit Price<input id="itemEditUnitPrice" type="number" step="0.01" placeholder="Optional"></label>
+        </div>
+        <div class="form-row">
+          <label>Tags<input id="itemEditTags" placeholder="Fragile, Hazmat, Bulk, Internal alert"></label>
+        </div>
+        <div class="form-row">
+          <label style="flex:1">Description<textarea id="itemEditDescription" rows="2" placeholder="Additional details"></textarea></label>
+        </div>
+        <div class="form-row">
+          <button id="itemEditSave" type="submit">Save Changes</button>
+          <button id="itemEditCancel" type="button" class="muted">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="js/utils.js"></script>
   <script src="js/item-master.js"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
