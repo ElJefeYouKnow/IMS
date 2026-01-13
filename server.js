@@ -63,9 +63,12 @@ let sellerStore = { clients: [], tickets: [], activities: [] };
 const app = express();
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ims';
 // Prefer strict SSL in production; allow relaxed mode for local/dev if explicitly needed.
+const sslCaEnv = process.env.DATABASE_SSL_CA_PEM || '';
 const sslRootCertPath = process.env.DATABASE_SSL_CA || process.env.PGSSLROOTCERT;
 let ca;
-if (sslRootCertPath) {
+if (sslCaEnv) {
+  ca = sslCaEnv.replace(/\\n/g, '\n');
+} else if (sslRootCertPath) {
   try {
     ca = fs.readFileSync(path.resolve(sslRootCertPath)).toString();
   } catch (e) {
