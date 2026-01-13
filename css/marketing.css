@@ -17,6 +17,10 @@
   --topo-line: rgba(31, 111, 92, 0.14);
 }
 
+html {
+  font-size: 90%;
+}
+
 *,
 *::before,
 *::after {
@@ -584,6 +588,10 @@ main,
 }
 
 @media (max-width: 640px) {
+  html {
+    font-size: 90%;
+  }
+
   .hero {
     padding: 64px 0 60px;
   }

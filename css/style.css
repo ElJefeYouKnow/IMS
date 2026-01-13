@@ -14,6 +14,7 @@
   --topo-line-2: rgba(31, 111, 92, 0.05);
   --topo-glow: rgba(31, 111, 92, 0.06);
 }
+html{font-size:90%}
 *{box-sizing:border-box}
 body{
   margin:0;
@@ -162,6 +163,7 @@ tbody td{padding:10px;border-top:1px solid var(--line)}
   .panel{grid-template-columns:1fr}
 }
 @media(max-width:800px){
+  html{font-size:90%}
   .app{flex-direction:column}
   .sidebar{display:none}
   .main{padding:12px;padding-bottom:100px}
