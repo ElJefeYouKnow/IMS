@@ -13,6 +13,152 @@ let countCache = {};
 let itemMetaByCode = new Map();
 let categoryRulesByName = new Map();
 let closedJobIds = new Set();
+let itemPanelEls = null;
+
+function getItemPanelEls(){
+  if(itemPanelEls) return itemPanelEls;
+  const panel = document.getElementById('itemPanel');
+  if(!panel) return null;
+  itemPanelEls = {
+    panel,
+    backdrop: document.getElementById('itemPanelBackdrop'),
+    close: document.getElementById('itemPanelClose'),
+    title: document.getElementById('itemPanelTitle'),
+    name: document.getElementById('itemPanelName'),
+    badges: document.getElementById('itemPanelBadges'),
+    available: document.getElementById('itemPanelAvailable'),
+    reserved: document.getElementById('itemPanelReserved'),
+    checkedOut: document.getElementById('itemPanelCheckedOut'),
+    category: document.getElementById('itemPanelCategory'),
+    threshold: document.getElementById('itemPanelThreshold'),
+    projects: document.getElementById('itemPanelProjects'),
+    lastActivity: document.getElementById('itemPanelLastActivity'),
+    lastCount: document.getElementById('itemPanelLastCount'),
+    countedQty: document.getElementById('itemPanelCountedQty'),
+    discrepancy: document.getElementById('itemPanelDiscrepancy'),
+    checkedOutProjects: document.getElementById('itemPanelCheckedOutProjects'),
+    reservedProjects: document.getElementById('itemPanelReservedProjects'),
+    description: document.getElementById('itemPanelDescription')
+  };
+  return itemPanelEls;
+}
+
+function setPanelOpen(isOpen){
+  const els = getItemPanelEls();
+  if(!els) return;
+  els.panel.classList.toggle('open', isOpen);
+  if(els.backdrop) els.backdrop.classList.toggle('active', isOpen);
+  document.body.classList.toggle('panel-open', isOpen);
+  els.panel.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+}
+
+function renderJobBreakdown(container, rows, emptyText){
+  if(!container) return;
+  container.innerHTML = '';
+  if(!rows.length){
+    const empty = document.createElement('div');
+    empty.className = 'job-empty';
+    empty.textContent = emptyText;
+    container.appendChild(empty);
+    return;
+  }
+  const list = document.createElement('div');
+  list.className = 'job-breakdown';
+  rows.forEach(row=>{
+    const wrap = document.createElement('div');
+    wrap.className = 'job-row';
+    const name = document.createElement('span');
+    name.textContent = row.jobId || 'General';
+    const qty = document.createElement('span');
+    qty.textContent = row.label;
+    wrap.appendChild(name);
+    wrap.appendChild(qty);
+    list.appendChild(wrap);
+  });
+  container.appendChild(list);
+}
+
+function openItemPanel(item){
+  const els = getItemPanelEls();
+  if(!els || !item) return;
+  const meta = itemMetaByCode.get(item.code) || {};
+  const threshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
+  const countDate = item.countedAt ? fmtDate(item.countedAt) : FALLBACK;
+  const countedQty = item.countedQty !== null && item.countedQty !== undefined ? item.countedQty : FALLBACK;
+  const discrepancy = item.discrepancy !== null && item.discrepancy !== undefined
+    ? `${item.discrepancy > 0 ? '+' : ''}${item.discrepancy}`
+    : FALLBACK;
+
+  els.title.textContent = item.code || 'Item';
+  els.name.textContent = item.name || 'Unnamed item';
+  els.available.textContent = Number.isFinite(Number(item.available)) ? item.available : FALLBACK;
+  els.reserved.textContent = Number.isFinite(Number(item.reserveQty)) ? item.reserveQty : FALLBACK;
+  els.checkedOut.textContent = Number.isFinite(Number(item.checkedOut)) ? item.checkedOut : FALLBACK;
+  els.category.textContent = item.category || DEFAULT_CATEGORY_NAME;
+  els.threshold.textContent = threshold;
+  els.projects.textContent = item.jobsList || FALLBACK;
+  els.lastActivity.textContent = item.lastDate || FALLBACK;
+  els.lastCount.textContent = countDate;
+  els.countedQty.textContent = countedQty;
+  els.discrepancy.textContent = discrepancy;
+  els.description.textContent = (meta.description || '').toString().trim() || 'No description provided.';
+
+  if(els.badges){
+    els.badges.innerHTML = '';
+    const badges = [];
+    if(item.available <= 0){
+      badges.push({ text: 'Out of stock', cls: 'danger' });
+    }else if(item.available <= threshold){
+      badges.push({ text: 'Low stock', cls: 'warn' });
+    }
+    if(item.overdue) badges.push({ text: 'Overdue returns', cls: 'danger' });
+    if(item.recent) badges.push({ text: 'Recently active', cls: 'info' });
+    if(!badges.length){
+      badges.push({ text: 'On hand', cls: 'info' });
+    }
+    badges.forEach(badge=>{
+      const el = document.createElement('span');
+      el.className = badge.cls ? `badge ${badge.cls}` : 'badge';
+      el.textContent = badge.text;
+      els.badges.appendChild(el);
+    });
+  }
+
+  const outRows = [];
+  const reserveRows = [];
+  if(item.jobs && item.jobs.size){
+    item.jobs.forEach((stats, jobId)=>{
+      const checkedOut = Math.max(0, Number(stats.out || 0));
+      if(checkedOut > 0){
+        outRows.push({ jobId, label: `${checkedOut} out` });
+      }
+      const reserved = Math.max(0, Number(stats.reserve || 0));
+      if(reserved > 0){
+        reserveRows.push({ jobId, label: `${reserved} reserved` });
+      }
+    });
+  }
+  renderJobBreakdown(els.checkedOutProjects, outRows, 'No active job checkouts.');
+  renderJobBreakdown(els.reservedProjects, reserveRows, 'No active reservations.');
+
+  setPanelOpen(true);
+}
+
+function closeItemPanel(){
+  setPanelOpen(false);
+}
+
+function setupItemPanel(){
+  const els = getItemPanelEls();
+  if(!els) return;
+  if(els.close) els.close.addEventListener('click', closeItemPanel);
+  if(els.backdrop) els.backdrop.addEventListener('click', closeItemPanel);
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && els.panel.classList.contains('open')){
+      closeItemPanel();
+    }
+  });
+}
 
 async function loadEntries(){
   try{
@@ -499,58 +645,12 @@ function renderOnhand(){
       <td class="count-input-col"><input class="count-input" data-code="${item.code}" type="number" min="0" value="${item.countedQty ?? ''}"></td>
       <td>${discrepancyHtml}</td>
     `;
-
-    const outRows = [];
-    const reserveRows = [];
-    if(item.jobs && item.jobs.size){
-      item.jobs.forEach((stats, jobId)=>{
-        const checkedOut = Math.max(0, Number(stats.out || 0));
-        if(checkedOut > 0){
-          outRows.push(`<div class="job-row"><span>${jobId}</span><span>${checkedOut} out</span></div>`);
-        }
-        const reserved = Math.max(0, Number(stats.reserve || 0));
-        if(reserved > 0){
-          reserveRows.push(`<div class="job-row"><span>${jobId}</span><span>${reserved} reserved</span></div>`);
-        }
-      });
-    }
-    const outListHtml = outRows.length
-      ? `<div class="job-breakdown">${outRows.join('')}</div>`
-      : `<div class="job-empty">No active job checkouts.</div>`;
-    const reserveListHtml = reserveRows.length
-      ? `<div class="job-breakdown">${reserveRows.join('')}</div>`
-      : `<div class="job-empty">No active reservations.</div>`;
-
-    const detail=document.createElement('tr');
-    detail.className='row-detail';
-    detail.style.display='none';
-    detail.innerHTML=`
-      <td colspan="9">
-        <div class="detail-grid">
-          <span class="detail-chip"><strong>Projects:</strong> ${item.jobsList}</span>
-          <span class="detail-chip"><strong>Reserved:</strong> ${item.reserveQty}</span>
-          <span class="detail-chip"><strong>Checked Out:</strong> ${item.checkedOut}</span>
-          <span class="detail-chip"><strong>Available:</strong> ${item.available}</span>
-          <span class="detail-chip"><strong>Overdue Returns:</strong> ${item.overdue ? 'Yes' : 'No'}</span>
-        </div>
-        <div style="margin-top:10px;">
-          <strong style="display:block;margin-bottom:6px;color:var(--muted);">Checked Out by Project</strong>
-          ${outListHtml}
-        </div>
-        <div style="margin-top:10px;">
-          <strong style="display:block;margin-bottom:6px;color:var(--muted);">Reserved by Project</strong>
-          ${reserveListHtml}
-        </div>
-      </td>
-    `;
-
     tr.addEventListener('click', (e)=>{
-      if(e.target && e.target.tagName === 'INPUT') return;
-      detail.style.display = detail.style.display === 'none' ? 'table-row' : 'none';
+      if(e.target && (e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('a'))) return;
+      openItemPanel(item);
     });
 
     tbody.appendChild(tr);
-    tbody.appendChild(detail);
   });
 }
 
@@ -800,6 +900,7 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   setupTabs();
   setupFilters();
   setupActions();
+  setupItemPanel();
   await refreshAll();
 
   const incomingSearchBox = document.getElementById('incomingSearchBox');
