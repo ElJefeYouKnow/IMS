@@ -136,6 +136,14 @@ main,
   text-transform: uppercase;
 }
 
+.whisper {
+  margin: 8px 0 18px;
+  font-size: 0.95rem;
+  color: var(--muted);
+  font-style: italic;
+  max-width: 42ch;
+}
+
 .site-nav {
   display: flex;
   justify-content: center;
