@@ -31,6 +31,7 @@ if (!IS_PROD) {
 // Session store (memory by default, DB in production for scalability)
 const sessions = new Map();
 const SESSION_TTL_MS = 1000 * 60 * 60 * 8; // 8 hours
+const REMEMBER_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const SESSION_COOKIE = 'sid';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 if (IS_PROD && SESSION_SECRET === 'dev-secret-change-me') {
@@ -504,11 +505,11 @@ function normalizeSessionRow(row) {
   };
 }
 
-async function createSession(userId) {
+async function createSession(userId, ttlMs = SESSION_TTL_MS) {
   const token = crypto.createHmac('sha256', SESSION_SECRET)
     .update(userId + Date.now().toString() + Math.random().toString())
     .digest('hex');
-  const expires = Date.now() + SESSION_TTL_MS;
+  const expires = Date.now() + ttlMs;
   if (SESSION_STORE === 'db') {
     await runAsync('INSERT INTO sessions(token,userId,expires,createdAt) VALUES($1,$2,$3,$4)', [token, userId, expires, Date.now()]);
   } else {
@@ -1650,7 +1651,7 @@ const LOCK_MS = 15 * 60 * 1000;
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password, tenantCode } = req.body;
+    const { email, password, tenantCode, remember } = req.body;
     const emailNorm = normalizeEmail(email);
     if (!emailNorm || !password) return res.status(400).json({ error: 'email and password required' });
     const normalizedTenant = normalizeTenantCode(tenantCode);
@@ -1686,8 +1687,10 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Incorrect password' });
     }
     loginAttempts.delete(attemptKey);
-    const token = await createSession(user.id);
-    setSessionCookie(res, token);
+    const rememberFlag = remember === true || remember === 'true';
+    const ttlMs = rememberFlag ? REMEMBER_SESSION_TTL_MS : SESSION_TTL_MS;
+    const token = await createSession(user.id, ttlMs);
+    setSessionCookie(res, token, ttlMs);
     await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login', details: { email: emailNorm } });
     res.json(safeUser(user));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
@@ -2498,12 +2501,12 @@ async function readItems(tenantIdVal) {
 async function readJobs(tenantIdVal) {
   return allAsync('SELECT * FROM jobs WHERE tenantId=$1 ORDER BY code ASC', [tenantIdVal]);
 }
-function setSessionCookie(res, token) {
+function setSessionCookie(res, token, maxAgeMs = SESSION_TTL_MS) {
   const options = {
     httpOnly: true,
     sameSite: 'lax',
     secure: COOKIE_SECURE,
-    maxAge: SESSION_TTL_MS,
+    maxAge: maxAgeMs,
   };
   if (COOKIE_DOMAIN) options.domain = COOKIE_DOMAIN;
   res.cookie(SESSION_COOKIE, token, options);

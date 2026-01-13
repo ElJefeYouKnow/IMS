@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const err = document.getElementById('login-error');
   const tenantInput = document.getElementById('login-tenant');
   const rememberToggle = document.getElementById('login-remember-tenant');
+  const staySignedIn = document.getElementById('login-remember-session');
   const storedTenant = localStorage.getItem('rememberTenantCode') || '';
   if(tenantInput && storedTenant){
     tenantInput.value = storedTenant;
@@ -25,6 +26,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
     const tenantCode = (tenantInput?.value.trim() || 'default').toLowerCase();
+    const remember = !!staySignedIn?.checked;
     if(!email || !password){ err.textContent = 'Email and password required'; return; }
     if(rememberToggle?.checked){
       localStorage.setItem('rememberTenantCode', tenantCode);
@@ -32,7 +34,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       localStorage.removeItem('rememberTenantCode');
     }
     try{
-      const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,tenantCode})});
+      const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,tenantCode,remember})});
       if(!r.ok){
         const data = await r.json().catch(()=>({error:'Login failed'}));
         err.textContent = data.error || 'Login failed';

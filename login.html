@@ -38,7 +38,8 @@
     .back-link:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(31,111,92,0.28);border-color:rgba(31,111,92,0.7);}
     .back-link:focus-visible{outline:3px solid rgba(31,111,92,0.35);outline-offset:2px;}
     .auth-actions{align-items:center;justify-content:space-between;gap:12px;}
-    .auth-actions .remember-label{display:flex;align-items:center;gap:10px;font-size:0.85rem;color:var(--muted);flex:1;flex-direction:row;}
+    .auth-checks{display:flex;flex-direction:column;gap:6px;flex:1;}
+    .auth-actions .remember-label{display:flex;align-items:center;gap:10px;font-size:0.85rem;color:var(--muted);flex-direction:row;}
     .auth-actions input[type="checkbox"]{width:16px;height:16px;margin:0;accent-color:#1f6f5c;border-radius:4px;box-shadow:0 0 0 1px rgba(31,111,92,0.2);}
   </style>
 </head>
@@ -58,10 +59,16 @@
           <label>Password<input id="login-password" type="password" required autocomplete="new-password"></label>
         </div>
         <div class="form-row auth-actions">
-          <label class="remember-label">
-            <input id="login-remember-tenant" type="checkbox">
-            Remember business code
-          </label>
+          <div class="auth-checks">
+            <label class="remember-label">
+              <input id="login-remember-tenant" type="checkbox">
+              Remember business code
+            </label>
+            <label class="remember-label">
+              <input id="login-remember-session" type="checkbox">
+              Stay signed in
+            </label>
+          </div>
           <button type="submit">Login</button>
         </div>
         <div style="font-size:0.9rem;color:var(--muted);">Need access? Contact your administrator.</div>
