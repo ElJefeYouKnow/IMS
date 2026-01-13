@@ -63,11 +63,22 @@ let sellerStore = { clients: [], tickets: [], activities: [] };
 const app = express();
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ims';
 // Prefer strict SSL in production; allow relaxed mode for local/dev if explicitly needed.
-const sslCaEnv = process.env.DATABASE_SSL_CA_PEM || '';
+const sslCaEnvRaw = process.env.DATABASE_SSL_CA_PEM || process.env.DATABASE_CA_CERT || process.env.CA_CERT || '';
+const sslCaBase64 = process.env.DATABASE_SSL_CA_B64 || process.env.DATABASE_SSL_CA_BASE64 || '';
 const sslRootCertPath = process.env.DATABASE_SSL_CA || process.env.PGSSLROOTCERT;
 let ca;
-if (sslCaEnv) {
-  ca = sslCaEnv.replace(/\\n/g, '\n');
+if (sslCaBase64) {
+  try {
+    ca = Buffer.from(sslCaBase64, 'base64').toString('utf8');
+  } catch (e) {
+    console.warn('Could not decode DATABASE_SSL_CA_B64', e.message);
+  }
+} else if (sslCaEnvRaw) {
+  let normalized = sslCaEnvRaw.trim();
+  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'"))) {
+    normalized = normalized.slice(1, -1);
+  }
+  ca = normalized.replace(/\\n/g, '\n');
 } else if (sslRootCertPath) {
   try {
     ca = fs.readFileSync(path.resolve(sslRootCertPath)).toString();
@@ -79,7 +90,15 @@ const rejectUnauthorized =
   process.env.DATABASE_SSL_REJECT_UNAUTHORIZED
     ? process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true'
     : IS_PROD;
+if (IS_PROD && rejectUnauthorized && !ca) {
+  console.warn('DATABASE_SSL_REJECT_UNAUTHORIZED=true but no CA cert was provided.');
+}
 const sslConfig = { rejectUnauthorized, ca };
+console.log('DB SSL config', {
+  rejectUnauthorized,
+  hasCa: Boolean(ca),
+  caLength: ca ? ca.length : 0,
+});
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: sslConfig,
