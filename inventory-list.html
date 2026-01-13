@@ -100,11 +100,13 @@
               <tr>
                 <th>Code</th>
                 <th>Name</th>
-                <th>Available</th>
+                <th>Qty (Available)</th>
                 <th>Reserved</th>
-                <th>Checked Out</th>
-                <th>Last Activity</th>
-                <th>Last Count</th>
+                <th>In Use</th>
+                <th>Location</th>
+                <th>Recent Activity</th>
+                <th>Last Counted</th>
+                <th>Tags/Flags</th>
                 <th class="count-input-col">Counted Qty</th>
                 <th>Discrepancy</th>
               </tr>
@@ -145,14 +147,26 @@
         <div class="panel-metric"><span>Reserved</span><strong id="itemPanelReserved">-</strong></div>
         <div class="panel-metric"><span>Checked Out</span><strong id="itemPanelCheckedOut">-</strong></div>
       </div>
-      <div class="panel-list">
-        <div class="panel-row"><span>Category</span><strong id="itemPanelCategory">-</strong></div>
-        <div class="panel-row"><span>Low Stock Threshold</span><strong id="itemPanelThreshold">-</strong></div>
-        <div class="panel-row"><span>Assigned Projects</span><strong id="itemPanelProjects">-</strong></div>
-        <div class="panel-row"><span>Last Activity</span><strong id="itemPanelLastActivity">-</strong></div>
-        <div class="panel-row"><span>Last Count</span><strong id="itemPanelLastCount">-</strong></div>
-        <div class="panel-row"><span>Counted Qty</span><strong id="itemPanelCountedQty">-</strong></div>
-        <div class="panel-row"><span>Discrepancy</span><strong id="itemPanelDiscrepancy">-</strong></div>
+      <div class="panel-section">
+        <h3>Item Information</h3>
+        <div class="panel-list">
+          <div class="panel-row"><span>Item Code</span><strong id="itemPanelCode">-</strong></div>
+          <div class="panel-row"><span>Category</span><strong id="itemPanelCategory">-</strong></div>
+          <div class="panel-row"><span>Unit Price</span><strong id="itemPanelPrice">-</strong></div>
+        </div>
+        <p class="panel-note" id="itemPanelDescription"></p>
+      </div>
+      <div class="panel-section">
+        <h3>Operational Snapshot</h3>
+        <div class="panel-list">
+          <div class="panel-row"><span>Low Stock Threshold</span><strong id="itemPanelThreshold">-</strong></div>
+          <div class="panel-row"><span>Assigned Projects</span><strong id="itemPanelProjects">-</strong></div>
+          <div class="panel-row"><span>Overdue Returns</span><strong id="itemPanelOverdue">-</strong></div>
+          <div class="panel-row"><span>Last Activity</span><strong id="itemPanelLastActivity">-</strong></div>
+          <div class="panel-row"><span>Last Count</span><strong id="itemPanelLastCount">-</strong></div>
+          <div class="panel-row"><span>Counted Qty</span><strong id="itemPanelCountedQty">-</strong></div>
+          <div class="panel-row"><span>Discrepancy</span><strong id="itemPanelDiscrepancy">-</strong></div>
+        </div>
       </div>
       <div class="panel-section">
         <h3>Checked Out by Project</h3>
@@ -161,10 +175,6 @@
       <div class="panel-section">
         <h3>Reserved by Project</h3>
         <div id="itemPanelReservedProjects"></div>
-      </div>
-      <div class="panel-section">
-        <h3>Description</h3>
-        <p class="panel-note" id="itemPanelDescription"></p>
       </div>
     </div>
   </aside>

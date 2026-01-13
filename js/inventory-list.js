@@ -29,8 +29,11 @@ function getItemPanelEls(){
     available: document.getElementById('itemPanelAvailable'),
     reserved: document.getElementById('itemPanelReserved'),
     checkedOut: document.getElementById('itemPanelCheckedOut'),
+    code: document.getElementById('itemPanelCode'),
     category: document.getElementById('itemPanelCategory'),
+    price: document.getElementById('itemPanelPrice'),
     threshold: document.getElementById('itemPanelThreshold'),
+    overdue: document.getElementById('itemPanelOverdue'),
     projects: document.getElementById('itemPanelProjects'),
     lastActivity: document.getElementById('itemPanelLastActivity'),
     lastCount: document.getElementById('itemPanelLastCount'),
@@ -91,11 +94,14 @@ function openItemPanel(item){
 
   els.title.textContent = item.code || 'Item';
   els.name.textContent = item.name || 'Unnamed item';
+  if(els.code) els.code.textContent = item.code || FALLBACK;
   els.available.textContent = Number.isFinite(Number(item.available)) ? item.available : FALLBACK;
   els.reserved.textContent = Number.isFinite(Number(item.reserveQty)) ? item.reserveQty : FALLBACK;
   els.checkedOut.textContent = Number.isFinite(Number(item.checkedOut)) ? item.checkedOut : FALLBACK;
   els.category.textContent = item.category || DEFAULT_CATEGORY_NAME;
+  if(els.price) els.price.textContent = fmtMoney(meta.unitPrice);
   els.threshold.textContent = threshold;
+  if(els.overdue) els.overdue.textContent = item.overdue ? 'Yes' : 'No';
   els.projects.textContent = item.jobsList || FALLBACK;
   els.lastActivity.textContent = item.lastDate || FALLBACK;
   els.lastCount.textContent = countDate;
@@ -308,6 +314,12 @@ function fmtDate(val){
   return val ? new Date(val).toLocaleDateString() : FALLBACK;
 }
 
+function fmtMoney(val){
+  const num = Number(val);
+  if(!Number.isFinite(num)) return FALLBACK;
+  return `$${num.toFixed(2)}`;
+}
+
 function daysBetween(ts){
   if(!ts) return null;
   const diff = Date.now() - ts;
@@ -365,7 +377,7 @@ function aggregateStock(entries){
   const stock = {};
   entries.forEach(e=>{
     if(!e.code) return;
-    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, lastTs: 0, jobs: new Map() };
+    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, lastTs: 0, lastLocation: '', lastLocationTs: 0, jobs: new Map() };
     const item = stock[e.code];
     if(!item.name && e.name) item.name = e.name;
     const qty = Number(e.qty)||0;
@@ -386,6 +398,13 @@ function aggregateStock(entries){
       else if(e.type === 'reserve_release') job.reserve -= qty;
     }
     item.lastTs = Math.max(item.lastTs, e.ts || 0);
+    if(e.location){
+      const locTs = e.ts || 0;
+      if(locTs >= item.lastLocationTs){
+        item.lastLocation = e.location;
+        item.lastLocationTs = locTs;
+      }
+    }
   });
   return Object.values(stock).map(s=>{
     const activeJobs = [];
@@ -402,7 +421,8 @@ function aggregateStock(entries){
       available,
       category: itemMetaByCode.get(s.code)?.category || DEFAULT_CATEGORY_NAME,
       lowStockThreshold,
-      lastDate: s.lastTs ? fmtDT(s.lastTs) : FALLBACK
+      lastDate: s.lastTs ? fmtDT(s.lastTs) : FALLBACK,
+      location: s.lastLocation || FALLBACK
     };
   });
 }
@@ -607,6 +627,23 @@ function renderIncoming(){
   });
 }
 
+function buildTagListHtml(item, threshold){
+  const tags = [];
+  const needsCount = item.countAge === null || item.countAge > COUNT_STALE_DAYS;
+  if(item.available <= 0){
+    tags.push({ text: 'Out of stock', cls: 'danger' });
+  }else if(item.available <= threshold){
+    tags.push({ text: 'Low stock', cls: 'warn' });
+  }
+  if(item.overdue) tags.push({ text: 'Overdue', cls: 'danger' });
+  if(needsCount) tags.push({ text: 'Needs count', cls: 'warn' });
+  if(item.jobsList && item.jobsList !== FALLBACK) tags.push({ text: 'Assigned', cls: 'info' });
+  if(item.recent) tags.push({ text: 'Recent', cls: 'info' });
+  if(!tags.length) tags.push({ text: 'On hand', cls: 'info' });
+
+  return `<div class="tag-list">${tags.map(t=>`<span class="badge ${t.cls}">${t.text}</span>`).join('')}</div>`;
+}
+
 function renderOnhand(){
   const tbody=document.querySelector('#invTable tbody');
   if(!tbody) return;
@@ -616,7 +653,7 @@ function renderOnhand(){
 
   if(!items.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="9" style="text-align:center;color:#6b7280;">No inventory matches these filters</td>`;
+    tr.innerHTML=`<td colspan="11" style="text-align:center;color:#6b7280;">No inventory matches these filters</td>`;
     tbody.appendChild(tr);
     return;
   }
@@ -634,14 +671,18 @@ function renderOnhand(){
       const cls = abs === 0 ? 'ok' : (abs <= 2 ? 'warn' : 'bad');
       discrepancyHtml = `<span class="discrepancy-badge ${cls}">${discrepancy > 0 ? '+' : ''}${discrepancy}</span>`;
     }
+    const threshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
+    const tagHtml = buildTagListHtml(item, threshold);
     tr.innerHTML=`
       <td>${item.code}</td>
       <td>${item.name||''}</td>
       <td>${item.available}</td>
       <td>${item.reserveQty}</td>
       <td>${item.checkedOut}</td>
+      <td>${item.location || FALLBACK}</td>
       <td>${item.lastDate}</td>
       <td class="${countStale ? 'stale' : ''}">${countDate}</td>
+      <td>${tagHtml}</td>
       <td class="count-input-col"><input class="count-input" data-code="${item.code}" type="number" min="0" value="${item.countedQty ?? ''}"></td>
       <td>${discrepancyHtml}</td>
     `;
