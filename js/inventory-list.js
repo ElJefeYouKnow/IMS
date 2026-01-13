@@ -32,6 +32,7 @@ function getItemPanelEls(){
     code: document.getElementById('itemPanelCode'),
     category: document.getElementById('itemPanelCategory'),
     price: document.getElementById('itemPanelPrice'),
+    tags: document.getElementById('itemPanelTags'),
     threshold: document.getElementById('itemPanelThreshold'),
     overdue: document.getElementById('itemPanelOverdue'),
     projects: document.getElementById('itemPanelProjects'),
@@ -85,6 +86,7 @@ function openItemPanel(item){
   const els = getItemPanelEls();
   if(!els || !item) return;
   const meta = itemMetaByCode.get(item.code) || {};
+  const staticTags = normalizeTags(meta.tags);
   const threshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
   const countDate = item.countedAt ? fmtDate(item.countedAt) : FALLBACK;
   const countedQty = item.countedQty !== null && item.countedQty !== undefined ? item.countedQty : FALLBACK;
@@ -100,6 +102,7 @@ function openItemPanel(item){
   els.checkedOut.textContent = Number.isFinite(Number(item.checkedOut)) ? item.checkedOut : FALLBACK;
   els.category.textContent = item.category || DEFAULT_CATEGORY_NAME;
   if(els.price) els.price.textContent = fmtMoney(meta.unitPrice);
+  if(els.tags) els.tags.textContent = staticTags.length ? staticTags.join(', ') : FALLBACK;
   els.threshold.textContent = threshold;
   if(els.overdue) els.overdue.textContent = item.overdue ? 'Yes' : 'No';
   els.projects.textContent = item.jobsList || FALLBACK;
@@ -318,6 +321,22 @@ function fmtMoney(val){
   const num = Number(val);
   if(!Number.isFinite(num)) return FALLBACK;
   return `$${num.toFixed(2)}`;
+}
+
+function normalizeTags(value){
+  if(!value) return [];
+  const input = Array.isArray(value) ? value : value.toString().split(/[,;|]/);
+  const seen = new Set();
+  const out = [];
+  input.forEach(tag=>{
+    const cleaned = (tag || '').toString().trim();
+    if(!cleaned) return;
+    const key = cleaned.toLowerCase();
+    if(seen.has(key)) return;
+    seen.add(key);
+    out.push(cleaned);
+  });
+  return out;
 }
 
 function daysBetween(ts){
@@ -627,8 +646,11 @@ function renderIncoming(){
   });
 }
 
-function buildTagListHtml(item, threshold){
+function buildTagListHtml(item, threshold, staticTags){
   const tags = [];
+  (staticTags || []).forEach(tag=>{
+    tags.push({ text: tag, cls: 'static' });
+  });
   const needsCount = item.countAge === null || item.countAge > COUNT_STALE_DAYS;
   if(item.available <= 0){
     tags.push({ text: 'Out of stock', cls: 'danger' });
@@ -672,7 +694,9 @@ function renderOnhand(){
       discrepancyHtml = `<span class="discrepancy-badge ${cls}">${discrepancy > 0 ? '+' : ''}${discrepancy}</span>`;
     }
     const threshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
-    const tagHtml = buildTagListHtml(item, threshold);
+    const meta = itemMetaByCode.get(item.code) || {};
+    const staticTags = normalizeTags(meta.tags);
+    const tagHtml = buildTagListHtml(item, threshold, staticTags);
     tr.innerHTML=`
       <td>${item.code}</td>
       <td>${item.name||''}</td>

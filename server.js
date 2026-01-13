@@ -317,6 +317,26 @@ function normalizeCategoryRules(raw) {
     : DEFAULT_CATEGORY_RULES.lowStockThreshold;
   return out;
 }
+function normalizeItemTags(input) {
+  if (!input) return [];
+  let tags = [];
+  if (Array.isArray(input)) {
+    tags = input;
+  } else if (typeof input === 'string') {
+    tags = input.split(/[,;|]/);
+  }
+  const seen = new Set();
+  const out = [];
+  tags.forEach((tag) => {
+    const value = (tag || '').toString().trim();
+    if (!value) return;
+    const key = value.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(value);
+  });
+  return out;
+}
 function getReturnWindowMs(rules) {
   const days = Number(rules?.returnWindowDays);
   const safeDays = Number.isFinite(days) && days > 0 ? days : DEFAULT_CATEGORY_RULES.returnWindowDays;
@@ -586,11 +606,13 @@ async function initDb() {
     category TEXT,
     unitPrice NUMERIC,
     description TEXT,
+    tags JSONB,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS unitPrice NUMERIC`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS description TEXT`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tags JSONB`);
   await runAsync(`CREATE TABLE IF NOT EXISTS categories(
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -1410,19 +1432,20 @@ app.get('/api/items', async (req, res) => {
 
 app.post('/api/items', requireRole('admin'), async (req, res) => {
   try {
-    const { code, oldCode, name, category, unitPrice, description } = req.body;
+    const { code, oldCode, name, category, unitPrice, description, tags } = req.body;
     if (!code || !name) return res.status(400).json({ error: 'code and name required' });
     const t = tenantId(req);
     const exists = await itemExists(code, t);
     const categoryInfo = await resolveCategoryInput(t, category);
+    const normalizedTags = normalizeItemTags(tags);
     const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
     if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [oldCode, t]);
-    await runAsync(`INSERT INTO items(code,name,category,unitPrice,description,tenantId)
-      VALUES($1,$2,$3,$4,$5,$6)
-      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tenantId=EXCLUDED.tenantId`,
-      [code, name, categoryInfo.name, price, description, t]);
+    await runAsync(`INSERT INTO items(code,name,category,unitPrice,description,tags,tenantId)
+      VALUES($1,$2,$3,$4,$5,$6,$7)
+      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tags=EXCLUDED.tags, tenantId=EXCLUDED.tenantId`,
+      [code, name, categoryInfo.name, price, description, normalizedTags, t]);
     await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: { code } });
-    res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, description, tenantId: t });
+    res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, description, tags: normalizedTags, tenantId: t });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
@@ -1451,10 +1474,11 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
         const unitPrice = raw?.unitPrice === undefined || raw?.unitPrice === null || Number.isNaN(Number(raw.unitPrice))
           ? null
           : Number(raw.unitPrice);
-        await client.query(`INSERT INTO items(code,name,category,unitPrice,description,tenantId)
-          VALUES($1,$2,$3,$4,$5,$6)
-          ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tenantId=EXCLUDED.tenantId`,
-          [code, name, categoryInfo.name, unitPrice, description, t]);
+        const tags = normalizeItemTags(raw?.tags);
+        await client.query(`INSERT INTO items(code,name,category,unitPrice,description,tags,tenantId)
+          VALUES($1,$2,$3,$4,$5,$6,$7)
+          ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tags=EXCLUDED.tags, tenantId=EXCLUDED.tenantId`,
+          [code, name, categoryInfo.name, unitPrice, description, tags, t]);
         results.push(code);
       }
     });

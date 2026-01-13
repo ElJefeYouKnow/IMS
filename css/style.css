@@ -411,8 +411,10 @@ select:disabled{
 .badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:0.75rem;font-weight:700;line-height:1;border:1px solid var(--line);color:var(--ink);background:var(--card)}
 .tag-list{display:flex;flex-wrap:wrap;gap:6px}
 .tag-list .badge{font-size:0.7rem;padding:4px 8px}
+.badge.static{background:rgba(148,163,184,0.18);color:#334155;border-color:rgba(148,163,184,0.45)}
 .badge.info{background:rgba(31,111,92,0.12);color:#1b2522;border-color:rgba(31,111,92,0.3)}
 .dark .badge{background:#101b18;color:var(--ink);border-color:#22312d}
+.dark .badge.static{background:rgba(148,163,184,0.22);color:#e2e8f0;border-color:rgba(148,163,184,0.35)}
 .dark .badge.info{background:rgba(31,111,92,0.22);color:var(--ink);border-color:rgba(31,111,92,0.4)}
 .badge.warn{background:rgba(234,179,8,0.14);color:#854d0e;border-color:rgba(234,179,8,0.4)}
 .badge.danger{background:rgba(239,68,68,0.14);color:#7f1d1d;border-color:rgba(239,68,68,0.4)}

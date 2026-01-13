@@ -45,6 +45,22 @@ function normalizeHeader(value){
   return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+function normalizeTags(value){
+  if(!value) return [];
+  const input = Array.isArray(value) ? value : value.toString().split(/[,;|]/);
+  const seen = new Set();
+  const out = [];
+  input.forEach(tag=>{
+    const cleaned = (tag || '').toString().trim();
+    if(!cleaned) return;
+    const key = cleaned.toLowerCase();
+    if(seen.has(key)) return;
+    seen.add(key);
+    out.push(cleaned);
+  });
+  return out;
+}
+
 function parseCsv(text){
   const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
   if(!lines.length) return { items: [], skipped: 0 };
@@ -58,6 +74,7 @@ function parseCsv(text){
       if(['category','cat','type'].includes(h)) headerMap.set('category', idx);
       if(['unitprice','price','unitcost','cost','unit'].includes(h)) headerMap.set('unitPrice', idx);
       if(['description','desc','details'].includes(h)) headerMap.set('description', idx);
+      if(['tags','tag','flags','labels'].includes(h)) headerMap.set('tags', idx);
     });
   }
   const start = hasHeader ? 1 : 0;
@@ -71,12 +88,14 @@ function parseCsv(text){
     const category = hasHeader ? getVal('category', headerMap.get('category')) : (cols[2] || '');
     const unitPriceRaw = hasHeader ? getVal('unitPrice', headerMap.get('unitPrice')) : (cols[3] || '');
     const description = hasHeader ? getVal('description', headerMap.get('description')) : (cols[4] || '');
+    const tagsRaw = hasHeader ? getVal('tags', headerMap.get('tags')) : (cols[5] || '');
     if(!code || !name){
       skipped++;
       continue;
     }
     const unitPrice = unitPriceRaw && !Number.isNaN(Number(unitPriceRaw)) ? Number(unitPriceRaw) : null;
-    items.push({ code, name, category, unitPrice, description });
+    const tags = normalizeTags(tagsRaw);
+    items.push({ code, name, category, unitPrice, description, tags });
   }
   return { items, skipped };
 }
@@ -310,6 +329,7 @@ async function editItem(e){
   document.getElementById('itemName').value = item.name;
   document.getElementById('category').value = item.category || DEFAULT_CATEGORY_NAME;
   document.getElementById('unitPrice').value = item.unitPrice || '';
+  document.getElementById('itemTags').value = Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags || '');
   document.getElementById('description').value = item.description || '';
   document.getElementById('addBtn').textContent = 'Update Item';
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -412,7 +432,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const downloadBtn = document.getElementById('downloadTemplateBtn');
   if(downloadBtn){
     downloadBtn.addEventListener('click', ()=>{
-      const csv = 'code,name,category,unitPrice,description\\n';
+      const csv = 'code,name,category,unitPrice,description,tags\\n';
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -432,10 +452,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const name = document.getElementById('itemName').value.trim();
     const category = document.getElementById('category').value.trim();
     const unitPrice = document.getElementById('unitPrice').value;
+    const tagsRaw = document.getElementById('itemTags').value;
     const description = document.getElementById('description').value.trim();
     if(!code||!name){alert('Code and name are required');return}
     
-    const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description };
+    const tags = normalizeTags(tagsRaw);
+    const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags };
     if(currentEditId){
       item.oldCode = currentEditId;
     }
