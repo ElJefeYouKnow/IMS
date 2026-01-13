@@ -38,7 +38,7 @@
         <a href="support.html">Support</a>
       </nav>
     </aside>
-    <main class="main">
+    <main class="main dashboard-main">
       <header class="topbar">
         <h1>Dashboard</h1>
         <div class="topbar-right">
@@ -71,25 +71,20 @@
         </div>
       </section>
 
-      <section class="card">
-        <h3>Operations Pulse</h3>
-        <div class="summary-grid">
-          <div class="summary-item"><span>Available Units</span><strong id="availableUnits">-</strong></div>
-          <div class="summary-item"><span>In Use</span><strong id="checkedOutUnits">-</strong></div>
-          <div class="summary-item"><span>Reserved Units</span><strong id="reservedUnits">-</strong></div>
-          <div class="summary-item"><span>Active Projects</span><strong id="activeJobs">-</strong></div>
-          <div class="summary-item"><span>Low Stock Alerts</span><strong id="lowStockCount">-</strong></div>
-          <div class="summary-item"><span>Open Orders</span><strong id="openOrdersCount">-</strong></div>
-          <div class="summary-item"><span>Overdue Returns</span><strong id="overdueCount">-</strong></div>
-          <div class="summary-item"><span>Out of Stock</span><strong id="outOfStockCount">-</strong></div>
-          <div class="summary-item"><span>Cycle Counts Due</span><strong id="countDueCount">-</strong></div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="chart-card">
-          <h3>Weekly Activity</h3>
-          <canvas id="trafficChart" width="600" height="200"></canvas>
+      <section class="dashboard-grid">
+        <div class="card">
+          <h3>Operations Pulse</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Available Units</span><strong id="availableUnits">-</strong></div>
+            <div class="summary-item"><span>In Use</span><strong id="checkedOutUnits">-</strong></div>
+            <div class="summary-item"><span>Reserved Units</span><strong id="reservedUnits">-</strong></div>
+            <div class="summary-item"><span>Active Projects</span><strong id="activeJobs">-</strong></div>
+            <div class="summary-item"><span>Low Stock Alerts</span><strong id="lowStockCount">-</strong></div>
+            <div class="summary-item"><span>Open Orders</span><strong id="openOrdersCount">-</strong></div>
+            <div class="summary-item"><span>Overdue Returns</span><strong id="overdueCount">-</strong></div>
+            <div class="summary-item"><span>Out of Stock</span><strong id="outOfStockCount">-</strong></div>
+            <div class="summary-item"><span>Cycle Counts Due</span><strong id="countDueCount">-</strong></div>
+          </div>
         </div>
 
         <div class="table-card">
@@ -99,9 +94,7 @@
             <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </div>
-      </section>
 
-      <section class="panel">
         <div class="table-card">
           <h3>Overdue Check-Outs</h3>
           <table id="overdueTable">
@@ -109,6 +102,7 @@
             <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </div>
+
         <div class="table-card">
           <h3>Inbound / Ordered</h3>
           <table id="orderedTable">
@@ -116,9 +110,7 @@
             <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </div>
-      </section>
 
-      <section class="panel">
         <div class="table-card">
           <h3>Top Movers (7 Days)</h3>
           <table id="topMoversTable">
@@ -126,6 +118,7 @@
             <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </div>
+
         <div class="table-card">
           <h3>Cycle Counts Due</h3>
           <table id="countDueTable">
@@ -135,7 +128,12 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="chart-card dashboard-wide">
+        <h3>Weekly Activity</h3>
+        <canvas id="trafficChart" width="600" height="200"></canvas>
+      </section>
+
+      <section class="table-card dashboard-wide">
         <h3>Recent Activity</h3>
         <table id="activityTable">
           <thead><tr><th>Type</th><th>Code</th><th>Qty</th><th>Project</th><th>When</th></tr></thead>
