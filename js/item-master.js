@@ -9,7 +9,8 @@ const DEFAULT_CATEGORY_RULES = {
   allowReserve: true,
   maxCheckoutQty: null,
   returnWindowDays: 5,
-  lowStockThreshold: 5
+  lowStockThreshold: 5,
+  lowStockEnabled: true
 };
 
 let currentEditId = null;
@@ -22,7 +23,6 @@ function getEditModalEls(){
   if(!modal) return null;
   return {
     modal,
-    backdrop: document.getElementById('itemEditBackdrop'),
     close: document.getElementById('itemEditClose'),
     cancel: document.getElementById('itemEditCancel'),
     form: document.getElementById('itemEditForm'),
@@ -31,6 +31,7 @@ function getEditModalEls(){
     category: document.getElementById('itemEditCategory'),
     unitPrice: document.getElementById('itemEditUnitPrice'),
     tags: document.getElementById('itemEditTags'),
+    lowStockEnabled: document.getElementById('itemEditLowStockEnabled'),
     description: document.getElementById('itemEditDescription')
   };
 }
@@ -58,20 +59,21 @@ function openEditModal(item){
   els.unitPrice.value = item.unitPrice || '';
   els.tags.value = Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags || '');
   els.description.value = item.description || '';
-  els.modal.classList.add('open');
-  if(els.backdrop) els.backdrop.classList.add('active');
+  const itemLowStock = parseBool(item.lowStockEnabled ?? item.lowstockenabled);
+  if(els.lowStockEnabled){
+    const fallback = getCategoryLowStockEnabled(els.category.value);
+    els.lowStockEnabled.checked = itemLowStock === null ? fallback : itemLowStock;
+  }
+  els.modal.classList.remove('hidden');
   els.modal.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('panel-open');
   editModalOpen = true;
 }
 
 function closeEditModal(){
   const els = getEditModalEls();
   if(!els) return;
-  els.modal.classList.remove('open');
-  if(els.backdrop) els.backdrop.classList.remove('active');
+  els.modal.classList.add('hidden');
   els.modal.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('panel-open');
   editModalOpen = false;
 }
 
@@ -120,6 +122,16 @@ function normalizeTags(value){
   return out;
 }
 
+function parseBool(value){
+  if(value === undefined || value === null || value === '') return null;
+  if(typeof value === 'boolean') return value;
+  const cleaned = value.toString().trim().toLowerCase();
+  if(!cleaned) return null;
+  if(['false','0','no','off','disabled'].includes(cleaned)) return false;
+  if(['true','1','yes','on','enabled'].includes(cleaned)) return true;
+  return null;
+}
+
 function parseCsv(text){
   const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
   if(!lines.length) return { items: [], skipped: 0 };
@@ -134,6 +146,7 @@ function parseCsv(text){
       if(['unitprice','price','unitcost','cost','unit'].includes(h)) headerMap.set('unitPrice', idx);
       if(['description','desc','details'].includes(h)) headerMap.set('description', idx);
       if(['tags','tag','flags','labels'].includes(h)) headerMap.set('tags', idx);
+      if(['lowstockenabled','lowstockalert','lowstockalerts','lowstockalertenabled'].includes(h)) headerMap.set('lowStockEnabled', idx);
     });
   }
   const start = hasHeader ? 1 : 0;
@@ -148,13 +161,15 @@ function parseCsv(text){
     const unitPriceRaw = hasHeader ? getVal('unitPrice', headerMap.get('unitPrice')) : (cols[3] || '');
     const description = hasHeader ? getVal('description', headerMap.get('description')) : (cols[4] || '');
     const tagsRaw = hasHeader ? getVal('tags', headerMap.get('tags')) : (cols[5] || '');
+    const lowStockRaw = hasHeader ? getVal('lowStockEnabled', headerMap.get('lowStockEnabled')) : (cols[6] || '');
     if(!code || !name){
       skipped++;
       continue;
     }
     const unitPrice = unitPriceRaw && !Number.isNaN(Number(unitPriceRaw)) ? Number(unitPriceRaw) : null;
     const tags = normalizeTags(tagsRaw);
-    items.push({ code, name, category, unitPrice, description, tags });
+    const lowStockEnabled = parseBool(lowStockRaw);
+    items.push({ code, name, category, unitPrice, description, tags, lowStockEnabled });
   }
   return { items, skipped };
 }
@@ -168,6 +183,7 @@ function normalizeCategoryRules(raw){
   if(Object.prototype.hasOwnProperty.call(input, 'allowFieldPurchase')) out.allowFieldPurchase = !!input.allowFieldPurchase;
   if(Object.prototype.hasOwnProperty.call(input, 'allowCheckout')) out.allowCheckout = !!input.allowCheckout;
   if(Object.prototype.hasOwnProperty.call(input, 'allowReserve')) out.allowReserve = !!input.allowReserve;
+  if(Object.prototype.hasOwnProperty.call(input, 'lowStockEnabled')) out.lowStockEnabled = !!input.lowStockEnabled;
   const maxCheckoutQty = Number(input.maxCheckoutQty);
   out.maxCheckoutQty = Number.isFinite(maxCheckoutQty) && maxCheckoutQty > 0 ? Math.floor(maxCheckoutQty) : null;
   const returnWindowDays = Number(input.returnWindowDays);
@@ -209,6 +225,11 @@ function renderCategoryOptions(){
   }else if(list.length){
     select.value = list.find(c=> c.name === DEFAULT_CATEGORY_NAME)?.name || list[0].name;
   }
+}
+
+function getCategoryLowStockEnabled(name){
+  const match = (categoriesCache || []).find(c=> (c.name || '').toLowerCase() === (name || '').toLowerCase());
+  return match?.rules?.lowStockEnabled ?? DEFAULT_CATEGORY_RULES.lowStockEnabled;
 }
 
 function setMode(mode){
@@ -272,7 +293,8 @@ function formatCategoryThresholds(rules){
   const parts = [];
   if(rules.maxCheckoutQty) parts.push(`Max checkout ${rules.maxCheckoutQty}`);
   parts.push(`Return ${rules.returnWindowDays}d`);
-  parts.push(`Low stock ${rules.lowStockThreshold}`);
+  if(rules.lowStockEnabled === false) parts.push('Low stock off');
+  else parts.push(`Low stock ${rules.lowStockThreshold}`);
   return parts.join(', ');
 }
 
@@ -301,6 +323,7 @@ function fillCategoryForm(category){
   const rules = normalizeCategoryRules(category?.rules);
   document.getElementById('categoryName').value = category?.name || '';
   document.getElementById('categoryLowStock').value = Number.isFinite(Number(rules.lowStockThreshold)) ? rules.lowStockThreshold : '';
+  document.getElementById('ruleLowStockEnabled').checked = rules.lowStockEnabled !== false;
   document.getElementById('categoryMaxCheckout').value = rules.maxCheckoutQty || '';
   document.getElementById('categoryReturnWindow').value = rules.returnWindowDays || '';
   document.getElementById('ruleRequireJob').checked = !!rules.requireJobId;
@@ -402,6 +425,10 @@ function clearForm(){
   if(categorySelect){
     categorySelect.value = categoriesCache.find(c=> c.name === DEFAULT_CATEGORY_NAME)?.name || categorySelect.value;
   }
+  const lowStockCheckbox = document.getElementById('itemLowStockEnabled');
+  if(lowStockCheckbox){
+    lowStockCheckbox.checked = getCategoryLowStockEnabled(categorySelect?.value);
+  }
 }
 
 document.addEventListener('DOMContentLoaded', async ()=>{
@@ -421,6 +448,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   renderCategoryOptions();
   await renderCategoryTable();
   await renderTable();
+  const categorySelect = document.getElementById('category');
+  const lowStockCheckbox = document.getElementById('itemLowStockEnabled');
+  if(categorySelect && lowStockCheckbox){
+    lowStockCheckbox.checked = getCategoryLowStockEnabled(categorySelect.value);
+    categorySelect.addEventListener('change', ()=>{
+      lowStockCheckbox.checked = getCategoryLowStockEnabled(categorySelect.value);
+    });
+  }
   const searchBox = document.getElementById('searchBox');
   if(searchBox) searchBox.addEventListener('input', renderTable);
   const hash = (window.location.hash || '').replace('#','').toLowerCase();
@@ -482,7 +517,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const downloadBtn = document.getElementById('downloadTemplateBtn');
   if(downloadBtn){
     downloadBtn.addEventListener('click', ()=>{
-      const csv = 'code,name,category,unitPrice,description,tags\\n';
+      const csv = 'code,name,category,unitPrice,description,tags,lowStockEnabled\\n';
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -503,11 +538,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const category = document.getElementById('category').value.trim();
     const unitPrice = document.getElementById('unitPrice').value;
     const tagsRaw = document.getElementById('itemTags').value;
+    const lowStockEnabled = document.getElementById('itemLowStockEnabled').checked;
     const description = document.getElementById('description').value.trim();
     if(!code||!name){alert('Code and name are required');return}
     
     const tags = normalizeTags(tagsRaw);
-    const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags };
+    const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags, lowStockEnabled };
     if(currentEditId){
       item.oldCode = currentEditId;
     }
@@ -525,7 +561,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   if(editEls){
     if(editEls.close) editEls.close.addEventListener('click', closeEditModal);
     if(editEls.cancel) editEls.cancel.addEventListener('click', closeEditModal);
-    if(editEls.backdrop) editEls.backdrop.addEventListener('click', closeEditModal);
+    editEls.modal?.addEventListener('click', (ev)=>{
+      if(ev.target === ev.currentTarget) closeEditModal();
+    });
     document.addEventListener('keydown', (e)=>{
       if(e.key === 'Escape' && editModalOpen) closeEditModal();
     });
@@ -536,10 +574,11 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const category = editEls.category.value.trim();
       const unitPrice = editEls.unitPrice.value;
       const tagsRaw = editEls.tags.value;
+      const lowStockEnabled = editEls.lowStockEnabled ? editEls.lowStockEnabled.checked : true;
       const description = editEls.description.value.trim();
       if(!code || !name){ alert('Code and name are required'); return; }
       const tags = normalizeTags(tagsRaw);
-      const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags };
+      const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags, lowStockEnabled };
       if(currentEditId){
         item.oldCode = currentEditId;
       }
@@ -561,6 +600,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       requireJobId: document.getElementById('ruleRequireJob').checked,
       requireLocation: document.getElementById('ruleRequireLocation').checked,
       requireNotes: document.getElementById('ruleRequireNotes').checked,
+      lowStockEnabled: document.getElementById('ruleLowStockEnabled').checked,
       allowFieldPurchase: document.getElementById('ruleAllowFieldPurchase').checked,
       allowCheckout: document.getElementById('ruleAllowCheckout').checked,
       allowReserve: document.getElementById('ruleAllowReserve').checked,

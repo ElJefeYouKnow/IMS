@@ -103,7 +103,7 @@ function openItemPanel(item){
   els.category.textContent = item.category || DEFAULT_CATEGORY_NAME;
   if(els.price) els.price.textContent = fmtMoney(meta.unitPrice);
   if(els.tags) els.tags.textContent = staticTags.length ? staticTags.join(', ') : FALLBACK;
-  els.threshold.textContent = threshold;
+  els.threshold.textContent = item.lowStockEnabled === false ? 'Disabled' : threshold;
   if(els.overdue) els.overdue.textContent = item.overdue ? 'Yes' : 'No';
   els.projects.textContent = item.jobsList || FALLBACK;
   els.lastActivity.textContent = item.lastDate || FALLBACK;
@@ -188,7 +188,8 @@ function normalizeCategoryRules(raw){
     allowReserve: true,
     maxCheckoutQty: null,
     returnWindowDays: 5,
-    lowStockThreshold: DEFAULT_LOW_STOCK_THRESHOLD
+    lowStockThreshold: DEFAULT_LOW_STOCK_THRESHOLD,
+    lowStockEnabled: true
   };
   if(Object.prototype.hasOwnProperty.call(input, 'maxCheckoutQty')){
     const max = Number(input.maxCheckoutQty);
@@ -201,6 +202,9 @@ function normalizeCategoryRules(raw){
   if(Object.prototype.hasOwnProperty.call(input, 'lowStockThreshold')){
     const low = Number(input.lowStockThreshold);
     out.lowStockThreshold = Number.isFinite(low) && low >= 0 ? Math.floor(low) : out.lowStockThreshold;
+  }
+  if(Object.prototype.hasOwnProperty.call(input, 'lowStockEnabled')){
+    out.lowStockEnabled = !!input.lowStockEnabled;
   }
   return out;
 }
@@ -244,11 +248,24 @@ async function loadClosedJobs(){
   return closedJobIds;
 }
 
-function getLowStockThresholdForCode(code){
+function parseBool(value){
+  if(value === undefined || value === null || value === '') return null;
+  if(typeof value === 'boolean') return value;
+  const cleaned = value.toString().trim().toLowerCase();
+  if(!cleaned) return null;
+  if(['false','0','no','off','disabled'].includes(cleaned)) return false;
+  if(['true','1','yes','on','enabled'].includes(cleaned)) return true;
+  return null;
+}
+
+function getLowStockConfigForCode(code){
   const item = itemMetaByCode.get(code);
   const name = (item?.category || DEFAULT_CATEGORY_NAME || '').toString().trim();
   const rules = categoryRulesByName.get(name.toLowerCase());
-  return rules?.lowStockThreshold ?? DEFAULT_LOW_STOCK_THRESHOLD;
+  const threshold = rules?.lowStockThreshold ?? DEFAULT_LOW_STOCK_THRESHOLD;
+  const itemEnabled = parseBool(item?.lowStockEnabled ?? item?.lowstockenabled);
+  const enabled = itemEnabled === null ? (rules?.lowStockEnabled ?? true) : itemEnabled;
+  return { threshold, enabled };
 }
 
 function normalizeJobId(value){
@@ -432,14 +449,15 @@ function aggregateStock(entries){
     }
     const checkedOut = Math.max(0, s.outQty - s.returnQty);
     const available = Math.max(0, s.inQty - s.outQty - s.reserveQty);
-    const lowStockThreshold = getLowStockThresholdForCode(s.code);
+    const { threshold, enabled } = getLowStockConfigForCode(s.code);
     return {
       ...s,
       jobsList: activeJobs.length ? activeJobs.sort().join(', ') : FALLBACK,
       checkedOut,
       available,
       category: itemMetaByCode.get(s.code)?.category || DEFAULT_CATEGORY_NAME,
-      lowStockThreshold,
+      lowStockThreshold: threshold,
+      lowStockEnabled: enabled,
       lastDate: s.lastTs ? fmtDT(s.lastTs) : FALLBACK,
       location: s.lastLocation || FALLBACK
     };
@@ -561,7 +579,7 @@ function applyOnhandFilters(items){
   return items.filter(item=>{
     if(search && !(item.code.toLowerCase().includes(search) || (item.name||'').toLowerCase().includes(search))) return false;
     const lowThreshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
-    if(low && item.available > lowThreshold) return false;
+    if(low && (item.lowStockEnabled === false || item.available > lowThreshold)) return false;
     if(overdue && !item.overdue) return false;
     if(project && item.jobsList === FALLBACK) return false;
     if(recent && !item.recent) return false;
@@ -589,7 +607,7 @@ function updateSummary(){
 
   const lowStockCount = onhandBaseRows.filter(item=>{
     const lowThreshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
-    return item.available <= lowThreshold;
+    return item.lowStockEnabled !== false && item.available <= lowThreshold;
   }).length;
   setText('lowStockCount', lowStockCount);
 
@@ -652,10 +670,14 @@ function buildTagListHtml(item, threshold, staticTags){
     tags.push({ text: tag, cls: 'static' });
   });
   const needsCount = item.countAge === null || item.countAge > COUNT_STALE_DAYS;
-  if(item.available <= 0){
-    tags.push({ text: 'Out of stock', cls: 'danger' });
-  }else if(item.available <= threshold){
-    tags.push({ text: 'Low stock', cls: 'warn' });
+  if(item.lowStockEnabled === false){
+    tags.push({ text: 'Alerts off', cls: 'static' });
+  }else{
+    if(item.available <= 0){
+      tags.push({ text: 'Out of stock', cls: 'danger' });
+    }else if(item.available <= threshold){
+      tags.push({ text: 'Low stock', cls: 'warn' });
+    }
   }
   if(item.overdue) tags.push({ text: 'Overdue', cls: 'danger' });
   if(needsCount) tags.push({ text: 'Needs count', cls: 'warn' });

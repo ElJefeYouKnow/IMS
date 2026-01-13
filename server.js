@@ -56,7 +56,8 @@ const DEFAULT_CATEGORY_RULES = {
   allowReserve: true,
   maxCheckoutQty: null,
   returnWindowDays: 5,
-  lowStockThreshold: 5
+  lowStockThreshold: 5,
+  lowStockEnabled: true
 };
 let sellerStore = { clients: [], tickets: [], activities: [] };
 
@@ -305,6 +306,7 @@ function normalizeCategoryRules(raw) {
   if (Object.prototype.hasOwnProperty.call(input, 'allowFieldPurchase')) out.allowFieldPurchase = !!input.allowFieldPurchase;
   if (Object.prototype.hasOwnProperty.call(input, 'allowCheckout')) out.allowCheckout = !!input.allowCheckout;
   if (Object.prototype.hasOwnProperty.call(input, 'allowReserve')) out.allowReserve = !!input.allowReserve;
+  if (Object.prototype.hasOwnProperty.call(input, 'lowStockEnabled')) out.lowStockEnabled = !!input.lowStockEnabled;
   const maxCheckoutQty = Number(input.maxCheckoutQty);
   out.maxCheckoutQty = Number.isFinite(maxCheckoutQty) && maxCheckoutQty > 0 ? Math.floor(maxCheckoutQty) : null;
   const returnWindowDays = Number(input.returnWindowDays);
@@ -336,6 +338,15 @@ function normalizeItemTags(input) {
     out.push(value);
   });
   return out;
+}
+function normalizeItemLowStockEnabled(input) {
+  if (input === undefined || input === null || input === '') return null;
+  if (typeof input === 'boolean') return input;
+  const value = String(input).trim().toLowerCase();
+  if (!value) return null;
+  if (['false', '0', 'no', 'off', 'disabled'].includes(value)) return false;
+  if (['true', '1', 'yes', 'on', 'enabled'].includes(value)) return true;
+  return null;
 }
 function getReturnWindowMs(rules) {
   const days = Number(rules?.returnWindowDays);
@@ -607,12 +618,14 @@ async function initDb() {
     unitPrice NUMERIC,
     description TEXT,
     tags JSONB,
+    lowStockEnabled BOOLEAN,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS unitPrice NUMERIC`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS description TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tags JSONB`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS lowStockEnabled BOOLEAN`);
   await runAsync(`CREATE TABLE IF NOT EXISTS categories(
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -1432,20 +1445,21 @@ app.get('/api/items', async (req, res) => {
 
 app.post('/api/items', requireRole('admin'), async (req, res) => {
   try {
-    const { code, oldCode, name, category, unitPrice, description, tags } = req.body;
+    const { code, oldCode, name, category, unitPrice, description, tags, lowStockEnabled } = req.body;
     if (!code || !name) return res.status(400).json({ error: 'code and name required' });
     const t = tenantId(req);
     const exists = await itemExists(code, t);
     const categoryInfo = await resolveCategoryInput(t, category);
     const normalizedTags = normalizeItemTags(tags);
+    const normalizedLowStockEnabled = normalizeItemLowStockEnabled(lowStockEnabled);
     const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
     if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [oldCode, t]);
-    await runAsync(`INSERT INTO items(code,name,category,unitPrice,description,tags,tenantId)
-      VALUES($1,$2,$3,$4,$5,$6,$7)
-      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tags=EXCLUDED.tags, tenantId=EXCLUDED.tenantId`,
-      [code, name, categoryInfo.name, price, description, normalizedTags, t]);
+    await runAsync(`INSERT INTO items(code,name,category,unitPrice,description,tags,lowStockEnabled,tenantId)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
+      [code, name, categoryInfo.name, price, description, normalizedTags, normalizedLowStockEnabled, t]);
     await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: { code } });
-    res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, description, tags: normalizedTags, tenantId: t });
+    res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, description, tags: normalizedTags, lowStockEnabled: normalizedLowStockEnabled, tenantId: t });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
@@ -1475,10 +1489,11 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
           ? null
           : Number(raw.unitPrice);
         const tags = normalizeItemTags(raw?.tags);
-        await client.query(`INSERT INTO items(code,name,category,unitPrice,description,tags,tenantId)
-          VALUES($1,$2,$3,$4,$5,$6,$7)
-          ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tags=EXCLUDED.tags, tenantId=EXCLUDED.tenantId`,
-          [code, name, categoryInfo.name, unitPrice, description, tags, t]);
+        const lowStockEnabled = normalizeItemLowStockEnabled(raw?.lowStockEnabled);
+        await client.query(`INSERT INTO items(code,name,category,unitPrice,description,tags,lowStockEnabled,tenantId)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+          ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
+          [code, name, categoryInfo.name, unitPrice, description, tags, lowStockEnabled, t]);
         results.push(code);
       }
     });
