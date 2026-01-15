@@ -294,7 +294,8 @@ async function renderTable(){
   }
   filtered.forEach(item=>{
     const tr=document.createElement('tr');
-    const price = item.unitPrice ? `$${parseFloat(item.unitPrice).toFixed(2)}` : FALLBACK;
+    const unitPriceNum = Number(item.unitPrice);
+    const price = Number.isFinite(unitPriceNum) ? `$${unitPriceNum.toFixed(2)}` : FALLBACK;
     const reorder = Number.isFinite(Number(item.reorderPoint)) ? item.reorderPoint : '';
     tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.category||FALLBACK}</td><td>${item.uom || item.unit || FALLBACK}</td><td>${price}</td><td>${reorder}</td><td><button class="edit-btn" data-code="${item.code}">Edit</button> <button class="delete-btn" data-code="${item.code}" class="muted">Delete</button></td>`;
     tbody.appendChild(tr);
