@@ -14,6 +14,20 @@ let itemMetaByCode = new Map();
 let categoryRulesByName = new Map();
 let closedJobIds = new Set();
 let itemPanelEls = null;
+const drawerState = {
+  itemCode: null,
+  activeTab: 'overview',
+  role: 'employee',
+  dirty: false,
+  cache: {
+    overview: null,
+    activity: null,
+    jobs: null,
+    logistics: null,
+    insights: null,
+    settings: null
+  }
+};
 
 function getItemPanelEls(){
   if(itemPanelEls) return itemPanelEls;
@@ -25,24 +39,13 @@ function getItemPanelEls(){
     close: document.getElementById('itemPanelClose'),
     title: document.getElementById('itemPanelTitle'),
     name: document.getElementById('itemPanelName'),
-    badges: document.getElementById('itemPanelBadges'),
-    available: document.getElementById('itemPanelAvailable'),
-    reserved: document.getElementById('itemPanelReserved'),
-    checkedOut: document.getElementById('itemPanelCheckedOut'),
-    code: document.getElementById('itemPanelCode'),
     category: document.getElementById('itemPanelCategory'),
-    price: document.getElementById('itemPanelPrice'),
-    tags: document.getElementById('itemPanelTags'),
-    threshold: document.getElementById('itemPanelThreshold'),
-    overdue: document.getElementById('itemPanelOverdue'),
-    projects: document.getElementById('itemPanelProjects'),
-    lastActivity: document.getElementById('itemPanelLastActivity'),
-    lastCount: document.getElementById('itemPanelLastCount'),
-    countedQty: document.getElementById('itemPanelCountedQty'),
-    discrepancy: document.getElementById('itemPanelDiscrepancy'),
-    checkedOutProjects: document.getElementById('itemPanelCheckedOutProjects'),
-    reservedProjects: document.getElementById('itemPanelReservedProjects'),
-    description: document.getElementById('itemPanelDescription')
+    status: document.getElementById('itemPanelStatus'),
+    statusDot: document.querySelector('#itemPanelStatus .dot'),
+    statusLabel: document.querySelector('#itemPanelStatus .label'),
+    actions: document.getElementById('itemDrawerActions'),
+    tabs: document.getElementById('itemDrawerTabs'),
+    body: document.getElementById('itemDrawerBody')
   };
   return itemPanelEls;
 }
@@ -54,6 +57,294 @@ function setPanelOpen(isOpen){
   if(els.backdrop) els.backdrop.classList.toggle('active', isOpen);
   document.body.classList.toggle('panel-open', isOpen);
   els.panel.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+}
+
+function getUserRole(){
+  const session = window.utils?.getSession?.();
+  const role = (session?.role || '').toLowerCase();
+  if(role === 'admin' || role === 'manager' || role === 'employee') return role;
+  return 'employee';
+}
+
+function computeStatus(item, threshold){
+  if(!item) return { tone: 'info', label: 'Active' };
+  if(Number.isFinite(item.available) && item.available <= 0) return { tone: 'danger', label: 'Out of stock' };
+  if(item.overdue) return { tone: 'warn', label: 'Overdue returns' };
+  if(Number.isFinite(threshold) && Number(item.available) <= threshold) return { tone: 'warn', label: 'Low stock' };
+  if(item.recent) return { tone: 'info', label: 'Recently active' };
+  return { tone: 'info', label: 'Active' };
+}
+
+function computeReorderStatus({ available, reorderPoint, inTransit, discrepancyUnits }){
+  const avail = Number(available);
+  const reorder = Number(reorderPoint);
+  const disc = Number(discrepancyUnits);
+  const transit = Number(inTransit);
+  if(Number.isFinite(avail) && avail <= 0 && Number.isFinite(transit) && transit > 0) return { label:'In Transit', tone:'info' };
+  if((Number.isFinite(avail) && avail <= 0) || (Number.isFinite(disc) && disc !== 0)) return { label:'Critical', tone:'danger' };
+  if(Number.isFinite(avail) && Number.isFinite(reorder) && avail <= reorder) return { label:'Attention', tone:'warn' };
+  return { label:'Healthy', tone:'success' };
+}
+
+function qtyCell(label, val, tooltip){
+  const num = Number(val);
+  const isNumber = Number.isFinite(num);
+  const display = isNumber ? num : (val ?? '—');
+  const cls = ['qty-cell'];
+  if(isNumber && num < 0) cls.push('neg');
+  else if(isNumber && num === 0) cls.push('zero');
+  const tip = tooltip ? ` title="${tooltip}"` : '';
+  return `<div class="${cls.join(' ')}"><span class="qty-label">${label}<span class="help-dot"${tip}>?</span></span><strong>${display}</strong></div>`;
+}
+
+function formatLastEvent(ev){
+  if(!ev) return '—';
+  const type = ev.type || 'Event';
+  const ts = ev.timestamp || ev.ts || '';
+  const user = ev.user || ev.userEmail || '';
+  const when = ts ? fmtDT(ts) : '—';
+  return `${type} · ${when}${user ? ' · ' + user : ''}`;
+}
+
+function renderDrawerHeader(item, meta, role, data){
+  const els = getItemPanelEls();
+  if(!els) return;
+  const category = item.category || DEFAULT_CATEGORY_NAME;
+  if(els.title) els.title.textContent = item.code || 'Item';
+  if(els.name) els.name.textContent = item.name || 'Unnamed item';
+  if(els.category) els.category.textContent = category;
+  const status = computeStatus(item, data?.threshold);
+  if(els.statusLabel) els.statusLabel.textContent = status.label || '-';
+  if(els.status){
+    els.status.classList.remove('warn','danger');
+    if(status.tone === 'warn') els.status.classList.add('warn');
+    if(status.tone === 'danger') els.status.classList.add('danger');
+  }
+  if(els.statusDot){
+    els.statusDot.style.background = status.tone === 'danger' ? '#ef4444' : status.tone === 'warn' ? '#f59e0b' : '#22c55e';
+  }
+
+  if(els.actions){
+    els.actions.innerHTML = '';
+    const makeBtn = (label, cls, handler)=>{
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `action-btn ${cls || ''}`.trim();
+      btn.textContent = label;
+      btn.addEventListener('click', handler);
+      return btn;
+    };
+    els.actions.appendChild(makeBtn('Check Out', 'primary', ()=> window.location.href='inventory-operations.html?mode=checkout'));
+    els.actions.appendChild(makeBtn('Reserve', 'outline', ()=> window.location.href='order-register.html#reserve'));
+    if(role === 'manager' || role === 'admin'){
+      els.actions.appendChild(makeBtn('Adjust', '', ()=> window.location.href='inventory-operations.html?mode=checkin'));
+    }
+  }
+}
+
+function allowedTabsForRole(role){
+  const base = ['overview','activity','jobs','insights'];
+  if(role === 'manager' || role === 'admin') base.push('logistics');
+  if(role === 'admin') base.push('settings');
+  return base;
+}
+
+function renderDrawerTabs(role){
+  const els = getItemPanelEls();
+  if(!els?.tabs) return;
+  const tabs = allowedTabsForRole(role);
+  if(!tabs.includes(drawerState.activeTab)) drawerState.activeTab = 'overview';
+  const labels = { overview:'Overview', activity:'Activity', jobs:'Jobs', logistics:'Logistics', insights:'Insights', settings:'Settings' };
+  els.tabs.innerHTML = '';
+  tabs.forEach(key=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'drawer-tab';
+    if(drawerState.activeTab === key) btn.classList.add('active');
+    btn.dataset.tab = key;
+    btn.textContent = labels[key] || key;
+    els.tabs.appendChild(btn);
+  });
+}
+
+function renderTabOverview(data){
+  const item = data?.item || {};
+  const states = data?.states || {};
+  const summary = data?.summary || {};
+  const meta = data?.meta || {};
+  const availability = Number.isFinite(states.available) ? states.available : null;
+  const status = computeReorderStatus({
+    available: availability,
+    reorderPoint: summary.reorderPoint,
+    inTransit: states.inTransit,
+    discrepancyUnits: summary.discrepancyUnits
+  });
+  const reorderBadge = `<span class="status-chip ${status.tone === 'danger' ? 'danger' : status.tone === 'warn' ? 'warn' : 'success'}"><span class="dot"></span><span class="label">${status.label}</span></span>`;
+  const qtyTips = {
+    onHand:'Total physical units across locations.',
+    available:'Units free to allocate (on hand minus reserved/issued).',
+    reserved:'Units held for projects/orders.',
+    checkedOut:'Units currently issued/picked.',
+    inTransit:'Units on open POs not yet received.',
+    damaged:'Units marked damaged/unusable.',
+    returned:'Units recently returned.'
+  };
+  const qtyGrid = `
+    <div class="qty-grid">
+      ${qtyCell('On Hand', states.onHand ?? states.available ?? 0, qtyTips.onHand)}
+      ${qtyCell('Available', states.available ?? 0, qtyTips.available)}
+      ${qtyCell('Reserved', states.reserved ?? 0, qtyTips.reserved)}
+      ${qtyCell('Checked Out', states.checkedOut ?? 0, qtyTips.checkedOut)}
+      ${qtyCell('In Transit', states.inTransit ?? 0, qtyTips.inTransit)}
+      ${qtyCell('Damaged', states.damaged ?? 0, qtyTips.damaged)}
+      ${qtyCell('Returned', states.returned ?? 0, qtyTips.returned)}
+    </div>
+  `;
+  const estDays = (Number.isFinite(states.available) && Number.isFinite(summary.avgDailyUsage) && summary.avgDailyUsage > 0)
+    ? Math.max(0, Math.round(states.available / summary.avgDailyUsage))
+    : '—';
+  const lastActivity = formatLastEvent(summary.lastActivity);
+  const lastCount = summary.lastCount ? `${fmtDate(summary.lastCount.date || summary.lastCount)}${summary.lastCount.user ? ' · ' + summary.lastCount.user : ''}` : '—';
+  const discUnits = summary.discrepancyUnits;
+  const discVal = summary.discrepancyValue;
+  const discLabel = discUnits === undefined || discUnits === null
+    ? '—'
+    : `${discUnits > 0 ? '+' : ''}${discUnits}${discVal ? ` (${discVal})` : ''}`;
+
+  return `
+    <div class="panel-section">
+      <h3>Quantity States</h3>
+      ${qtyGrid}
+    </div>
+    <div class="panel-section">
+      <h3>Reorder &amp; Health</h3>
+      <div class="reorder-row">
+        <div class="reorder-field"><span>Reorder Point</span><strong>${summary.reorderPoint ?? '—'}</strong></div>
+        <div class="reorder-field"><span>Minimum Stock</span><strong>${summary.minStock ?? '—'}</strong></div>
+        <div class="reorder-field"><span>Reorder Status</span>${reorderBadge}</div>
+        <div class="reorder-field"><span>Est. Days of Stock</span><strong>${estDays}</strong></div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>Last Control Events</h3>
+      <div class="panel-list compact">
+        <div class="panel-row"><span>Last Activity</span><strong>${lastActivity}</strong></div>
+        <div class="panel-row"><span>Last Physical Count</span><strong>${lastCount}</strong></div>
+        <div class="panel-row"><span>Discrepancy</span><strong>${discLabel}</strong></div>
+      </div>
+      <a class="muted-link" data-action="view-activity" href="#activity">View full activity</a>
+    </div>
+  `;
+}
+
+function renderTabActivity(data){
+  const lastActivity = data?.lastDate || FALLBACK;
+  const lastCount = data?.lastCount || FALLBACK;
+  const countedQty = data?.countedQty ?? FALLBACK;
+  const discrepancy = data?.discrepancy ?? FALLBACK;
+  const countAge = data?.countAge ?? null;
+  const ageLabel = Number.isFinite(countAge) ? `${countAge} days ago` : FALLBACK;
+  return `
+    <div class="panel-section">
+      <h3>Recent Activity</h3>
+      <div class="panel-list">
+        <div class="panel-row"><span>Last Movement</span><strong>${lastActivity}</strong></div>
+        <div class="panel-row"><span>Last Count</span><strong>${lastCount}</strong></div>
+        <div class="panel-row"><span>Counted Qty</span><strong>${countedQty}</strong></div>
+        <div class="panel-row"><span>Discrepancy</span><strong>${discrepancy}</strong></div>
+        <div class="panel-row"><span>Count Age</span><strong>${ageLabel}</strong></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTabJobs(data){
+  const checked = data?.jobs?.checked || [];
+  const reserved = data?.jobs?.reserved || [];
+  const renderList = (rows, empty)=>{
+    if(!rows.length) return `<div class="job-empty">${empty}</div>`;
+    return `<div class="job-breakdown">${rows.map(r=>`<div class="job-row"><span>${r.jobId || 'General'}</span><span>${r.label}</span></div>`).join('')}</div>`;
+  };
+  return `
+    <div class="panel-section">
+      <h3>Checked Out</h3>
+      ${renderList(checked, 'No active job checkouts.')}
+    </div>
+    <div class="panel-section">
+      <h3>Reserved</h3>
+      ${renderList(reserved, 'No active reservations.')}
+    </div>
+  `;
+}
+
+function renderTabLogistics(data){
+  const threshold = data?.threshold ?? FALLBACK;
+  const overdue = data?.flags?.overdue ? 'Yes' : 'No';
+  const lowStock = data?.flags?.lowStock ? 'Yes' : 'No';
+  const allowReserve = data?.flags?.allowReserve === false ? 'No' : 'Yes';
+  return `
+    <div class="panel-section">
+      <h3>Logistics</h3>
+      <div class="panel-list">
+        <div class="panel-row"><span>Low Stock Threshold</span><strong>${threshold}</strong></div>
+        <div class="panel-row"><span>Low Stock</span><strong>${lowStock}</strong></div>
+        <div class="panel-row"><span>Overdue Returns</span><strong>${overdue}</strong></div>
+        <div class="panel-row"><span>Allow Reserve</span><strong>${allowReserve}</strong></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTabInsights(data){
+  const points = [];
+  if(data?.flags?.lowStock) points.push('Low stock — consider replenishing soon.');
+  if(data?.flags?.overdue) points.push('Overdue returns detected.');
+  if(data?.flags?.recent) points.push('Recently active item.');
+  if(data?.countAge && data.countAge > COUNT_STALE_DAYS) points.push('Counts are stale — recalc recommended.');
+  if(!points.length) points.push('No insights yet. All clear.');
+  return `
+    <div class="panel-section">
+      <h3>Insights</h3>
+      <ul class="panel-note" style="padding-left:18px;line-height:1.5;">
+        ${points.map(p=>`<li>${p}</li>`).join('')}
+      </ul>
+    </div>
+  `;
+}
+
+function renderTabSettings(data){
+  const meta = data?.meta || {};
+  return `
+    <div class="panel-section">
+      <h3>Settings</h3>
+      <p class="panel-note">Admin controls for this item.</p>
+      <div class="panel-list">
+        <div class="panel-row"><span>Category</span><strong>${meta.category || data?.item?.category || DEFAULT_CATEGORY_NAME}</strong></div>
+        <div class="panel-row"><span>Low Stock Threshold</span><strong>${data?.threshold ?? FALLBACK}</strong></div>
+        <div class="panel-row"><span>Description</span><strong>${(meta.description || '').toString().trim() || FALLBACK}</strong></div>
+      </div>
+      <p class="panel-note">Use Catalog to edit full item details.</p>
+    </div>
+  `;
+}
+
+function setActiveTab(key){
+  const els = getItemPanelEls();
+  if(!els?.tabs || !els?.body || !drawerState.data) return;
+  const tabs = allowedTabsForRole(drawerState.role);
+  const nextKey = tabs.includes(key) ? key : 'overview';
+  drawerState.activeTab = nextKey;
+  els.tabs.querySelectorAll('.drawer-tab').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.tab === nextKey);
+  });
+  let content = '';
+  if(nextKey === 'overview') content = renderTabOverview(drawerState.data);
+  else if(nextKey === 'activity') content = renderTabActivity(drawerState.data);
+  else if(nextKey === 'jobs') content = renderTabJobs(drawerState.data);
+  else if(nextKey === 'logistics') content = renderTabLogistics(drawerState.data);
+  else if(nextKey === 'insights') content = renderTabInsights(drawerState.data);
+  else if(nextKey === 'settings') content = renderTabSettings(drawerState.data);
+  els.body.innerHTML = content;
 }
 
 function renderJobBreakdown(container, rows, emptyText){
@@ -87,52 +378,13 @@ function openItemPanel(item){
   if(!els || !item) return;
   const meta = itemMetaByCode.get(item.code) || {};
   const staticTags = normalizeTags(meta.tags);
-  const threshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
+  const lowStockCfg = getLowStockConfigForCode(item.code);
+  const threshold = Number.isFinite(lowStockCfg?.threshold) ? lowStockCfg.threshold : DEFAULT_LOW_STOCK_THRESHOLD;
   const countDate = item.countedAt ? fmtDate(item.countedAt) : FALLBACK;
   const countedQty = item.countedQty !== null && item.countedQty !== undefined ? item.countedQty : FALLBACK;
   const discrepancy = item.discrepancy !== null && item.discrepancy !== undefined
     ? `${item.discrepancy > 0 ? '+' : ''}${item.discrepancy}`
     : FALLBACK;
-
-  els.title.textContent = item.code || 'Item';
-  els.name.textContent = item.name || 'Unnamed item';
-  if(els.code) els.code.textContent = item.code || FALLBACK;
-  els.available.textContent = Number.isFinite(Number(item.available)) ? item.available : FALLBACK;
-  els.reserved.textContent = Number.isFinite(Number(item.reserveQty)) ? item.reserveQty : FALLBACK;
-  els.checkedOut.textContent = Number.isFinite(Number(item.checkedOut)) ? item.checkedOut : FALLBACK;
-  els.category.textContent = item.category || DEFAULT_CATEGORY_NAME;
-  if(els.price) els.price.textContent = fmtMoney(meta.unitPrice);
-  if(els.tags) els.tags.textContent = staticTags.length ? staticTags.join(', ') : FALLBACK;
-  els.threshold.textContent = item.lowStockEnabled === false ? 'Disabled' : threshold;
-  if(els.overdue) els.overdue.textContent = item.overdue ? 'Yes' : 'No';
-  els.projects.textContent = item.jobsList || FALLBACK;
-  els.lastActivity.textContent = item.lastDate || FALLBACK;
-  els.lastCount.textContent = countDate;
-  els.countedQty.textContent = countedQty;
-  els.discrepancy.textContent = discrepancy;
-  els.description.textContent = (meta.description || '').toString().trim() || 'No description provided.';
-
-  if(els.badges){
-    els.badges.innerHTML = '';
-    const badges = [];
-    if(item.available <= 0){
-      badges.push({ text: 'Out of stock', cls: 'danger' });
-    }else if(item.available <= threshold){
-      badges.push({ text: 'Low stock', cls: 'warn' });
-    }
-    if(item.overdue) badges.push({ text: 'Overdue returns', cls: 'danger' });
-    if(item.recent) badges.push({ text: 'Recently active', cls: 'info' });
-    if(!badges.length){
-      badges.push({ text: 'On hand', cls: 'info' });
-    }
-    badges.forEach(badge=>{
-      const el = document.createElement('span');
-      el.className = badge.cls ? `badge ${badge.cls}` : 'badge';
-      el.textContent = badge.text;
-      els.badges.appendChild(el);
-    });
-  }
-
   const outRows = [];
   const reserveRows = [];
   if(item.jobs && item.jobs.size){
@@ -147,14 +399,42 @@ function openItemPanel(item){
       }
     });
   }
-  renderJobBreakdown(els.checkedOutProjects, outRows, 'No active job checkouts.');
-  renderJobBreakdown(els.reservedProjects, reserveRows, 'No active reservations.');
-
+  const role = getUserRole();
+  const allowReserve = (categoryRulesByName.get((item.category || '').toLowerCase()) || {}).allowReserve;
+  drawerState.data = {
+    item,
+    meta,
+    tags: staticTags,
+    stats: { available: item.available, reserved: item.reserveQty, checkedOut: item.checkedOut },
+    threshold,
+    lastDate: item.lastDate || FALLBACK,
+    lastCount: countDate,
+    countedQty,
+    discrepancy,
+    countAge: item.countAge ?? (item.countedAt ? daysBetween(item.countedAt) : null),
+    jobs: { checked: outRows, reserved: reserveRows },
+    flags: {
+      lowStock: Number.isFinite(threshold) && Number(item.available) <= threshold,
+      overdue: !!item.overdue,
+      recent: !!item.recent,
+      allowReserve: allowReserve !== undefined ? !!allowReserve : true
+    }
+  };
+  drawerState.role = role;
+  drawerState.activeTab = 'overview';
+  renderDrawerHeader(item, meta, role, drawerState.data);
+  renderDrawerTabs(role);
+  setActiveTab('overview');
   setPanelOpen(true);
 }
 
 function closeItemPanel(){
+  if(drawerState.dirty){
+    const proceed = confirm('You have unsaved changes. Close anyway?');
+    if(!proceed) return;
+  }
   setPanelOpen(false);
+  drawerState.dirty = false;
 }
 
 function setupItemPanel(){
@@ -162,6 +442,13 @@ function setupItemPanel(){
   if(!els) return;
   if(els.close) els.close.addEventListener('click', closeItemPanel);
   if(els.backdrop) els.backdrop.addEventListener('click', closeItemPanel);
+  if(els.tabs){
+    els.tabs.addEventListener('click', (event)=>{
+      const btn = event.target.closest('.drawer-tab');
+      if(!btn) return;
+      setActiveTab(btn.dataset.tab);
+    });
+  }
   document.addEventListener('keydown', (e)=>{
     if(e.key === 'Escape' && els.panel.classList.contains('open')){
       closeItemPanel();
@@ -993,4 +1280,3 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   const incomingSearchBox = document.getElementById('incomingSearchBox');
   if(incomingSearchBox) incomingSearchBox.addEventListener('input', renderIncoming);
 });
-
