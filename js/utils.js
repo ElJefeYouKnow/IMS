@@ -170,7 +170,7 @@
       this.buildMobileNav?.();
       this.registerServiceWorker?.();
       const user = this.getSession();
-      document.body.classList.remove('role-admin','role-employee','role-none');
+      document.body.classList.remove('role-admin','role-employee','role-manager','role-none');
       if(!user){
         document.body.classList.add('role-none');
         return;
@@ -178,7 +178,14 @@
       const role = (user.role || '').toLowerCase();
       const tenant = (user.tenantId || user.tenantid || '').toLowerCase();
       const isDev = role === 'dev' || tenant === 'dev';
-      if(user.role === 'admin') document.body.classList.add('role-admin'); else document.body.classList.add('role-employee');
+      if(role === 'admin'){
+        document.body.classList.add('role-admin');
+      }else if(role === 'manager'){
+        document.body.classList.add('role-manager');
+        document.body.classList.add('role-employee'); // Inherit employee visibility by default
+      }else{
+        document.body.classList.add('role-employee');
+      }
       document.querySelectorAll('[data-dev-only]').forEach(el=>{
         el.style.display = isDev ? '' : 'none';
       });

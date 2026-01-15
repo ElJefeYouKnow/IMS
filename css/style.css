@@ -444,11 +444,14 @@ select:disabled{
 /* Role visibility helpers */
 body.role-admin .sidebar a[data-role='admin']{display:flex}
 body.role-employee .sidebar a[data-role='employee']{display:flex}
+body.role-manager .sidebar a[data-role='manager'],body.role-manager .sidebar a[data-role='employee']{display:flex}
 body.role-none .sidebar a[data-role]{display:none}
 body.role-admin .bottom-nav a[data-role='admin']{display:inline-flex}
 body.role-employee .bottom-nav a[data-role='employee']{display:inline-flex}
+body.role-manager .bottom-nav a[data-role='manager'],body.role-manager .bottom-nav a[data-role='employee']{display:inline-flex}
 body.role-none .bottom-nav a[data-role]{display:none}
 body.role-employee .admin-only{display:none}
+body.role-manager .admin-only{display:none}
 .settings-tabs{margin-bottom:12px;flex-wrap:wrap}
 .settings-panel{display:flex;flex-direction:column;gap:12px}
 .settings-msg{font-size:0.9rem;color:#6b7280;margin-top:8px}
@@ -853,4 +856,3 @@ body.role-employee .admin-only{display:none}
   [data-ds="v1"] select,
   [data-ds="v1"] textarea{font-size:16px}
 }
-

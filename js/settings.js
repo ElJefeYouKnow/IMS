@@ -202,16 +202,25 @@ function generateTempPassword(){
   return pwd;
 }
 
+function formatRoleLabel(role){
+  const r = (role || '').toLowerCase();
+  if(r === 'admin') return 'Admin';
+  if(r === 'manager') return 'Manager';
+  return 'Employee';
+}
+
 function updateUserStats(allUsers, visibleUsers){
   const total = allUsers.length;
   const admins = allUsers.filter(u=> u.role === 'admin').length;
-  const employees = allUsers.filter(u=> u.role !== 'admin').length;
+  const managers = allUsers.filter(u=> u.role === 'manager').length;
+  const employees = allUsers.filter(u=> u.role !== 'admin' && u.role !== 'manager').length;
   const setText = (id, val)=>{
     const el = document.getElementById(id);
     if(el) el.textContent = `${val}`;
   };
   setText('userTotal', total);
   setText('userAdmins', admins);
+  setText('userManagers', managers);
   setText('userEmployees', employees);
   setText('userShowing', visibleUsers.length);
 }
@@ -278,8 +287,8 @@ function renderUsersTable(allUsers){
   users.forEach(u=>{
     const tr=document.createElement('tr');
     const dt = u.createdAt ? new Date(u.createdAt).toLocaleString() : '';
-    const roleLabel = u.role === 'admin' ? 'Admin' : 'Employee';
-    const roleToggle = u.role === 'admin' ? 'Demote' : 'Promote';
+    const roleLabel = formatRoleLabel(u.role);
+    const roleToggle = u.role === 'admin' ? 'Demote to User' : 'Make Admin';
     const btn = `
       <button type="button" class="action-btn edit-user" data-id="${u.id}" data-email="${u.email}" data-name="${u.name||''}" data-role="${u.role}">Edit</button>
       <button type="button" class="action-btn role-user" data-id="${u.id}">${roleToggle}</button>
