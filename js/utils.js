@@ -312,13 +312,17 @@
     const ts = utils.parseTs(val);
     if(ts === null) return '';
     const d = new Date(ts);
-    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
+    if(Number.isNaN(d.getTime())) return '';
+    const opts = { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' };
+    return d.toLocaleString([], opts);
   };
   utils.formatDateOnly = function(val){
     const ts = utils.parseTs(val);
     if(ts === null) return '';
     const d = new Date(ts);
-    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+    if(Number.isNaN(d.getTime())) return '';
+    const opts = { year:'numeric', month:'short', day:'2-digit' };
+    return d.toLocaleDateString([], opts);
   };
 
   global.utils = utils;

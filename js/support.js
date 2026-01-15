@@ -9,7 +9,9 @@ function escapeHtml(value){
 
 function formatTime(ts){
   if(window.utils && utils.formatDateTime) return utils.formatDateTime(ts);
-  return ts ? new Date(ts).toLocaleString() : '';
+  if(!ts) return '';
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
 
 function setTableMessage(tbody, message){

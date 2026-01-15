@@ -321,17 +321,17 @@ async function saveCounts(lines){
 }
 
 function fmtDT(val){
-  if(window.utils && utils.formatDateTime){
-    return utils.formatDateTime(val);
-  }
-  return val ? new Date(val).toLocaleString() : FALLBACK;
+  if(window.utils?.formatDateTime) return utils.formatDateTime(val);
+  if(!val) return FALLBACK;
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? FALLBACK : d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
 
 function fmtDate(val){
-  if(window.utils && utils.formatDateOnly){
-    return utils.formatDateOnly(val);
-  }
-  return val ? new Date(val).toLocaleDateString() : FALLBACK;
+  if(window.utils?.formatDateOnly) return utils.formatDateOnly(val);
+  if(!val) return FALLBACK;
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? FALLBACK : d.toLocaleDateString([], { year:'numeric', month:'short', day:'2-digit' });
 }
 
 function fmtMoney(val){
@@ -993,5 +993,4 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   const incomingSearchBox = document.getElementById('incomingSearchBox');
   if(incomingSearchBox) incomingSearchBox.addEventListener('input', renderIncoming);
 });
-
 

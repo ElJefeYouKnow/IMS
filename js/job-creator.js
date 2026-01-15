@@ -34,17 +34,18 @@ async function loadJobs(){
 }
 
 function formatDate(val){
+  if(window.utils?.formatDateOnly) return utils.formatDateOnly(val);
   const d = parseDateValue(val);
   if(!d) return FALLBACK;
-  return d.toLocaleDateString();
+  return Number.isNaN(d.getTime()) ? FALLBACK : d.toLocaleDateString([], { year:'numeric', month:'short', day:'2-digit' });
 }
 
 function formatDateTime(val){
   if(!val) return FALLBACK;
-  if(window.utils && utils.formatDateTime) return utils.formatDateTime(val);
+  if(window.utils?.formatDateTime) return utils.formatDateTime(val);
   const d = parseDateValue(val);
   if(!d) return FALLBACK;
-  return d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? FALLBACK : d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
 
 function formatStatus(val){

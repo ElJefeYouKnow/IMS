@@ -202,6 +202,13 @@ function generateTempPassword(){
   return pwd;
 }
 
+function formatDateTimeSafe(val){
+  if(window.utils?.formatDateTime) return utils.formatDateTime(val);
+  if(!val) return '';
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+
 function formatRoleLabel(role){
   const r = (role || '').toLowerCase();
   if(r === 'admin') return 'Admin';
@@ -286,7 +293,7 @@ function renderUsersTable(allUsers){
   }
   users.forEach(u=>{
     const tr=document.createElement('tr');
-    const dt = u.createdAt ? new Date(u.createdAt).toLocaleString() : '';
+    const dt = formatDateTimeSafe(u.createdAt);
     const roleLabel = formatRoleLabel(u.role);
     const roleToggle = u.role === 'admin' ? 'Demote to User' : 'Make Admin';
     const btn = `

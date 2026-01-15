@@ -28,8 +28,10 @@ async function loadData(){
 }
 
 function fmtTime(ts){
-  if(window.utils && utils.formatDateTime) return utils.formatDateTime(ts);
-  return new Date(ts).toLocaleString();
+  if(window.utils?.formatDateTime) return utils.formatDateTime(ts);
+  if(!ts) return '';
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
 
 function statusPill(status){
