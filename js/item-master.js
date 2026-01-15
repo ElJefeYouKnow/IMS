@@ -17,6 +17,8 @@ let currentEditId = null;
 let currentCategoryId = null;
 let categoriesCache = [];
 let editModalOpen = false;
+let suppliersCache = [];
+let currentSupplierId = null;
 
 function getEditModalEls(){
   const modal = document.getElementById('itemEditModal');
@@ -32,7 +34,16 @@ function getEditModalEls(){
     unitPrice: document.getElementById('itemEditUnitPrice'),
     tags: document.getElementById('itemEditTags'),
     lowStockEnabled: document.getElementById('itemEditLowStockEnabled'),
-    description: document.getElementById('itemEditDescription')
+    description: document.getElementById('itemEditDescription'),
+    uom: document.getElementById('itemEditUom'),
+    serialized: document.getElementById('itemEditSerialized'),
+    lot: document.getElementById('itemEditLot'),
+    expires: document.getElementById('itemEditExpires'),
+    warehouse: document.getElementById('itemEditWarehouse'),
+    zone: document.getElementById('itemEditZone'),
+    bin: document.getElementById('itemEditBin'),
+    reorderPoint: document.getElementById('itemEditReorderPoint'),
+    minStock: document.getElementById('itemEditMinStock')
   };
 }
 
@@ -59,6 +70,15 @@ function openEditModal(item){
   els.unitPrice.value = item.unitPrice || '';
   els.tags.value = Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags || '');
   els.description.value = item.description || '';
+  if(els.uom) els.uom.value = item.uom || item.unit || '';
+  if(els.serialized) els.serialized.checked = !!item.serialized;
+  if(els.lot) els.lot.checked = !!item.lot;
+  if(els.expires) els.expires.checked = !!item.expires;
+  if(els.warehouse) els.warehouse.value = item.warehouse || '';
+  if(els.zone) els.zone.value = item.zone || '';
+  if(els.bin) els.bin.value = item.bin || '';
+  if(els.reorderPoint) els.reorderPoint.value = Number.isFinite(Number(item.reorderPoint)) ? item.reorderPoint : '';
+  if(els.minStock) els.minStock.value = Number.isFinite(Number(item.minStock)) ? item.minStock : '';
   const itemLowStock = parseBool(item.lowStockEnabled ?? item.lowstockenabled);
   if(els.lowStockEnabled){
     const fallback = getCategoryLowStockEnabled(els.category.value);
@@ -250,6 +270,15 @@ async function loadItems(){
   return [];
 }
 
+async function loadSuppliers(){
+  try{
+    const r = await fetch('/api/suppliers',{credentials:'include'});
+    if(r.status === 401){ window.location.href='login.html'; return []; }
+    if(r.ok) return await r.json();
+  }catch(e){}
+  return [];
+}
+
 async function renderTable(){
   const tbody=document.querySelector('#itemTable tbody');tbody.innerHTML='';
   const items = await loadItems();
@@ -259,14 +288,15 @@ async function renderTable(){
   filtered.sort((a,b)=> a.code.localeCompare(b.code));
   if(!filtered.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No items in catalog</td>`;
+    tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No items in catalog</td>`;
     tbody.appendChild(tr);
     return;
   }
   filtered.forEach(item=>{
     const tr=document.createElement('tr');
     const price = item.unitPrice ? `$${parseFloat(item.unitPrice).toFixed(2)}` : FALLBACK;
-    tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.category||FALLBACK}</td><td>${price}</td><td><button class="edit-btn" data-code="${item.code}">Edit</button> <button class="delete-btn" data-code="${item.code}" class="muted">Delete</button></td>`;
+    const reorder = Number.isFinite(Number(item.reorderPoint)) ? item.reorderPoint : '';
+    tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.category||FALLBACK}</td><td>${item.uom || item.unit || FALLBACK}</td><td>${price}</td><td>${reorder}</td><td><button class="edit-btn" data-code="${item.code}">Edit</button> <button class="delete-btn" data-code="${item.code}" class="muted">Delete</button></td>`;
     tbody.appendChild(tr);
   });
   document.querySelectorAll('.edit-btn').forEach(btn=> btn.addEventListener('click',editItem));
@@ -317,6 +347,89 @@ async function renderCategoryTable(){
   });
   document.querySelectorAll('.cat-edit-btn').forEach(btn=> btn.addEventListener('click', editCategory));
   document.querySelectorAll('.cat-delete-btn').forEach(btn=> btn.addEventListener('click', deleteCategory));
+}
+
+function renderSupplierTable(){
+  const tbody = document.querySelector('#supplierTable tbody');
+  if(!tbody) return;
+  const search = (document.getElementById('supplierSearch')?.value || '').toLowerCase();
+  tbody.innerHTML = '';
+  let rows = suppliersCache.slice();
+  if(search){
+    rows = rows.filter(s=>{
+      return (s.name || '').toLowerCase().includes(search)
+        || (s.contact || '').toLowerCase().includes(search)
+        || (s.email || '').toLowerCase().includes(search);
+    });
+  }
+  rows.sort((a,b)=> (a.name || '').localeCompare(b.name || ''));
+  if(!rows.length){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="5" style="text-align:center;color:#6b7280;">No suppliers</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  rows.forEach(s=>{
+    const lead = s.leadTime ? `${s.leadTime.avg ?? '-'}d` : '-';
+    const moq = s.moq ?? '-';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${s.name || FALLBACK}</td><td>${s.contact || FALLBACK}</td><td>${lead}</td><td>${moq}</td><td><button class="supplier-edit" data-id="${s.id}">Edit</button></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('.supplier-edit').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const supplier = suppliersCache.find(s=> s.id === btn.dataset.id);
+      if(supplier) fillSupplierForm(supplier);
+    });
+  });
+}
+
+function fillSupplierForm(supplier){
+  currentSupplierId = supplier?.id || null;
+  document.getElementById('supplierId').value = supplier?.id || '';
+  document.getElementById('supplierName').value = supplier?.name || '';
+  document.getElementById('supplierContact').value = supplier?.contact || '';
+  document.getElementById('supplierEmail').value = supplier?.email || '';
+  document.getElementById('supplierPhone').value = supplier?.phone || '';
+  document.getElementById('supplierLeadAvg').value = supplier?.leadTime?.avg ?? '';
+  document.getElementById('supplierLeadMin').value = supplier?.leadTime?.min ?? '';
+  document.getElementById('supplierLeadMax').value = supplier?.leadTime?.max ?? '';
+  document.getElementById('supplierMoq').value = supplier?.moq ?? '';
+  document.getElementById('supplierNotes').value = supplier?.notes || '';
+  const msg = document.getElementById('supplierMsg');
+  if(msg) msg.textContent = `Editing ${supplier?.name || ''}`;
+}
+
+function clearSupplierForm(){
+  currentSupplierId = null;
+  document.getElementById('supplierForm').reset();
+  document.getElementById('supplierId').value = '';
+  const msg = document.getElementById('supplierMsg');
+  if(msg) msg.textContent = '';
+}
+
+async function saveSupplier(payload){
+  const id = payload.id;
+  const method = id ? 'PUT' : 'POST';
+  const url = id ? `/api/suppliers/${id}` : '/api/suppliers';
+  try{
+    const r = await fetch(url,{
+      method,
+      headers:{'Content-Type':'application/json'},
+      credentials:'include',
+      body: JSON.stringify(payload)
+    });
+    if(r.status === 401){ alert('Unauthorized'); return false; }
+    if(!r.ok){
+      const data = await r.json().catch(()=>({}));
+      alert(data.error || 'Save failed');
+      return false;
+    }
+    return true;
+  }catch(e){
+    alert('Save failed');
+    return false;
+  }
 }
 
 function fillCategoryForm(category){
@@ -429,6 +542,10 @@ function clearForm(){
   if(lowStockCheckbox){
     lowStockCheckbox.checked = getCategoryLowStockEnabled(categorySelect?.value);
   }
+  ['itemSerialized','itemLot','itemExpires'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.checked = false;
+  });
 }
 
 document.addEventListener('DOMContentLoaded', async ()=>{
@@ -448,6 +565,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   renderCategoryOptions();
   await renderCategoryTable();
   await renderTable();
+  suppliersCache = await loadSuppliers();
+  renderSupplierTable();
   const categorySelect = document.getElementById('category');
   const lowStockCheckbox = document.getElementById('itemLowStockEnabled');
   if(categorySelect && lowStockCheckbox){
@@ -459,17 +578,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const searchBox = document.getElementById('searchBox');
   if(searchBox) searchBox.addEventListener('input', renderTable);
   const hash = (window.location.hash || '').replace('#','').toLowerCase();
-  const initial = hash === 'categories' ? 'categories' : 'items';
+  const initial = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
   setMode(initial);
   document.querySelectorAll('.mode-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const mode = btn.dataset.mode;
       setMode(mode);
-      if(mode === 'categories'){
-        window.location.hash = 'categories';
-      }else{
-        history.replaceState(null, '', window.location.pathname);
-      }
+      if(mode === 'categories') window.location.hash = 'categories';
+      else if(mode === 'suppliers') window.location.hash = 'suppliers';
+      else history.replaceState(null, '', window.location.pathname);
     });
   });
 
@@ -529,7 +646,52 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       URL.revokeObjectURL(url);
     });
   }
-  
+
+  const supplierSearch = document.getElementById('supplierSearch');
+  supplierSearch?.addEventListener('input', renderSupplierTable);
+  document.getElementById('supplierRefresh')?.addEventListener('click', async ()=>{
+    suppliersCache = await loadSuppliers();
+    renderSupplierTable();
+  });
+  document.getElementById('supplierClear')?.addEventListener('click', clearSupplierForm);
+  document.getElementById('supplierForm')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const payload = {
+      id: currentSupplierId,
+      name: document.getElementById('supplierName').value.trim(),
+      contact: document.getElementById('supplierContact').value.trim(),
+      email: document.getElementById('supplierEmail').value.trim(),
+      phone: document.getElementById('supplierPhone').value.trim(),
+      moq: document.getElementById('supplierMoq').value ? Number(document.getElementById('supplierMoq').value) : null,
+      notes: document.getElementById('supplierNotes').value.trim(),
+      leadTime: {
+        avg: document.getElementById('supplierLeadAvg').value ? Number(document.getElementById('supplierLeadAvg').value) : null,
+        min: document.getElementById('supplierLeadMin').value ? Number(document.getElementById('supplierLeadMin').value) : null,
+        max: document.getElementById('supplierLeadMax').value ? Number(document.getElementById('supplierLeadMax').value) : null
+      }
+    };
+    const msg = document.getElementById('supplierMsg');
+    if(!payload.name){
+      if(msg){ msg.textContent = 'Name is required.'; msg.style.color = '#b91c1c'; }
+      return;
+    }
+    const ok = await saveSupplier(payload);
+    if(msg){
+      if(ok){
+        msg.textContent = 'Saved';
+        msg.style.color = '#15803d';
+      }else{
+        msg.textContent = 'Save failed';
+        msg.style.color = '#b91c1c';
+      }
+    }
+    if(ok){
+      suppliersCache = await loadSuppliers();
+      renderSupplierTable();
+      clearSupplierForm();
+    }
+  });
+
   const form = document.getElementById('itemForm');
   form.addEventListener('submit',async ev=>{
     ev.preventDefault();
@@ -539,11 +701,37 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const unitPrice = document.getElementById('unitPrice').value;
     const tagsRaw = document.getElementById('itemTags').value;
     const lowStockEnabled = document.getElementById('itemLowStockEnabled').checked;
+    const uom = document.getElementById('itemUom').value.trim();
+    const serialized = document.getElementById('itemSerialized').checked;
+    const lot = document.getElementById('itemLot').checked;
+    const expires = document.getElementById('itemExpires').checked;
+    const warehouse = document.getElementById('itemWarehouse').value.trim();
+    const zone = document.getElementById('itemZone').value.trim();
+    const bin = document.getElementById('itemBin').value.trim();
+    const reorderPointRaw = document.getElementById('itemReorderPoint').value;
+    const minStockRaw = document.getElementById('itemMinStock').value;
     const description = document.getElementById('description').value.trim();
     if(!code||!name){alert('Code and name are required');return}
     
     const tags = normalizeTags(tagsRaw);
-    const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags, lowStockEnabled };
+    const item = {
+      code,
+      name,
+      category,
+      unitPrice: unitPrice ? parseFloat(unitPrice) : null,
+      description,
+      tags,
+      lowStockEnabled,
+      uom,
+      serialized,
+      lot,
+      expires,
+      warehouse,
+      zone,
+      bin,
+      reorderPoint: reorderPointRaw === '' ? null : Number(reorderPointRaw),
+      minStock: minStockRaw === '' ? null : Number(minStockRaw)
+    };
     if(currentEditId){
       item.oldCode = currentEditId;
     }
@@ -576,9 +764,35 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const tagsRaw = editEls.tags.value;
       const lowStockEnabled = editEls.lowStockEnabled ? editEls.lowStockEnabled.checked : true;
       const description = editEls.description.value.trim();
+      const uom = editEls.uom?.value.trim() || '';
+      const serialized = editEls.serialized?.checked || false;
+      const lot = editEls.lot?.checked || false;
+      const expires = editEls.expires?.checked || false;
+      const warehouse = editEls.warehouse?.value.trim() || '';
+      const zone = editEls.zone?.value.trim() || '';
+      const bin = editEls.bin?.value.trim() || '';
+      const reorderPointRaw = editEls.reorderPoint?.value || '';
+      const minStockRaw = editEls.minStock?.value || '';
       if(!code || !name){ alert('Code and name are required'); return; }
       const tags = normalizeTags(tagsRaw);
-      const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags, lowStockEnabled };
+      const item = {
+        code,
+        name,
+        category,
+        unitPrice: unitPrice ? parseFloat(unitPrice) : null,
+        description,
+        tags,
+        lowStockEnabled,
+        uom,
+        serialized,
+        lot,
+        expires,
+        warehouse,
+        zone,
+        bin,
+        reorderPoint: reorderPointRaw === '' ? null : Number(reorderPointRaw),
+        minStock: minStockRaw === '' ? null : Number(minStockRaw)
+      };
       if(currentEditId){
         item.oldCode = currentEditId;
       }
