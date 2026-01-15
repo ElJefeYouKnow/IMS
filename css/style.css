@@ -237,6 +237,29 @@ body.panel-open{overflow:hidden}
 .drawer-tab.active{background:linear-gradient(135deg,#1f6f5c,#164d41);color:#fff;border-color:rgba(31,111,92,0.35)}
 .dark .drawer-tabs{background:#16221f;border-color:#22312d}
 .drawer-body{padding:18px 20px;display:flex;flex-direction:column;gap:16px}
+.qty-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.qty-cell{border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.qty-cell.zero{opacity:0.7}
+.qty-cell.neg strong{color:#b91c1c}
+.qty-label{display:flex;align-items:center;gap:6px;font-size:0.85rem;color:var(--muted);font-weight:700}
+.help-dot{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;border:1px solid var(--line);font-size:10px;font-weight:800;color:var(--muted);cursor:help;background:var(--surface-2)}
+.reorder-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+.reorder-field{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--surface-2);display:flex;flex-direction:column;gap:6px}
+.reorder-field span{font-size:0.85rem;color:var(--muted);font-weight:700}
+.status-chip.success .dot{background:#22c55e}
+.status-chip.success{border-color:rgba(34,197,94,0.4)}
+.muted-link{color:var(--muted);font-weight:700;text-decoration:none}
+.muted-link:hover{text-decoration:underline}
+.panel-list.compact .panel-row{padding:6px 0}
+.filters-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.filters-row select,.filters-row input{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);flex:1}
+.panel-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+.drawer-table{width:100%;border-collapse:collapse;font-size:0.9rem}
+.drawer-table th,.drawer-table td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+.drawer-table th{color:var(--muted);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em}
+.pager-row{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:8px}
+.subhead{margin:12px 0 6px 0;font-size:0.9rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em}
+.job-link{cursor:pointer}
 .panel-badges{display:flex;flex-wrap:wrap;gap:8px}
 .panel-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .panel-metric{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:10px}
