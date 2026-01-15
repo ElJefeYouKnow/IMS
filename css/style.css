@@ -508,6 +508,7 @@ body.role-manager .admin-only{display:none}
 .ticket-subject{font-weight:700;color:#1b2522}
 .ticket-body{color:var(--muted);font-size:0.85rem;margin-top:4px}
 .dark .ticket-subject{color:var(--ink)}
+.table-scroll{overflow-x:auto}
 
 /* Pro polish (dashboard + operations) */
 [data-ds="pro"]{

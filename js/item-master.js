@@ -20,6 +20,12 @@ let editModalOpen = false;
 let suppliersCache = [];
 let currentSupplierId = null;
 
+function unitPriceValue(item){
+  const raw = item?.unitPrice ?? item?.unitprice;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
 function getEditModalEls(){
   const modal = document.getElementById('itemEditModal');
   if(!modal) return null;
@@ -67,7 +73,8 @@ function openEditModal(item){
   els.code.value = item.code || '';
   els.name.value = item.name || '';
   els.category.value = item.category || DEFAULT_CATEGORY_NAME;
-  els.unitPrice.value = item.unitPrice || '';
+  const unitPrice = unitPriceValue(item);
+  els.unitPrice.value = unitPrice !== null ? unitPrice : '';
   els.tags.value = Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags || '');
   els.description.value = item.description || '';
   if(els.uom) els.uom.value = item.uom || item.unit || '';
@@ -294,7 +301,7 @@ async function renderTable(){
   }
   filtered.forEach(item=>{
     const tr=document.createElement('tr');
-    const unitPriceNum = Number(item.unitPrice);
+    const unitPriceNum = unitPriceValue(item);
     const price = Number.isFinite(unitPriceNum) ? `$${unitPriceNum.toFixed(2)}` : FALLBACK;
     const reorder = Number.isFinite(Number(item.reorderPoint)) ? item.reorderPoint : '';
     tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.category||FALLBACK}</td><td>${item.uom || item.unit || FALLBACK}</td><td>${price}</td><td>${reorder}</td><td><button class="edit-btn" data-code="${item.code}">Edit</button> <button class="delete-btn" data-code="${item.code}" class="muted">Delete</button></td>`;
