@@ -124,11 +124,10 @@ function computeAccuracy(statsMap, countsMap){
 }
 
 async function loadData(){
-  const [inventory, counts, items, backorders, pickEvents, checkinEvents] = await Promise.all([
+  const [inventory, counts, items, pickEvents, checkinEvents] = await Promise.all([
     utils.fetchJsonSafe('/api/inventory', {}, []),
     utils.fetchJsonSafe('/api/inventory-counts', {}, []),
     utils.fetchJsonSafe('/api/items', {}, []),
-    utils.fetchJsonSafe('/api/backorders?status=open', {}, []),
     utils.fetchJsonSafe(`/api/ops-events?type=pick&days=${WINDOW_DAYS}`, {}, []),
     utils.fetchJsonSafe(`/api/ops-events?type=checkin&days=${WINDOW_DAYS}`, {}, [])
   ]);
@@ -136,7 +135,6 @@ async function loadData(){
     inventory: Array.isArray(inventory) ? inventory : [],
     counts: Array.isArray(counts) ? counts : [],
     items: Array.isArray(items) ? items : [],
-    backorders: Array.isArray(backorders) ? backorders : [],
     pickEvents: Array.isArray(pickEvents) ? pickEvents : [],
     checkinEvents: Array.isArray(checkinEvents) ? checkinEvents : []
   };
@@ -286,8 +284,6 @@ function computeMetrics(data){
   const leadVar = leadTimes.length > 1 ? Math.sqrt(leadTimes.reduce((sum, v)=> sum + Math.pow(v - avgLeadTime, 2), 0) / leadTimes.length) : null;
   const onTimeRate = onTimeTotal ? onTime / onTimeTotal : null;
 
-  const backorderQty = data.backorders.reduce((sum, b)=> sum + (Number(b.qty || 0) || 0), 0);
-  const backorderRate = orderedQtyWindow ? backorderQty / orderedQtyWindow : null;
   const fillRate = orderedQtyWindow ? Math.min(1, receivedQtyWindow / orderedQtyWindow) : null;
   const serviceLevel = stockouts === 0 && totalItems ? 1 : totalItems ? 1 - (stockouts / totalItems) : null;
 
@@ -388,7 +384,6 @@ function computeMetrics(data){
     avgLeadTime,
     leadVar,
     onTimeRate,
-    backorderRate,
     fillRate,
     serviceLevel,
     turnover,
@@ -440,20 +435,6 @@ function renderTables(metrics, data){
       });
     }
   }
-  const backorderBody = document.querySelector('#backorderTable tbody');
-  if(backorderBody){
-    backorderBody.innerHTML = '';
-    if(!data.backorders.length){
-      backorderBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#6b7280;">No open backorders.</td></tr>';
-    }else{
-      data.backorders.slice(0,6).forEach(row=>{
-        const ageDays = row.createdAt ? Math.floor((Date.now() - row.createdAt) / DAY_MS) : 0;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${row.code || ''}</td><td>${fmtNum(row.qty)}</td><td>${row.jobId || 'General'}</td><td>${ageDays}d</td>`;
-        backorderBody.appendChild(tr);
-      });
-    }
-  }
 }
 
 async function renderOpsDashboard(){
@@ -477,7 +458,6 @@ async function renderOpsDashboard(){
   setText('kpi-dead-stock', fmtPct(metrics.totalItems ? metrics.deadStock / metrics.totalItems : null));
   setText('kpi-slow-moving', fmtNum(metrics.slowMovingList.length));
   setText('kpi-stockout', fmtPct(metrics.totalItems ? metrics.stockouts / metrics.totalItems : null));
-  setText('kpi-backorder', fmtPct(metrics.backorderRate));
   setText('kpi-fill-rate', fmtPct(metrics.fillRate));
   setText('kpi-service-level', fmtPct(metrics.serviceLevel));
   setText('kpi-lead-time', metrics.avgLeadTime ? fmtDuration(metrics.avgLeadTime) : 'N/A');

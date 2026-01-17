@@ -92,7 +92,6 @@
           <button class="mode-btn active" data-mode="checkout">Pick Items (Check-Out)</button>
           <button class="mode-btn" data-mode="checkin">Receive Orders</button>
           <button class="mode-btn" data-mode="return">Return</button>
-          <button class="mode-btn" data-mode="backorder">Backorders</button>
         </div>
       </section>
 
@@ -278,43 +277,6 @@
         </section>
       </div>
 
-      <!-- BACKORDER MODE -->
-      <div id="backorder-mode" class="mode-content">
-        <section class="card inventory-card">
-          <h3>Log Backorder</h3>
-          <form id="backorderForm" class="inventory-form" autocomplete="off">
-            <div class="form-row">
-              <label style="flex:1;">SKU / Part Number<input id="backorder-code" required></label>
-              <label style="flex:1;">Qty<input id="backorder-qty" type="number" min="1" step="1" required></label>
-            </div>
-            <div class="form-row">
-              <label style="flex:1;">Project ID
-                <select id="backorder-jobId">
-                  <option value="">General inventory</option>
-                </select>
-              </label>
-            </div>
-            <div class="form-row">
-              <label style="flex:1;">Reason<textarea id="backorder-reason" rows="2" placeholder="Why is this backordered?"></textarea></label>
-            </div>
-            <div class="form-row sticky-actions">
-              <button id="backorderSave" type="submit">Create Backorder</button>
-              <button id="backorderClear" type="button" class="muted">Clear</button>
-            </div>
-            <div id="backorderMsg" style="font-size:0.9rem;"></div>
-          </form>
-        </section>
-
-        <section class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <h3 style="margin:0;">Open Backorders</h3>
-          </div>
-          <table id="backorderTable">
-            <thead><tr><th>Code</th><th>Qty</th><th>Project</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </section>
-      </div>
     </main>
   </div>
 
