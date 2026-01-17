@@ -441,9 +441,39 @@ main,
   gap: 16px;
 }
 
+.pricing.modular .price-card {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(242, 246, 244, 0.98));
+  box-shadow: 0 20px 40px rgba(12, 28, 24, 0.16);
+}
+
+.capability-grid .price-card {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(238, 242, 247, 0.98));
+}
+
+.solution-grid .price-card {
+  background: linear-gradient(145deg, #0f2e2a, #1b3c33);
+  color: #f5faf8;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 24px 50px rgba(8, 20, 16, 0.3);
+}
+
+.solution-grid .price-card .muted {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.solution-grid .price-card .list li span {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
 .price-card.highlight {
   border: 2px solid var(--accent);
   transform: translateY(-6px);
+}
+
+.solution-grid .price-card.highlight {
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 28px 60px rgba(8, 20, 16, 0.4);
 }
 
 .price {
@@ -451,6 +481,27 @@ main,
   font-weight: 800;
   font-family: var(--font-display);
   text-transform: uppercase;
+}
+
+.capability-grid .price {
+  font-size: 1.7rem;
+}
+
+.faq-grid .price-card {
+  padding: 22px;
+  box-shadow: 0 14px 30px rgba(16, 32, 28, 0.12);
+}
+
+@media (min-width: 980px) {
+  .capability-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .solution-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .faq-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .price small {
