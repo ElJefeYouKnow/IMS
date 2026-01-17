@@ -1332,7 +1332,7 @@ function renderOnhand(){
 
   if(!items.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="11" style="text-align:center;color:#6b7280;">No inventory matches these filters</td>`;
+    tr.innerHTML=`<td colspan="12" style="text-align:center;color:#6b7280;">No inventory matches these filters</td>`;
     tbody.appendChild(tr);
     return;
   }
@@ -1354,13 +1354,33 @@ function renderOnhand(){
     const meta = itemMetaByCode.get(item.code) || {};
     const staticTags = normalizeTags(meta.tags);
     const tagHtml = buildTagListHtml(item, threshold, staticTags);
+    let statusLabel = 'In stock';
+    let statusClass = 'status-ok';
+    if(item.available <= 0){
+      statusLabel = 'Out of stock';
+      statusClass = 'status-out';
+    }else if(item.lowStockEnabled !== false && item.available <= threshold){
+      statusLabel = 'Low stock';
+      statusClass = 'status-warn';
+    }
+    const location = item.location || FALLBACK;
     tr.innerHTML=`
+      <td class="mobile-only">
+        <div class="mobile-item-card">
+          <div class="mobile-item-head">
+            <span class="mobile-item-name">${item.name || item.code}</span>
+            <span class="status-dot ${statusClass}" aria-hidden="true"></span>
+          </div>
+          <div class="mobile-item-row">Available: <strong>${item.available}</strong> <span class="mobile-divider">•</span> Loc: <span>${location}</span></div>
+          <div class="mobile-item-row">Reserved: <strong>${item.reserveQty}</strong> <span class="mobile-divider">•</span> Out: <strong>${item.checkedOut}</strong></div>
+        </div>
+      </td>
       <td>${item.code}</td>
       <td>${item.name||''}</td>
       <td>${item.available}</td>
       <td>${item.reserveQty}</td>
       <td>${item.checkedOut}</td>
-      <td>${item.location || FALLBACK}</td>
+      <td>${location}</td>
       <td>${item.lastDate}</td>
       <td class="${countStale ? 'stale' : ''}">${countDate}</td>
       <td>${tagHtml}</td>
