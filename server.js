@@ -38,7 +38,25 @@ if (IS_PROD && SESSION_SECRET === 'dev-secret-change-me') {
   throw new Error('SESSION_SECRET must be set in production');
 }
 const loginAttempts = new Map(); // email -> {count, lockUntil}
-const AUDIT_ACTIONS = ['auth.login', 'auth.register', 'inventory.in', 'inventory.out', 'inventory.reserve', 'inventory.return', 'inventory.order', 'inventory.count', 'items.create', 'items.update', 'items.delete'];
+const AUDIT_ACTIONS = [
+  'auth.login',
+  'auth.register',
+  'inventory.in',
+  'inventory.out',
+  'inventory.reserve',
+  'inventory.return',
+  'inventory.order',
+  'inventory.count',
+  'items.create',
+  'items.update',
+  'items.delete',
+  'ops.pick.start',
+  'ops.pick.finish',
+  'ops.checkin.start',
+  'ops.checkin.finish',
+  'backorder.create',
+  'backorder.resolve'
+];
 const CHECKOUT_RETURN_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
 const DEV_EMAIL = normalizeEmail(process.env.DEV_DEFAULT_EMAIL || 'Dev@ManageX.com');
 const DEV_PASSWORD = process.env.DEV_DEFAULT_PASSWORD || 'Dev123!';
@@ -733,6 +751,18 @@ async function initDb() {
     countedBy TEXT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS backorders(
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    qty INTEGER NOT NULL,
+    jobId TEXT,
+    reason TEXT,
+    status TEXT,
+    createdAt BIGINT,
+    resolvedAt BIGINT,
+    resolvedBy TEXT,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
+  )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS support_tickets(
     id TEXT PRIMARY KEY,
     tenantId TEXT REFERENCES tenants(id),
@@ -789,6 +819,8 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_jobs_tenant ON jobs(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_counts_tenant ON inventory_counts(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_backorders_tenant ON backorders(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_backorders_status ON backorders(status)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_support_tickets_tenant ON support_tickets(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(userId)');
   await runAsync(`CREATE TABLE IF NOT EXISTS audit_events(
@@ -1456,6 +1488,121 @@ app.post('/api/inventory-counts', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
+// OPS EVENTS (pick/check-in timers)
+app.post('/api/ops-events', async (req, res) => {
+  try {
+    const { type, stage, sessionId, durationMs, qty, lines } = req.body || {};
+    const t = tenantId(req);
+    const allowedTypes = ['pick', 'checkin'];
+    const allowedStages = ['start', 'finish'];
+    if (!allowedTypes.includes(type) || !allowedStages.includes(stage)) {
+      return res.status(400).json({ error: 'invalid type or stage' });
+    }
+    const action = `ops.${type}.${stage}`;
+    const details = {
+      type,
+      stage,
+      sessionId: sessionId || null,
+      durationMs: Number.isFinite(Number(durationMs)) ? Number(durationMs) : null,
+      qty: Number.isFinite(Number(qty)) ? Number(qty) : null,
+      lines: Number.isFinite(Number(lines)) ? Number(lines) : null
+    };
+    await logAudit({ tenantId: t, userId: currentUserId(req), action, details });
+    res.status(201).json({ status: 'ok' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.get('/api/ops-events', async (req, res) => {
+  try {
+    const type = (req.query.type || '').toString().toLowerCase();
+    const days = Number(req.query.days || 30);
+    if (!['pick', 'checkin'].includes(type)) return res.status(400).json({ error: 'type required' });
+    const action = `ops.${type}.finish`;
+    const cutoff = Date.now() - (Number.isFinite(days) ? days : 30) * 24 * 60 * 60 * 1000;
+    const rows = await allAsync(
+      `SELECT a.id, a.action, a.details, a.ts, u.email as userEmail
+       FROM audit_events a
+       LEFT JOIN users u ON u.id = a.userId
+       WHERE a.tenantId=$1 AND a.action=$2 AND a.ts >= $3
+       ORDER BY a.ts DESC`,
+      [tenantId(req), action, cutoff]
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// BACKORDERS
+app.get('/api/backorders', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const status = (req.query.status || '').toString().trim().toLowerCase();
+    const params = status ? [t, status] : [t];
+    const rows = await allAsync(
+      `SELECT * FROM backorders WHERE tenantId=$1 ${status ? 'AND status=$2' : ''} ORDER BY createdAt DESC`,
+      params
+    );
+    res.json(rows.map(r => ({
+      id: r.id,
+      code: r.code,
+      qty: r.qty,
+      jobId: r.jobid || r.jobId || null,
+      reason: r.reason || '',
+      status: r.status || 'open',
+      createdAt: r.createdat || r.createdAt || null,
+      resolvedAt: r.resolvedat || r.resolvedAt || null,
+      resolvedBy: r.resolvedby || r.resolvedBy || null,
+      tenantId: r.tenantid || r.tenantId
+    })));
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+app.post('/api/backorders', async (req, res) => {
+  try {
+    const { code, qty, jobId, reason } = req.body || {};
+    const qtyNum = Number(qty);
+    if (!code || !Number.isFinite(qtyNum) || qtyNum <= 0) {
+      return res.status(400).json({ error: 'code and positive qty required' });
+    }
+    const t = tenantId(req);
+    const now = Date.now();
+    const id = newId();
+    await runAsync(
+      `INSERT INTO backorders(id,code,qty,jobId,reason,status,createdAt,tenantId)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [id, code, Math.floor(qtyNum), jobId || null, reason || null, 'open', now, t]
+    );
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'backorder.create', details: { code, qty: qtyNum, jobId } });
+    res.status(201).json({ id, code, qty: Math.floor(qtyNum), jobId: jobId || null, reason: reason || null, status: 'open', createdAt: now });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.patch('/api/backorders/:id', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const status = (req.body?.status || 'resolved').toString().trim().toLowerCase();
+    const resolvedAt = Date.now();
+    const actor = actorInfo(req);
+    const row = await getAsync('SELECT * FROM backorders WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    await runAsync(
+      `UPDATE backorders SET status=$1, resolvedAt=$2, resolvedBy=$3 WHERE id=$4 AND tenantId=$5`,
+      [status, resolvedAt, actor.userEmail || null, req.params.id, t]
+    );
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'backorder.resolve', details: { id: req.params.id, status } });
+    res.json({ id: req.params.id, status, resolvedAt, resolvedBy: actor.userEmail || null });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // CONSUME / LOST / DAMAGED (admin-only)
 app.post('/api/inventory-consume', requireRole('admin'), async (req, res) => {
   try {
@@ -2017,6 +2164,7 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
 
     await withTransaction(async (client) => {
       await client.query('TRUNCATE inventory');
+      await client.query('TRUNCATE backorders');
       await client.query('TRUNCATE audit_events');
       await client.query('TRUNCATE inventory_counts');
       await client.query('TRUNCATE support_tickets');
@@ -2082,6 +2230,7 @@ app.post('/api/dev/delete-tenant', requireDev, async (req, res) => {
     if (!tenant) return res.status(404).json({ error: 'tenant not found' });
     await withTransaction(async (client) => {
       await client.query('DELETE FROM inventory WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM backorders WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM audit_events WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
@@ -2304,7 +2453,13 @@ function formatAuditMessage(entry) {
     'inventory.count': 'Cycle count',
     'items.create': 'Item created',
     'items.update': 'Item updated',
-    'items.delete': 'Item deleted'
+    'items.delete': 'Item deleted',
+    'ops.pick.start': 'Pick started',
+    'ops.pick.finish': 'Pick completed',
+    'ops.checkin.start': 'Check-in started',
+    'ops.checkin.finish': 'Check-in completed',
+    'backorder.create': 'Backorder created',
+    'backorder.resolve': 'Backorder resolved'
   };
   const label = actionMap[action] || action.replace('.', ' ');
   const parts = [label];
@@ -2468,6 +2623,7 @@ app.delete('/api/seller/clients/:id', requireDev, async (req, res) => {
     }
     await withTransaction(async (client) => {
       await client.query('DELETE FROM inventory WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM backorders WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM audit_events WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM inventory_counts WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);

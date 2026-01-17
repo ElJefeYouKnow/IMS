@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Operations Dashboard</title>
+  <meta name="theme-color" content="#132a24" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body data-ds="pro">
+  <div class="app">
+    <aside class="sidebar">
+      <div>
+        <div class="brand">Inventory Management System</div>
+        <div class="subtitle">by Modulr</div>
+        <div class="user-chip">
+          <div class="avatar">US</div>
+          <div>
+            <div style="font-weight:700;"><div class="user-name">User</div>
+            <div class="user-role"></div>
+            <div style="font-size:12px;opacity:0.8;"></div>
+          </div>
+        </div>
+      </div>
+      <nav>
+        <a href="dashboard.html" data-role="admin">Dashboard</a>
+        <a class="active" href="ops-dashboard.html" data-role="employee">Dashboard</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="field-purchase.html">Field Purchases</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a href="job-creator.html" data-role="admin">Project Manager</a>
+        <a href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
+        <a href="analytics.html" data-role="admin">Analytics</a>
+        <a href="item-master.html" data-role="admin">Catalog</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="support.html">Support</a>
+      </nav>
+    </aside>
+
+    <main class="main dashboard-main">
+      <header class="topbar">
+        <h1>Operations Dashboard</h1>
+        <div class="topbar-right">
+          <div class="clock-pill"><span class="clock-label">Now</span><span id="clockOps" class="clock-value"></span></div>
+          <button id="logoutBtn" class="muted">Logout</button>
+        </div>
+      </header>
+
+      <section class="card quick-actions">
+        <div class="card-header">
+          <h3>Floor Shortcuts</h3>
+        </div>
+        <div class="quick-grid">
+          <a class="action-tile" href="inventory-operations.html?mode=checkout">
+            <div class="tile-title">Pick Items</div>
+            <div class="tile-sub">Start a pick run</div>
+          </a>
+          <a class="action-tile" href="inventory-operations.html?mode=checkin">
+            <div class="tile-title">Receive Orders</div>
+            <div class="tile-sub">Check-in inbound</div>
+          </a>
+          <a class="action-tile" href="inventory-operations.html?mode=return">
+            <div class="tile-title">Returns</div>
+            <div class="tile-sub">Process returns</div>
+          </a>
+          <a class="action-tile" href="inventory-list.html">
+            <div class="tile-title">Inventory</div>
+            <div class="tile-sub">Audit + counts</div>
+          </a>
+        </div>
+      </section>
+
+      <section class="dashboard-grid">
+        <div class="card">
+          <h3>Accuracy &amp; Control</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Inventory Accuracy</span><strong id="kpi-accuracy">-</strong></div>
+            <div class="summary-item"><span>Adjustment Rate</span><strong id="kpi-adjustment">-</strong></div>
+            <div class="summary-item"><span>Discrepancy Value</span><strong id="kpi-discrepancy">-</strong></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Speed &amp; Efficiency</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Avg Pick Time</span><strong id="kpi-pick-time">-</strong></div>
+            <div class="summary-item"><span>Avg Check-In Time</span><strong id="kpi-checkin-time">-</strong></div>
+            <div class="summary-item"><span>Orders / Day</span><strong id="kpi-orders-day">-</strong></div>
+            <div class="summary-item"><span>Items / Employee</span><strong id="kpi-items-employee">-</strong></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Health Signals</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Below Reorder</span><strong id="kpi-below-reorder">-</strong></div>
+            <div class="summary-item"><span>Negative Availability</span><strong id="kpi-negative">-</strong></div>
+            <div class="summary-item"><span>Not Counted (30d)</span><strong id="kpi-not-counted">-</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="dashboard-grid">
+        <div class="card">
+          <h3>Stock Performance</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Stock Turnover</span><strong id="kpi-turnover">-</strong></div>
+            <div class="summary-item"><span>Days On Hand</span><strong id="kpi-doh">-</strong></div>
+            <div class="summary-item"><span>Dead Stock %</span><strong id="kpi-dead-stock">-</strong></div>
+            <div class="summary-item"><span>Slow Moving</span><strong id="kpi-slow-moving">-</strong></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Availability &amp; Risk</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Stockout Rate</span><strong id="kpi-stockout">-</strong></div>
+            <div class="summary-item"><span>Backorder Rate</span><strong id="kpi-backorder">-</strong></div>
+            <div class="summary-item"><span>Fill Rate</span><strong id="kpi-fill-rate">-</strong></div>
+            <div class="summary-item"><span>Service Level</span><strong id="kpi-service-level">-</strong></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Supplier Performance</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Avg Lead Time</span><strong id="kpi-lead-time">-</strong></div>
+            <div class="summary-item"><span>Lead Time Variability</span><strong id="kpi-lead-var">-</strong></div>
+            <div class="summary-item"><span>On-Time Delivery</span><strong id="kpi-on-time">-</strong></div>
+            <div class="summary-item"><span>Cost Variance</span><strong id="kpi-cost-var">-</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="dashboard-grid">
+        <div class="card">
+          <h3>Capital Efficiency</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Inventory Value</span><strong id="kpi-inv-value">-</strong></div>
+            <div class="summary-item"><span>Inventory Trend</span><strong id="kpi-inv-trend">-</strong></div>
+            <div class="summary-item"><span>Carrying Cost</span><strong id="kpi-carrying">Not configured</strong></div>
+            <div class="summary-item"><span>Inventory % Revenue</span><strong id="kpi-inv-rev">Not configured</strong></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Waste &amp; Leakage</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Shrinkage %</span><strong id="kpi-shrinkage">-</strong></div>
+            <div class="summary-item"><span>Damaged %</span><strong id="kpi-damaged">-</strong></div>
+            <div class="summary-item"><span>Write-offs</span><strong id="kpi-writeoffs">-</strong></div>
+            <div class="summary-item"><span>Lost Value</span><strong id="kpi-lost-value">-</strong></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Demand Intelligence</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Usage Trend</span><strong id="kpi-usage-trend">-</strong></div>
+            <div class="summary-item"><span>Forecast vs Actual</span><strong id="kpi-forecast">Not configured</strong></div>
+            <div class="summary-item"><span>Seasonal Patterns</span><strong id="kpi-seasonal">Not configured</strong></div>
+            <div class="summary-item"><span>80/20 SKUs</span><strong id="kpi-8020">-</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="dashboard-grid">
+        <div class="table-card">
+          <h3>Slow Moving Inventory (30d)</h3>
+          <table id="slowMovingTable">
+            <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>Available</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="table-card">
+          <h3>Top Usage Items (30d)</h3>
+          <table id="topUsageTable">
+            <thead><tr><th>Code</th><th>Name</th><th>Issued Qty</th><th>Share</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="table-card">
+          <h3>Open Backorders</h3>
+          <table id="backorderTable">
+            <thead><tr><th>Code</th><th>Qty</th><th>Project</th><th>Age</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded',()=> {
+      if(window.utils){
+        if(!utils.requireSession?.()) return;
+        utils.wrapFetchWithRole?.();
+        utils.applyStoredTheme?.();
+        utils.requireRole?.('employee');
+        utils.buildMobileNav?.();
+        utils.applyNavVisibility?.();
+        utils.registerServiceWorker?.();
+        utils.setupLogout?.();
+      }
+    });
+  </script>
+  <script src="js/ops-dashboard.js"></script>
+</body>
+</html>

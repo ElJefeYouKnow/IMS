@@ -161,7 +161,7 @@
         return;
       }
       if(role === 'admin' && user.role !== 'admin'){
-        window.location.href = 'employee-dashboard.html';
+        window.location.href = 'ops-dashboard.html';
       }else if(role === 'employee' && user.role === 'admin'){
         window.location.href = 'dashboard.html';
       }
@@ -245,7 +245,7 @@
       });
 
       const role = (this.getSession?.()?.role || '').toLowerCase();
-      dashboardBtn.href = role === 'employee' ? 'employee-dashboard.html' : 'dashboard.html';
+      dashboardBtn.href = role === 'admin' ? 'dashboard.html' : 'ops-dashboard.html';
       opsBtn.href = 'inventory-operations.html';
       if(window.location.pathname.endsWith(dashboardBtn.href)) dashboardBtn.classList.add('active');
       if(window.location.pathname.endsWith(opsBtn.href)) opsBtn.classList.add('active');

@@ -142,7 +142,7 @@ async function loadJobOptions(){
 }
 
 function applyJobOptions(){
-  const ids = ['checkout-jobId','return-jobId'];
+  const ids = ['checkout-jobId','return-jobId','backorder-jobId'];
   ids.forEach(id=>{
     const sel = document.getElementById(id);
     if(!sel) return;
@@ -176,6 +176,152 @@ function ensureJobOption(jobId){
   const id = (jobId||'').trim();
   if(!id) return;
   if(!jobOptions.includes(id)) return; // only allow known, non-expired jobs
+}
+
+function makeSessionId(){
+  if(window.crypto?.randomUUID) return crypto.randomUUID();
+  return `ops_${Date.now()}_${Math.random().toString(16).slice(2,8)}`;
+}
+
+function timerKey(type){
+  return `ops.timer.${type}`;
+}
+
+function readTimer(type){
+  try{
+    return JSON.parse(localStorage.getItem(timerKey(type)) || 'null');
+  }catch(e){
+    return null;
+  }
+}
+
+function writeTimer(type, state){
+  if(state) localStorage.setItem(timerKey(type), JSON.stringify(state));
+  else localStorage.removeItem(timerKey(type));
+}
+
+function timerLabel(state){
+  if(!state || !state.startTs) return 'Not running';
+  const mins = Math.max(0, Math.floor((Date.now() - state.startTs) / 60000));
+  return mins ? `Running ${mins}m` : 'Running';
+}
+
+async function logOpsEvent(type, stage, payload = {}){
+  try{
+    await fetch('/api/ops-events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, stage, ...payload })
+    });
+  }catch(e){}
+}
+
+function getLineSummary(prefix){
+  const lines = gatherLines(prefix);
+  const qty = lines.reduce((sum, line)=> sum + (Number(line.qty) || 0), 0);
+  return { lines: lines.length, qty };
+}
+
+function initTimerControls(type, { startBtnId, finishBtnId, valueId, prefix }){
+  const startBtn = document.getElementById(startBtnId);
+  const finishBtn = document.getElementById(finishBtnId);
+  const valueEl = document.getElementById(valueId);
+  if(!startBtn || !finishBtn || !valueEl) return;
+
+  const refresh = ()=>{
+    const state = readTimer(type);
+    valueEl.textContent = timerLabel(state);
+    finishBtn.disabled = !state;
+    startBtn.disabled = !!state;
+  };
+  refresh();
+
+  startBtn.addEventListener('click', async ()=>{
+    const state = readTimer(type);
+    if(state) return;
+    const next = { sessionId: makeSessionId(), startTs: Date.now() };
+    writeTimer(type, next);
+    await logOpsEvent(type, 'start', { sessionId: next.sessionId });
+    refresh();
+  });
+  finishBtn.addEventListener('click', async ()=>{
+    const state = readTimer(type);
+    if(!state) return;
+    const durationMs = Date.now() - state.startTs;
+    const summary = getLineSummary(prefix);
+    await logOpsEvent(type, 'finish', {
+      sessionId: state.sessionId,
+      durationMs,
+      qty: summary.qty,
+      lines: summary.lines
+    });
+    writeTimer(type, null);
+    refresh();
+  });
+
+  setInterval(refresh, 60000);
+}
+
+async function loadBackorders(){
+  return await utils.fetchJsonSafe('/api/backorders?status=open', {}, []) || [];
+}
+
+async function createBackorder(payload){
+  try{
+    const r = await fetch('/api/backorders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if(!r.ok){
+      const data = await r.json().catch(()=>({}));
+      return { ok: false, error: data.error || 'Failed to create backorder' };
+    }
+    return { ok: true };
+  }catch(e){
+    return { ok: false, error: 'Failed to create backorder' };
+  }
+}
+
+async function resolveBackorder(id){
+  try{
+    const r = await fetch(`/api/backorders/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'resolved' })
+    });
+    return r.ok;
+  }catch(e){
+    return false;
+  }
+}
+
+async function renderBackorders(){
+  const tbody = document.querySelector('#backorderTable tbody');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  const rows = await loadBackorders();
+  if(!rows.length){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="6" style="text-align:center;color:#6b7280;">No open backorders</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  rows.forEach(row=>{
+    const tr = document.createElement('tr');
+    const created = row.createdAt ? fmtDT(row.createdAt) : '';
+    tr.innerHTML = `<td>${row.code}</td><td>${row.qty}</td><td>${row.jobId || 'General'}</td><td>${created}</td><td>${row.status || 'open'}</td><td><button class="muted backorder-resolve" data-id="${row.id}">Resolve</button></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('.backorder-resolve').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.id;
+      if(!id) return;
+      const ok = await resolveBackorder(id);
+      if(!ok) alert('Failed to resolve backorder');
+      await renderBackorders();
+    });
+  });
 }
 
 function addLine(prefix){
@@ -819,7 +965,7 @@ async function exportCSV(mode){
 // ===== MODE SWITCHING =====
 function switchMode(mode){
   // Hide all modes
-  ['checkin','checkout','reserve','return'].forEach(m=>{
+  ['checkin','checkout','reserve','return','backorder'].forEach(m=>{
     const el = document.getElementById(`${m}-mode`);
     if(el) el.classList.remove('active');
   });
@@ -845,7 +991,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const initialMode = new URLSearchParams(window.location.search).get('mode') || 'checkout';
   if(window.utils && utils.setupLogout) utils.setupLogout();
   // adjust available modes based on DOM
-  const availableModes = ['checkin','checkout','return'].filter(m=> document.getElementById(`${m}-mode`));
+  const availableModes = ['checkin','checkout','return','backorder'].filter(m=> document.getElementById(`${m}-mode`));
   
   // Load all tables initially
   await renderCheckinTable();
@@ -861,6 +1007,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(btn) btn.addEventListener('click', ()=> addLine(prefix));
   });
   switchMode(initialMode);
+  initTimerControls('checkin', { startBtnId: 'checkinStartBtn', finishBtnId: 'checkinFinishBtn', valueId: 'checkinTimerValue', prefix: 'checkin' });
+  initTimerControls('pick', { startBtnId: 'pickStartBtn', finishBtnId: 'pickFinishBtn', valueId: 'pickTimerValue', prefix: 'checkout' });
 
   const upcomingSelect = document.getElementById('checkout-upcomingJob');
   const upcomingLoadBtn = document.getElementById('checkout-loadReserved');
@@ -912,6 +1060,48 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       populateOrderSelect();
     });
   }
+
+  await renderBackorders();
+  const backorderForm = document.getElementById('backorderForm');
+  const backorderMsg = document.getElementById('backorderMsg');
+  const backorderClear = document.getElementById('backorderClear');
+  if(backorderForm){
+    backorderForm.addEventListener('submit', async (ev)=>{
+      ev.preventDefault();
+      if(backorderMsg) backorderMsg.textContent = '';
+      const code = document.getElementById('backorder-code').value.trim();
+      const qty = document.getElementById('backorder-qty').value;
+      const jobId = document.getElementById('backorder-jobId').value.trim();
+      const reason = document.getElementById('backorder-reason').value.trim();
+      if(!code || !qty){
+        if(backorderMsg){
+          backorderMsg.textContent = 'Code and qty are required.';
+          backorderMsg.style.color = '#b91c1c';
+        }
+        return;
+      }
+      const result = await createBackorder({ code, qty, jobId, reason });
+      if(!result.ok){
+        if(backorderMsg){
+          backorderMsg.textContent = result.error || 'Failed to create backorder';
+          backorderMsg.style.color = '#b91c1c';
+        }
+        return;
+      }
+      backorderForm.reset();
+      if(backorderMsg){
+        backorderMsg.textContent = 'Backorder logged.';
+        backorderMsg.style.color = '#15803d';
+      }
+      await renderBackorders();
+    });
+  }
+  if(backorderClear){
+    backorderClear.addEventListener('click', ()=>{
+      backorderForm?.reset();
+      if(backorderMsg) backorderMsg.textContent = '';
+    });
+  }
   
   
   // Mode switching
@@ -922,6 +1112,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       if(btn.dataset.mode === 'return'){
         const select = document.getElementById('return-fromCheckout');
         await refreshReturnDropdown(select);
+      }
+      if(btn.dataset.mode === 'backorder'){
+        await renderBackorders();
       }
     });
   });

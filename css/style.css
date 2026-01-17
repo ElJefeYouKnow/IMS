@@ -216,6 +216,24 @@ body.count-mode .count-input-col{display:table-cell}
 .dark .row-detail .detail-chip{background:#101b18;border-color:#22312d;color:var(--ink)}
 .action-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-weight:700;text-decoration:none;margin-right:6px}
 .dark .action-btn{background:#16221f;color:var(--ink);border:1px solid #22312d}
+.timer-box{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:var(--surface-2);
+  font-weight:700;
+}
+.timer-box span{
+  font-size:0.7rem;
+  letter-spacing:0.14em;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.dark .timer-box{background:#16221f;border-color:#22312d;color:var(--ink)}
 .job-breakdown{display:flex;flex-direction:column;gap:6px}
 .job-row{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:#ffffff;font-size:0.85rem;font-weight:700;color:var(--ink)}
 .job-empty{color:var(--muted);font-size:0.85rem}

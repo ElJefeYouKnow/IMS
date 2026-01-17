@@ -46,7 +46,7 @@
       </div>
                   <nav>
         <a  href="dashboard.html" data-role="admin">Dashboard</a>
-        <a  href="employee-dashboard.html" data-role="employee">Dashboard</a>
+        <a  href="ops-dashboard.html" data-role="employee">Dashboard</a>
         <a class="active" href="inventory-operations.html">Operations</a>
         <a href="field-purchase.html" >Field Purchases</a>
         <a href="inventory-list.html">Inventory</a>
@@ -92,6 +92,7 @@
           <button class="mode-btn active" data-mode="checkout">Pick Items (Check-Out)</button>
           <button class="mode-btn" data-mode="checkin">Receive Orders</button>
           <button class="mode-btn" data-mode="return">Return</button>
+          <button class="mode-btn" data-mode="backorder">Backorders</button>
         </div>
       </section>
 
@@ -113,6 +114,14 @@
               <button id="checkin-refreshOrders" type="button" class="muted" style="margin-top:22px;">Refresh</button>
             </div>
             <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">Check-in lines must be added from incoming orders.</div>
+            <div class="form-row">
+              <div class="timer-box">
+                <span>Check-In Timer</span>
+                <strong id="checkinTimerValue">Not running</strong>
+              </div>
+              <button id="checkinStartBtn" type="button" class="muted">Start</button>
+              <button id="checkinFinishBtn" type="button" class="muted">Finish</button>
+            </div>
             <div class="form-row">
               <label>Location<input id="checkin-location" placeholder="Warehouse / Shelf"></label>
             </div>
@@ -168,6 +177,14 @@
                   <option value="">Select project...</option>
                 </select>
               </label>
+            </div>
+            <div class="form-row">
+              <div class="timer-box">
+                <span>Pick Timer</span>
+                <strong id="pickTimerValue">Not running</strong>
+              </div>
+              <button id="pickStartBtn" type="button" class="muted">Start</button>
+              <button id="pickFinishBtn" type="button" class="muted">Finish</button>
             </div>
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="checkout-notes" rows="2" placeholder="Optional notes about usage"></textarea></label>
@@ -256,6 +273,44 @@
           </div>
           <table id="returnTable">
             <thead><tr><th><input type="checkbox" data-select-all="returnTable"></th><th>Code</th><th>Qty</th><th>From Project</th><th>Reason</th><th class="mobile-hide">Location</th><th class="mobile-hide">When</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+
+      <!-- BACKORDER MODE -->
+      <div id="backorder-mode" class="mode-content">
+        <section class="card inventory-card">
+          <h3>Log Backorder</h3>
+          <form id="backorderForm" class="inventory-form" autocomplete="off">
+            <div class="form-row">
+              <label style="flex:1;">SKU / Part Number<input id="backorder-code" required></label>
+              <label style="flex:1;">Qty<input id="backorder-qty" type="number" min="1" step="1" required></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1;">Project ID
+                <select id="backorder-jobId">
+                  <option value="">General inventory</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1;">Reason<textarea id="backorder-reason" rows="2" placeholder="Why is this backordered?"></textarea></label>
+            </div>
+            <div class="form-row sticky-actions">
+              <button id="backorderSave" type="submit">Create Backorder</button>
+              <button id="backorderClear" type="button" class="muted">Clear</button>
+            </div>
+            <div id="backorderMsg" style="font-size:0.9rem;"></div>
+          </form>
+        </section>
+
+        <section class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <h3 style="margin:0;">Open Backorders</h3>
+          </div>
+          <table id="backorderTable">
+            <thead><tr><th>Code</th><th>Qty</th><th>Project</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>

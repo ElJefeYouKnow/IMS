@@ -7,6 +7,7 @@ const ASSETS = [
   '/tenant-create.html',
   '/dashboard.html',
   '/employee-dashboard.html',
+  '/ops-dashboard.html',
   '/inventory-list.html',
   '/inventory-operations.html',
   '/order-register.html',
@@ -33,7 +34,8 @@ const ASSETS = [
   '/js/analytics.js',
   '/js/settings.js',
   '/js/settings-employee.js',
-  '/js/support.js'
+  '/js/support.js',
+  '/js/ops-dashboard.js'
 ];
 
 self.addEventListener('install', (event) => {
