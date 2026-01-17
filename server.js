@@ -617,6 +617,10 @@ async function initDb() {
     name TEXT NOT NULL,
     category TEXT,
     unitPrice NUMERIC,
+    material TEXT,
+    shape TEXT,
+    brand TEXT,
+    notes TEXT,
     description TEXT,
     tags JSONB,
     lowStockEnabled BOOLEAN,
@@ -624,6 +628,10 @@ async function initDb() {
   )`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS unitPrice NUMERIC`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS material TEXT`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS shape TEXT`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS brand TEXT`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS notes TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS description TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tags JSONB`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS lowStockEnabled BOOLEAN`);
@@ -1446,7 +1454,7 @@ app.get('/api/items', async (req, res) => {
 
 app.post('/api/items', requireRole('admin'), async (req, res) => {
   try {
-    const { code, oldCode, name, category, unitPrice, description, tags, lowStockEnabled } = req.body;
+    const { code, oldCode, name, category, unitPrice, material, shape, brand, notes, description, tags, lowStockEnabled } = req.body;
     if (!code || !name) return res.status(400).json({ error: 'code and name required' });
     const t = tenantId(req);
     const exists = await itemExists(code, t);
@@ -1455,12 +1463,12 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
     const normalizedLowStockEnabled = normalizeItemLowStockEnabled(lowStockEnabled);
     const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
     if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [oldCode, t]);
-    await runAsync(`INSERT INTO items(code,name,category,unitPrice,description,tags,lowStockEnabled,tenantId)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
-      [code, name, categoryInfo.name, price, description, normalizedTags, normalizedLowStockEnabled, t]);
+    await runAsync(`INSERT INTO items(code,name,category,unitPrice,material,shape,brand,notes,description,tags,lowStockEnabled,tenantId)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, material=EXCLUDED.material, shape=EXCLUDED.shape, brand=EXCLUDED.brand, notes=EXCLUDED.notes, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
+      [code, name, categoryInfo.name, price, material || null, shape || null, brand || null, notes || null, description, normalizedTags, normalizedLowStockEnabled, t]);
     await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: { code } });
-    res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, description, tags: normalizedTags, lowStockEnabled: normalizedLowStockEnabled, tenantId: t });
+    res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, material: material || null, shape: shape || null, brand: brand || null, notes: notes || null, description, tags: normalizedTags, lowStockEnabled: normalizedLowStockEnabled, tenantId: t });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
@@ -1486,15 +1494,19 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
         if (!code || !name) throw new Error('code and name required');
         const categoryInfo = await resolveCategoryInputTx(client, t, raw?.category);
         const description = (raw?.description || '').trim() || null;
+        const material = (raw?.material || '').trim() || null;
+        const shape = (raw?.shape || '').trim() || null;
+        const brand = (raw?.brand || '').trim() || null;
+        const notes = (raw?.notes || '').trim() || null;
         const unitPrice = raw?.unitPrice === undefined || raw?.unitPrice === null || Number.isNaN(Number(raw.unitPrice))
           ? null
           : Number(raw.unitPrice);
         const tags = normalizeItemTags(raw?.tags);
         const lowStockEnabled = normalizeItemLowStockEnabled(raw?.lowStockEnabled);
-        await client.query(`INSERT INTO items(code,name,category,unitPrice,description,tags,lowStockEnabled,tenantId)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-          ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
-          [code, name, categoryInfo.name, unitPrice, description, tags, lowStockEnabled, t]);
+        await client.query(`INSERT INTO items(code,name,category,unitPrice,material,shape,brand,notes,description,tags,lowStockEnabled,tenantId)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, material=EXCLUDED.material, shape=EXCLUDED.shape, brand=EXCLUDED.brand, notes=EXCLUDED.notes, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
+          [code, name, categoryInfo.name, unitPrice, material, shape, brand, notes, description, tags, lowStockEnabled, t]);
         results.push(code);
       }
     });
@@ -2519,3 +2531,5 @@ function clearSessionCookie(res) {
   if (COOKIE_DOMAIN) options.domain = COOKIE_DOMAIN;
   res.clearCookie(SESSION_COOKIE, options);
 }
+
+

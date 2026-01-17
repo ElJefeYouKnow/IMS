@@ -64,6 +64,11 @@
               <label>Unit Price<input id="unitPrice" type="number" step="0.01" placeholder="Optional"></label>
             </div>
             <div class="form-row">
+              <label>Material<input id="itemMaterial" placeholder="e.g., Steel, PVC"></label>
+              <label>Shape<input id="itemShape" placeholder="e.g., Round, Flat"></label>
+              <label>Brand<input id="itemBrand" placeholder="Manufacturer or brand"></label>
+            </div>
+            <div class="form-row">
               <label>Tags<input id="itemTags" placeholder="Fragile, Hazmat, Bulk, Internal alert"></label>
             </div>
             <div class="form-row" style="align-items:center;">
@@ -71,6 +76,9 @@
                 <input id="itemLowStockEnabled" type="checkbox" checked>
                 Enable low stock alerts
               </label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1">Notes<textarea id="itemNotes" rows="2" placeholder="Internal notes"></textarea></label>
             </div>
             <div class="form-row">
               <label style="flex:1">Description<textarea id="description" rows="2" placeholder="Additional details"></textarea></label>
@@ -84,7 +92,7 @@
 
         <section class="card inventory-card">
           <h3>Import Catalog (CSV)</h3>
-          <p class="muted-text">Columns: code,name,category,unitPrice,description,tags,lowStockEnabled. Header row optional.</p>
+          <p class="muted-text">Columns: code,name,category,unitPrice,material,shape,brand,notes,description,tags,lowStockEnabled. Header row optional.</p>
           <div class="form-row">
             <input id="importFile" type="file" accept=".csv,text/csv">
             <button id="downloadTemplateBtn" type="button" class="muted">Download Template</button>
@@ -101,7 +109,7 @@
             <input id="searchBox" type="text" placeholder="Search by code or name..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
           </div>
           <table id="itemTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit Price</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit Price</th><th>Material</th><th>Shape</th><th>Brand</th><th>Notes</th><th>Actions</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -181,6 +189,11 @@
           <label>Unit Price<input id="itemEditUnitPrice" type="number" step="0.01" placeholder="Optional"></label>
         </div>
         <div class="form-row">
+          <label>Material<input id="itemEditMaterial" placeholder="e.g., Steel, PVC"></label>
+          <label>Shape<input id="itemEditShape" placeholder="e.g., Round, Flat"></label>
+          <label>Brand<input id="itemEditBrand" placeholder="Manufacturer or brand"></label>
+        </div>
+        <div class="form-row">
           <label>Tags<input id="itemEditTags" placeholder="Fragile, Hazmat, Bulk, Internal alert"></label>
         </div>
         <div class="form-row" style="align-items:center;">
@@ -188,6 +201,9 @@
             <input id="itemEditLowStockEnabled" type="checkbox" checked>
             Enable low stock alerts
           </label>
+        </div>
+        <div class="form-row">
+          <label style="flex:1">Notes<textarea id="itemEditNotes" rows="2" placeholder="Internal notes"></textarea></label>
         </div>
         <div class="form-row">
           <label style="flex:1">Description<textarea id="itemEditDescription" rows="2" placeholder="Additional details"></textarea></label>

@@ -30,8 +30,12 @@ function getEditModalEls(){
     name: document.getElementById('itemEditName'),
     category: document.getElementById('itemEditCategory'),
     unitPrice: document.getElementById('itemEditUnitPrice'),
+    material: document.getElementById('itemEditMaterial'),
+    shape: document.getElementById('itemEditShape'),
+    brand: document.getElementById('itemEditBrand'),
     tags: document.getElementById('itemEditTags'),
     lowStockEnabled: document.getElementById('itemEditLowStockEnabled'),
+    notes: document.getElementById('itemEditNotes'),
     description: document.getElementById('itemEditDescription')
   };
 }
@@ -57,7 +61,11 @@ function openEditModal(item){
   els.name.value = item.name || '';
   els.category.value = item.category || DEFAULT_CATEGORY_NAME;
   els.unitPrice.value = item.unitPrice || '';
+  if(els.material) els.material.value = item.material || '';
+  if(els.shape) els.shape.value = item.shape || '';
+  if(els.brand) els.brand.value = item.brand || '';
   els.tags.value = Array.isArray(item.tags) ? item.tags.join(', ') : (item.tags || '');
+  if(els.notes) els.notes.value = item.notes || '';
   els.description.value = item.description || '';
   const itemLowStock = parseBool(item.lowStockEnabled ?? item.lowstockenabled);
   if(els.lowStockEnabled){
@@ -144,6 +152,10 @@ function parseCsv(text){
       if(['name','itemname'].includes(h)) headerMap.set('name', idx);
       if(['category','cat','type'].includes(h)) headerMap.set('category', idx);
       if(['unitprice','price','unitcost','cost','unit'].includes(h)) headerMap.set('unitPrice', idx);
+      if(['material','mat'].includes(h)) headerMap.set('material', idx);
+      if(['shape','form'].includes(h)) headerMap.set('shape', idx);
+      if(['brand','mfr','manufacturer'].includes(h)) headerMap.set('brand', idx);
+      if(['notes','note','itemnotes','internalnotes'].includes(h)) headerMap.set('notes', idx);
       if(['description','desc','details'].includes(h)) headerMap.set('description', idx);
       if(['tags','tag','flags','labels'].includes(h)) headerMap.set('tags', idx);
       if(['lowstockenabled','lowstockalert','lowstockalerts','lowstockalertenabled'].includes(h)) headerMap.set('lowStockEnabled', idx);
@@ -159,9 +171,14 @@ function parseCsv(text){
     const name = hasHeader ? getVal('name', headerMap.get('name')) : (cols[1] || '');
     const category = hasHeader ? getVal('category', headerMap.get('category')) : (cols[2] || '');
     const unitPriceRaw = hasHeader ? getVal('unitPrice', headerMap.get('unitPrice')) : (cols[3] || '');
-    const description = hasHeader ? getVal('description', headerMap.get('description')) : (cols[4] || '');
-    const tagsRaw = hasHeader ? getVal('tags', headerMap.get('tags')) : (cols[5] || '');
-    const lowStockRaw = hasHeader ? getVal('lowStockEnabled', headerMap.get('lowStockEnabled')) : (cols[6] || '');
+    const useLegacy = !hasHeader && cols.length <= 7;
+    const material = hasHeader ? getVal('material', headerMap.get('material')) : (useLegacy ? '' : (cols[4] || ''));
+    const shape = hasHeader ? getVal('shape', headerMap.get('shape')) : (useLegacy ? '' : (cols[5] || ''));
+    const brand = hasHeader ? getVal('brand', headerMap.get('brand')) : (useLegacy ? '' : (cols[6] || ''));
+    const notes = hasHeader ? getVal('notes', headerMap.get('notes')) : (useLegacy ? '' : (cols[7] || ''));
+    const description = hasHeader ? getVal('description', headerMap.get('description')) : (useLegacy ? (cols[4] || '') : (cols[8] || ''));
+    const tagsRaw = hasHeader ? getVal('tags', headerMap.get('tags')) : (useLegacy ? (cols[5] || '') : (cols[9] || ''));
+    const lowStockRaw = hasHeader ? getVal('lowStockEnabled', headerMap.get('lowStockEnabled')) : (useLegacy ? (cols[6] || '') : (cols[10] || ''));
     if(!code || !name){
       skipped++;
       continue;
@@ -169,7 +186,7 @@ function parseCsv(text){
     const unitPrice = unitPriceRaw && !Number.isNaN(Number(unitPriceRaw)) ? Number(unitPriceRaw) : null;
     const tags = normalizeTags(tagsRaw);
     const lowStockEnabled = parseBool(lowStockRaw);
-    items.push({ code, name, category, unitPrice, description, tags, lowStockEnabled });
+    items.push({ code, name, category, unitPrice, material, shape, brand, notes, description, tags, lowStockEnabled });
   }
   return { items, skipped };
 }
@@ -259,14 +276,18 @@ async function renderTable(){
   filtered.sort((a,b)=> a.code.localeCompare(b.code));
   if(!filtered.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No items in catalog</td>`;
+    tr.innerHTML=`<td colspan="9" style="text-align:center;color:#6b7280;">No items in catalog</td>`;
     tbody.appendChild(tr);
     return;
   }
   filtered.forEach(item=>{
     const tr=document.createElement('tr');
     const price = item.unitPrice ? `$${parseFloat(item.unitPrice).toFixed(2)}` : FALLBACK;
-    tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.category||FALLBACK}</td><td>${price}</td><td><button class="edit-btn" data-code="${item.code}">Edit</button> <button class="delete-btn" data-code="${item.code}" class="muted">Delete</button></td>`;
+    const material = item.material || FALLBACK;
+    const shape = item.shape || FALLBACK;
+    const brand = item.brand || FALLBACK;
+    const notes = item.notes || FALLBACK;
+    tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.category||FALLBACK}</td><td>${price}</td><td>${material}</td><td>${shape}</td><td>${brand}</td><td>${notes}</td><td><button class="edit-btn" data-code="${item.code}">Edit</button> <button class="delete-btn" data-code="${item.code}" class="muted">Delete</button></td>`;
     tbody.appendChild(tr);
   });
   document.querySelectorAll('.edit-btn').forEach(btn=> btn.addEventListener('click',editItem));
@@ -517,7 +538,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const downloadBtn = document.getElementById('downloadTemplateBtn');
   if(downloadBtn){
     downloadBtn.addEventListener('click', ()=>{
-      const csv = 'code,name,category,unitPrice,description,tags,lowStockEnabled\\n';
+      const csv = 'code,name,category,unitPrice,material,shape,brand,notes,description,tags,lowStockEnabled\\n';
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -537,13 +558,17 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const name = document.getElementById('itemName').value.trim();
     const category = document.getElementById('category').value.trim();
     const unitPrice = document.getElementById('unitPrice').value;
+    const material = document.getElementById('itemMaterial').value.trim();
+    const shape = document.getElementById('itemShape').value.trim();
+    const brand = document.getElementById('itemBrand').value.trim();
     const tagsRaw = document.getElementById('itemTags').value;
     const lowStockEnabled = document.getElementById('itemLowStockEnabled').checked;
+    const notes = document.getElementById('itemNotes').value.trim();
     const description = document.getElementById('description').value.trim();
     if(!code||!name){alert('Code and name are required');return}
     
     const tags = normalizeTags(tagsRaw);
-    const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags, lowStockEnabled };
+    const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, material, shape, brand, notes, description, tags, lowStockEnabled };
     if(currentEditId){
       item.oldCode = currentEditId;
     }
@@ -573,12 +598,16 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const name = editEls.name.value.trim();
       const category = editEls.category.value.trim();
       const unitPrice = editEls.unitPrice.value;
+      const material = editEls.material ? editEls.material.value.trim() : '';
+      const shape = editEls.shape ? editEls.shape.value.trim() : '';
+      const brand = editEls.brand ? editEls.brand.value.trim() : '';
       const tagsRaw = editEls.tags.value;
       const lowStockEnabled = editEls.lowStockEnabled ? editEls.lowStockEnabled.checked : true;
+      const notes = editEls.notes ? editEls.notes.value.trim() : '';
       const description = editEls.description.value.trim();
       if(!code || !name){ alert('Code and name are required'); return; }
       const tags = normalizeTags(tagsRaw);
-      const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, description, tags, lowStockEnabled };
+      const item = { code, name, category, unitPrice: unitPrice ? parseFloat(unitPrice) : null, material, shape, brand, notes, description, tags, lowStockEnabled };
       if(currentEditId){
         item.oldCode = currentEditId;
       }
