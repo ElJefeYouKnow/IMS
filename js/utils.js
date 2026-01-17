@@ -213,12 +213,21 @@
       }
       const nav = document.createElement('nav');
       nav.className = 'bottom-nav collapsed';
-      const toggle = document.createElement('button');
-      toggle.className = 'nav-toggle';
-      toggle.type = 'button';
-      toggle.textContent = 'Menu';
-      toggle.setAttribute('aria-expanded', 'false');
-      toggle.setAttribute('aria-controls', 'mobileNavItems');
+      const main = document.createElement('div');
+      main.className = 'nav-main';
+      const dashboardBtn = document.createElement('a');
+      dashboardBtn.className = 'nav-main-btn';
+      dashboardBtn.textContent = 'Dashboard';
+      const opsBtn = document.createElement('a');
+      opsBtn.className = 'nav-main-btn';
+      opsBtn.textContent = 'Ops';
+      const moreBtn = document.createElement('button');
+      moreBtn.className = 'nav-main-btn nav-more';
+      moreBtn.type = 'button';
+      moreBtn.textContent = 'More';
+      moreBtn.setAttribute('aria-expanded', 'false');
+      moreBtn.setAttribute('aria-controls', 'mobileNavItems');
+
       const wrap = document.createElement('div');
       wrap.className = 'nav-items';
       wrap.id = 'mobileNavItems';
@@ -234,18 +243,29 @@
         if(window.location.pathname.endsWith(href)) a.classList.add('active');
         wrap.appendChild(a);
       });
-      nav.appendChild(toggle);
+
+      const role = (this.getSession?.()?.role || '').toLowerCase();
+      dashboardBtn.href = role === 'employee' ? 'employee-dashboard.html' : 'dashboard.html';
+      opsBtn.href = 'inventory-operations.html';
+      if(window.location.pathname.endsWith(dashboardBtn.href)) dashboardBtn.classList.add('active');
+      if(window.location.pathname.endsWith(opsBtn.href)) opsBtn.classList.add('active');
+
+      main.appendChild(dashboardBtn);
+      main.appendChild(opsBtn);
+      main.appendChild(moreBtn);
+      nav.appendChild(main);
       nav.appendChild(wrap);
       document.body.appendChild(nav);
+
       const setExpanded = (expanded)=>{
         nav.classList.toggle('expanded', expanded);
         nav.classList.toggle('collapsed', !expanded);
-        toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-        toggle.textContent = expanded ? 'Close Menu' : 'Menu';
+        moreBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        moreBtn.textContent = expanded ? 'Close' : 'More';
         backdrop.classList.toggle('active', expanded);
       };
       setExpanded(false);
-      toggle.addEventListener('click', ()=> setExpanded(!nav.classList.contains('expanded')));
+      moreBtn.addEventListener('click', ()=> setExpanded(!nav.classList.contains('expanded')));
       backdrop.addEventListener('click', ()=> setExpanded(false));
       wrap.addEventListener('click', (event)=>{
         if(event.target && event.target.tagName === 'A') setExpanded(false);
