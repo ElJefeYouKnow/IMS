@@ -1,17 +1,46 @@
-const CACHE_NAME = 'ims-cache-v1';
+const CACHE_NAME = 'ims-cache-v2';
 const ASSETS = [
   '/',
   '/index.html',
+  '/login.html',
+  '/register.html',
+  '/tenant-create.html',
   '/dashboard.html',
   '/employee-dashboard.html',
+  '/inventory-list.html',
+  '/inventory-operations.html',
+  '/order-register.html',
+  '/field-purchase.html',
+  '/job-creator.html',
+  '/item-master.html',
+  '/analytics.html',
+  '/settings.html',
+  '/settings-employee.html',
+  '/support.html',
+  '/manifest.json',
   '/css/style.css',
   '/js/utils.js',
-  '/js/dashboard.js'
+  '/js/login.js',
+  '/js/register.js',
+  '/js/tenant-create.js',
+  '/js/dashboard.js',
+  '/js/inventory-list.js',
+  '/js/operations.js',
+  '/js/order-register.js',
+  '/js/field-purchase.js',
+  '/js/job-creator.js',
+  '/js/item-master.js',
+  '/js/analytics.js',
+  '/js/settings.js',
+  '/js/settings-employee.js',
+  '/js/support.js'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).catch(() => Promise.resolve())
+    caches.open(CACHE_NAME)
+      .then((cache) => Promise.all(ASSETS.map((asset) => cache.add(asset).catch(() => {}))))
+      .catch(() => Promise.resolve())
   );
 });
 

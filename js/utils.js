@@ -275,8 +275,12 @@
       });
     },
     registerServiceWorker(){
-      // Disabled to ensure UI changes are picked up immediately; re-enable if offline caching is required.
-      return;
+      if(this._swRegistered) return;
+      if(!('serviceWorker' in navigator)) return;
+      this._swRegistered = true;
+      window.addEventListener('load', ()=>{
+        navigator.serviceWorker.register('/service-worker.js').catch(()=>{});
+      });
     },
     wrapFetchWithRole(){
       if(this._fetchWrapped) return;
