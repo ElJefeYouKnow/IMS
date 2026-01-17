@@ -66,6 +66,7 @@
           <button class="mode-btn" data-tab="incoming">Incoming</button>
           <button class="mode-btn" data-tab="overdue">Overdue Returns</button>
         </div>
+        <div class="sync-chip" id="syncStatus" aria-live="polite"></div>
 
         <div id="incoming-tab" class="mode-content">
           <div class="data-toolbar inventory-toolbar">
@@ -83,6 +84,7 @@
         <div id="onhand-tab" class="mode-content active">
           <div class="inventory-toolbar sticky-bar">
             <input id="searchBox" type="text" placeholder="Search by code or name...">
+            <button id="openFilterSheet" type="button" class="muted mobile-only">Filters</button>
             <label class="filter-chip"><input id="filter-low" type="checkbox"> Low stock</label>
             <label class="filter-chip"><input id="filter-overdue" type="checkbox"> Overdue returns</label>
             <label class="filter-chip"><input id="filter-project" type="checkbox"> Assigned to project</label>
@@ -153,6 +155,36 @@
       <div class="drawer-body" id="itemDrawerBody"></div>
     </div>
   </aside>
+
+  <div class="mobile-quickbar" id="mobileQuickbar">
+    <button type="button" id="quickScanToggle">Scan</button>
+    <button type="button" id="quickCountToggle">Count</button>
+    <button type="button" id="quickFiltersBtn">Filters</button>
+    <a href="inventory-operations.html" id="quickOpsBtn">Operations</a>
+  </div>
+
+  <div class="mobile-sheet-backdrop" id="filterSheetBackdrop"></div>
+  <div class="mobile-sheet" id="filterSheet" aria-hidden="true">
+    <div class="mobile-sheet-header">
+      <div>
+        <div class="panel-kicker">Filters</div>
+        <h3>Inventory Filters</h3>
+      </div>
+      <button type="button" class="icon-btn" id="filterSheetClose" aria-label="Close">A-</button>
+    </div>
+    <div class="mobile-sheet-body">
+      <label class="mobile-sheet-option"><input id="sheet-filter-low" type="checkbox"> Low stock</label>
+      <label class="mobile-sheet-option"><input id="sheet-filter-overdue" type="checkbox"> Overdue returns</label>
+      <label class="mobile-sheet-option"><input id="sheet-filter-project" type="checkbox"> Assigned to project</label>
+      <label class="mobile-sheet-option"><input id="sheet-filter-recent" type="checkbox"> Recently checked in</label>
+      <label class="mobile-sheet-option"><input id="sheet-filter-count" type="checkbox"> Needs count</label>
+      <label class="mobile-sheet-option"><input id="sheet-scan-mode" type="checkbox"> Scan mode</label>
+    </div>
+    <div class="mobile-sheet-actions">
+      <button type="button" class="muted" id="filterSheetClear">Clear</button>
+      <button type="button" id="filterSheetApply">Apply</button>
+    </div>
+  </div>
 
   <script src="js/utils.js"></script>
   <script src="js/inventory-list.js"></script>

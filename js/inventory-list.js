@@ -4,6 +4,7 @@ const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const COUNT_STALE_DAYS = 30;
 const RECENT_DAYS = 3;
 const CLOSED_JOB_STATUSES = new Set(['complete', 'completed', 'closed', 'archived', 'cancelled', 'canceled']);
+const CACHE_KEY = 'ims.inventory.cache.v1';
 
 let incomingBaseRows = [];
 let onhandBaseRows = [];
@@ -14,6 +15,47 @@ let itemMetaByCode = new Map();
 let categoryRulesByName = new Map();
 let closedJobIds = new Set();
 let itemPanelEls = null;
+let lastSyncTs = null;
+
+function haptic(kind){
+  if(!navigator.vibrate) return;
+  const patterns = {
+    light: [10],
+    success: [15, 30, 15],
+    error: [30, 40, 30]
+  };
+  navigator.vibrate(patterns[kind] || patterns.light);
+}
+
+function readCache(){
+  try{
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){
+    return null;
+  }
+}
+
+function writeCache(payload){
+  try{
+    localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+  }catch(e){}
+}
+
+function updateSyncStatus(offline, ts){
+  const el = document.getElementById('syncStatus');
+  if(!el) return;
+  if(ts) lastSyncTs = ts;
+  if(offline){
+    const label = lastSyncTs ? `Offline · Last sync ${fmtDate(lastSyncTs)}` : 'Offline';
+    el.textContent = label;
+    el.classList.add('offline');
+  }else{
+    const label = lastSyncTs ? `Online · Synced ${fmtDate(lastSyncTs)}` : 'Online';
+    el.textContent = label;
+    el.classList.remove('offline');
+  }
+}
 const drawerState = {
   itemCode: null,
   activeTab: 'overview',
@@ -809,7 +851,7 @@ async function loadEntries(){
     const r = await fetch('/api/inventory');
     if(r.ok) return await r.json();
   }catch(e){}
-  return [];
+  return null;
 }
 
 function normalizeCategoryRules(raw){
@@ -881,6 +923,49 @@ async function loadClosedJobs(){
     }
   });
   return closedJobIds;
+}
+
+function setItemsMetaFromRows(rows){
+  itemMetaByCode = new Map();
+  (rows || []).forEach(item=>{
+    if(!item?.code) return;
+    itemMetaByCode.set(item.code, item);
+  });
+  return itemMetaByCode;
+}
+
+function setCategoryRulesFromRows(rows){
+  categoryRulesByName = new Map();
+  (rows || []).forEach(cat=>{
+    if(!cat?.name) return;
+    categoryRulesByName.set(cat.name.toLowerCase(), normalizeCategoryRules(cat.rules));
+  });
+  return categoryRulesByName;
+}
+
+function setClosedJobsFromRows(rows){
+  closedJobIds = new Set();
+  (rows || []).forEach(job=>{
+    const code = (job?.code || '').toString().trim();
+    const status = (job?.status || '').toString().trim().toLowerCase();
+    if(code && CLOSED_JOB_STATUSES.has(status)){
+      closedJobIds.add(code.toLowerCase());
+    }
+  });
+  return closedJobIds;
+}
+
+function setCountsFromRows(rows){
+  countCache = {};
+  (rows || []).forEach(r=>{
+    const code = r.code;
+    if(!code) return;
+    countCache[code] = {
+      qty: Number(r.qty),
+      ts: r.countedat || r.countedAt || r.ts || r.counted_at || null
+    };
+  });
+  return countCache;
 }
 
 function parseBool(value){
@@ -1502,6 +1587,126 @@ function setupFilters(){
   }
 }
 
+function getFilterSheetEls(){
+  return {
+    sheet: document.getElementById('filterSheet'),
+    backdrop: document.getElementById('filterSheetBackdrop'),
+    close: document.getElementById('filterSheetClose'),
+    apply: document.getElementById('filterSheetApply'),
+    clear: document.getElementById('filterSheetClear'),
+    open: document.getElementById('openFilterSheet'),
+    quickOpen: document.getElementById('quickFiltersBtn'),
+    low: document.getElementById('sheet-filter-low'),
+    overdue: document.getElementById('sheet-filter-overdue'),
+    project: document.getElementById('sheet-filter-project'),
+    recent: document.getElementById('sheet-filter-recent'),
+    count: document.getElementById('sheet-filter-count'),
+    scan: document.getElementById('sheet-scan-mode')
+  };
+}
+
+function syncFilterSheetFromMain(els){
+  const low = document.getElementById('filter-low');
+  const overdue = document.getElementById('filter-overdue');
+  const project = document.getElementById('filter-project');
+  const recent = document.getElementById('filter-recent');
+  const count = document.getElementById('filter-count');
+  const scan = document.getElementById('scanMode');
+  if(els.low) els.low.checked = !!low?.checked;
+  if(els.overdue) els.overdue.checked = !!overdue?.checked;
+  if(els.project) els.project.checked = !!project?.checked;
+  if(els.recent) els.recent.checked = !!recent?.checked;
+  if(els.count) els.count.checked = !!count?.checked;
+  if(els.scan) els.scan.checked = !!scan?.checked;
+}
+
+function applyFilterSheetToMain(els){
+  const low = document.getElementById('filter-low');
+  const overdue = document.getElementById('filter-overdue');
+  const project = document.getElementById('filter-project');
+  const recent = document.getElementById('filter-recent');
+  const count = document.getElementById('filter-count');
+  const scan = document.getElementById('scanMode');
+  if(low && els.low) low.checked = els.low.checked;
+  if(overdue && els.overdue) overdue.checked = els.overdue.checked;
+  if(project && els.project) project.checked = els.project.checked;
+  if(recent && els.recent) recent.checked = els.recent.checked;
+  if(count && els.count) count.checked = els.count.checked;
+  if(scan && els.scan) scan.checked = els.scan.checked;
+  const scanToggle = document.getElementById('quickScanToggle');
+  if(scanToggle && scan) scanToggle.classList.toggle('active', scan.checked);
+  renderOnhand();
+}
+
+function setFilterSheetOpen(els, isOpen){
+  if(!els.sheet || !els.backdrop) return;
+  els.sheet.classList.toggle('open', isOpen);
+  els.backdrop.classList.toggle('active', isOpen);
+  els.sheet.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+}
+
+function setupFilterSheet(){
+  const els = getFilterSheetEls();
+  if(!els.sheet) return;
+  const openSheet = ()=>{
+    syncFilterSheetFromMain(els);
+    setFilterSheetOpen(els, true);
+  };
+  const closeSheet = ()=> setFilterSheetOpen(els, false);
+  els.open?.addEventListener('click', openSheet);
+  els.quickOpen?.addEventListener('click', openSheet);
+  els.close?.addEventListener('click', closeSheet);
+  els.backdrop?.addEventListener('click', closeSheet);
+  els.apply?.addEventListener('click', ()=>{
+    applyFilterSheetToMain(els);
+    haptic('light');
+    closeSheet();
+  });
+  els.clear?.addEventListener('click', ()=>{
+    if(els.low) els.low.checked = false;
+    if(els.overdue) els.overdue.checked = false;
+    if(els.project) els.project.checked = false;
+    if(els.recent) els.recent.checked = false;
+    if(els.count) els.count.checked = false;
+    if(els.scan) els.scan.checked = false;
+    applyFilterSheetToMain(els);
+    haptic('light');
+    closeSheet();
+  });
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape' && els.sheet.classList.contains('open')) closeSheet();
+  });
+}
+
+function setupQuickbar(){
+  const scanToggle = document.getElementById('quickScanToggle');
+  const countToggle = document.getElementById('quickCountToggle');
+  const scan = document.getElementById('scanMode');
+  if(scanToggle && scan){
+    scanToggle.classList.toggle('active', scan.checked);
+  }
+  if(countToggle){
+    countToggle.classList.toggle('active', document.body.classList.contains('count-mode'));
+  }
+  if(scanToggle){
+    scanToggle.addEventListener('click', ()=>{
+      if(scan){
+        scan.checked = !scan.checked;
+        scanToggle.classList.toggle('active', scan.checked);
+        haptic('light');
+        renderOnhand();
+      }
+    });
+  }
+  if(countToggle){
+    countToggle.addEventListener('click', ()=>{
+      document.body.classList.toggle('count-mode');
+      countToggle.classList.toggle('active', document.body.classList.contains('count-mode'));
+      haptic('light');
+    });
+  }
+}
+
 function setupActions(){
   const exportIncoming = document.getElementById('incoming-exportBtn');
   if(exportIncoming){
@@ -1561,9 +1766,11 @@ function setupActions(){
       }
       const res = await saveCounts(lines);
       if(!res.ok){
+        haptic('error');
         alert(res.error || 'Failed to save counts');
         return;
       }
+      haptic('success');
       onhandBaseRows = computeOnhandRows(loadCountsCacheEntries());
       renderOnhand();
     });
@@ -1622,12 +1829,55 @@ function loadCountsCacheEntries(){
   return window.__cachedInventory || [];
 }
 
+async function fetchJson(url){
+  try{
+    const res = await fetch(url);
+    if(!res.ok) return { ok: false, data: null };
+    return { ok: true, data: await res.json() };
+  }catch(e){
+    return { ok: false, data: null };
+  }
+}
+
 async function refreshAll(){
-  const ordersPromise = (window.utils && utils.fetchJsonSafe)
-    ? utils.fetchJsonSafe('/api/inventory?type=ordered', {}, [])
-    : fetch('/api/inventory?type=ordered').then(r=> r.ok ? r.json() : []);
-  const [inventory, orders] = await Promise.all([loadEntries(), ordersPromise]);
-  await Promise.all([fetchCounts(), loadItemsMeta(), loadCategoryRules(), loadClosedJobs()]);
+  const cached = readCache() || {};
+  const [
+    inventoryRes,
+    ordersRes,
+    countsRes,
+    itemsRes,
+    categoriesRes,
+    jobsRes
+  ] = await Promise.all([
+    fetchJson('/api/inventory'),
+    fetchJson('/api/inventory?type=ordered'),
+    fetchJson('/api/inventory-counts'),
+    fetchJson('/api/items'),
+    fetchJson('/api/categories'),
+    fetchJson('/api/jobs')
+  ]);
+
+  const inventory = inventoryRes.ok ? inventoryRes.data : (cached.inventory || []);
+  const orders = ordersRes.ok ? ordersRes.data : (cached.orders || []);
+  const counts = countsRes.ok ? countsRes.data : (cached.counts || []);
+  const items = itemsRes.ok ? itemsRes.data : (cached.items || []);
+  const categories = categoriesRes.ok ? categoriesRes.data : (cached.categories || []);
+  const jobs = jobsRes.ok ? jobsRes.data : (cached.jobs || []);
+
+  const offline = !(inventoryRes.ok && ordersRes.ok && countsRes.ok && itemsRes.ok && categoriesRes.ok && jobsRes.ok);
+  if(!offline){
+    lastSyncTs = Date.now();
+    writeCache({ inventory, orders, counts, items, categories, jobs, ts: lastSyncTs });
+  }else{
+    lastSyncTs = cached.ts || lastSyncTs;
+  }
+  updateSyncStatus(offline, lastSyncTs);
+
+  setCountsFromRows(counts);
+  setItemsMetaFromRows(items);
+  setCategoryRulesFromRows(categories);
+  setClosedJobsFromRows(jobs);
+
   window.__cachedInventory = inventory;
   incomingBaseRows = buildIncomingRows(orders, inventory);
   onhandBaseRows = computeOnhandRows(inventory);
@@ -1643,6 +1893,11 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   setupFilters();
   setupActions();
   setupItemPanel();
+  setupFilterSheet();
+  setupQuickbar();
+  updateSyncStatus(!navigator.onLine, lastSyncTs);
+  window.addEventListener('online', ()=> updateSyncStatus(false, lastSyncTs));
+  window.addEventListener('offline', ()=> updateSyncStatus(true, lastSyncTs));
   await refreshAll();
 
   const incomingSearchBox = document.getElementById('incomingSearchBox');

@@ -3,6 +3,7 @@
   "short_name": "IMS",
   "start_url": "/dashboard.html",
   "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
   "scope": "/",
   "theme_color": "#0f172a",
   "background_color": "#0f172a",
