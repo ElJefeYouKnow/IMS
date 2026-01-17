@@ -294,6 +294,32 @@
       };
       if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
       else start();
+    },
+    ensurePwaMeta(){
+      if(this._pwaMetaInit) return;
+      this._pwaMetaInit = true;
+      const head = document.head;
+      if(!head) return;
+      const addMeta = (name, content)=>{
+        if(head.querySelector(`meta[name="${name}"]`)) return;
+        const meta = document.createElement('meta');
+        meta.name = name;
+        meta.content = content;
+        head.appendChild(meta);
+      };
+      const addLink = (rel, href)=>{
+        if(head.querySelector(`link[rel="${rel}"]`)) return;
+        const link = document.createElement('link');
+        link.rel = rel;
+        link.href = href;
+        head.appendChild(link);
+      };
+      addMeta('apple-mobile-web-app-capable', 'yes');
+      addMeta('mobile-web-app-capable', 'yes');
+      addMeta('apple-mobile-web-app-status-bar-style', 'black-translucent');
+      addMeta('apple-mobile-web-app-title', 'IMS');
+      addMeta('theme-color', '#132a24');
+      addLink('manifest', 'manifest.json');
     }
   };
 
@@ -327,4 +353,5 @@
 
   global.utils = utils;
   utils.initClock?.();
+  utils.ensurePwaMeta?.();
 })(window);
