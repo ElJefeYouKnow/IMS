@@ -155,6 +155,46 @@ function initAppearanceSettings(){
   localeSaveBtn?.addEventListener('click', saveLocale);
 }
 
+function initInstallLink(){
+  const btn = document.getElementById('installAppBtn');
+  const msg = document.getElementById('installAppMsg');
+  if(!btn || !msg || !window.utils) return;
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent || '');
+  const isStandalone = ()=> (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+  const update = ()=>{
+    if(isStandalone()){
+      msg.textContent = 'App already installed.';
+      btn.disabled = true;
+      return;
+    }
+    btn.disabled = false;
+    if(utils.canPromptInstall?.()){
+      msg.textContent = 'Ready to install.';
+    }else if(isIos){
+      msg.textContent = 'On iOS: Share > Add to Home Screen.';
+    }else{
+      msg.textContent = 'Use browser menu > Install app.';
+    }
+  };
+  btn.addEventListener('click', async ()=>{
+    if(isStandalone()){
+      update();
+      return;
+    }
+    const result = await utils.promptInstall?.();
+    if(result?.outcome === 'accepted'){
+      msg.textContent = 'Install started.';
+    }else if(result?.outcome === 'dismissed'){
+      msg.textContent = 'Install dismissed.';
+    }else{
+      msg.textContent = isIos ? 'On iOS: Share > Add to Home Screen.' : 'Install option not available yet.';
+    }
+  });
+  window.addEventListener('beforeinstallprompt', ()=> setTimeout(update, 0));
+  window.addEventListener('appinstalled', update);
+  update();
+}
+
 function setupTabs(){
   const buttons = document.querySelectorAll('.settings-tab');
   const panels = {
@@ -400,6 +440,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
   setupTabs();
   initAppearanceSettings();
+  initInstallLink();
   refreshUsers();
   const form=document.getElementById('userForm');
   const err=document.getElementById('userError');

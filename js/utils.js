@@ -540,6 +540,7 @@
       window.addEventListener('beforeinstallprompt', (e)=>{
         e.preventDefault();
         deferredPrompt = e;
+        this._installPromptEvent = e;
         showPrompt();
       });
       window.addEventListener('appinstalled', ()=>{
@@ -547,7 +548,19 @@
         const banner = document.getElementById('installPrompt');
         if(banner) banner.remove();
         deferredPrompt = null;
+        this._installPromptEvent = null;
       });
+    },
+    canPromptInstall(){
+      return !!this._installPromptEvent;
+    },
+    async promptInstall(){
+      const event = this._installPromptEvent;
+      if(!event) return { ok:false, reason:'unavailable' };
+      event.prompt();
+      const choice = await event.userChoice;
+      this._installPromptEvent = null;
+      return { ok: choice.outcome === 'accepted', outcome: choice.outcome };
     }
   };
 
