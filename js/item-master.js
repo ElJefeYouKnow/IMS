@@ -19,6 +19,8 @@ let categoriesCache = [];
 let editModalOpen = false;
 let suppliersCache = [];
 let currentSupplierId = null;
+let itemsCache = [];
+let pendingImport = null;
 
 function unitPriceValue(item){
   const raw = item?.unitPrice ?? item?.unitprice;
@@ -167,6 +169,35 @@ function parseBool(value){
   return null;
 }
 
+function normalizeCode(value){
+  return (value || '').toString().trim().toLowerCase();
+}
+
+function findDuplicateItem(code, excludeCode){
+  const key = normalizeCode(code);
+  if(!key) return null;
+  const excludeKey = normalizeCode(excludeCode);
+  return itemsCache.find(item=>{
+    const itemKey = normalizeCode(item?.code);
+    if(!itemKey || itemKey !== key) return false;
+    return !excludeKey || itemKey !== excludeKey;
+  }) || null;
+}
+
+function updateCodeHint(code, hintId, excludeCode){
+  const hint = document.getElementById(hintId);
+  if(!hint) return;
+  const match = findDuplicateItem(code, excludeCode);
+  if(match){
+    hint.textContent = `SKU already exists (${match.name || match.code}).`;
+    hint.classList.remove('ok');
+    hint.classList.add('warn');
+  }else{
+    hint.textContent = '';
+    hint.classList.remove('warn','ok');
+  }
+}
+
 function parseCsv(text){
   const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
   if(!lines.length) return { items: [], skipped: 0 };
@@ -213,9 +244,85 @@ function parseCsv(text){
     const unitPrice = unitPriceRaw && !Number.isNaN(Number(unitPriceRaw)) ? Number(unitPriceRaw) : null;
     const tags = normalizeTags(tagsRaw);
     const lowStockEnabled = parseBool(lowStockRaw);
-    items.push({ code, name, category, unitPrice, material, shape, brand, notes, description, tags, lowStockEnabled });
+    items.push({ code, name, category, unitPrice, material, shape, brand, notes, description, tags, lowStockEnabled, _unitPriceRaw: unitPriceRaw });
   }
   return { items, skipped };
+}
+
+function stripImportMeta(items){
+  return (items || []).map(item=>{
+    const { _unitPriceRaw, ...rest } = item;
+    return rest;
+  });
+}
+
+function buildImportSummary(items){
+  const existingCodes = new Set((itemsCache || []).map(i=> normalizeCode(i.code)));
+  const seen = new Set();
+  const dupFile = new Set();
+  const dupExisting = new Set();
+  let missingCategory = 0;
+  let invalidPrice = 0;
+  (items || []).forEach(item=>{
+    const key = normalizeCode(item.code);
+    if(seen.has(key)) dupFile.add(key);
+    else seen.add(key);
+    if(existingCodes.has(key)) dupExisting.add(key);
+    if(!item.category) missingCategory += 1;
+    const rawPrice = (item._unitPriceRaw || '').toString().trim();
+    if(rawPrice && item.unitPrice === null) invalidPrice += 1;
+  });
+  return {
+    total: items.length,
+    dupFile: dupFile.size,
+    dupExisting: dupExisting.size,
+    missingCategory,
+    invalidPrice
+  };
+}
+
+function renderImportPreview(items, summary){
+  const wrap = document.getElementById('importPreview');
+  const summaryEl = document.getElementById('importSummary');
+  const body = document.getElementById('importPreviewBody');
+  if(!wrap || !summaryEl || !body) return;
+  wrap.classList.remove('hidden');
+  summaryEl.innerHTML = '';
+  const chips = [
+    { label: `${summary.total} rows`, warn: false },
+    { label: `${summary.dupFile} duplicates in file`, warn: summary.dupFile > 0 },
+    { label: `${summary.dupExisting} existing SKUs`, warn: summary.dupExisting > 0 },
+    { label: `${summary.missingCategory} missing category`, warn: summary.missingCategory > 0 },
+    { label: `${summary.invalidPrice} invalid prices`, warn: summary.invalidPrice > 0 }
+  ];
+  chips.forEach(chip=>{
+    const span = document.createElement('span');
+    span.className = `import-chip${chip.warn ? ' warn' : ''}`;
+    span.textContent = chip.label;
+    summaryEl.appendChild(span);
+  });
+  body.innerHTML = '';
+  items.slice(0,6).forEach(item=>{
+    const tr = document.createElement('tr');
+    const unitPrice = item.unitPrice === null ? FALLBACK : `$${Number(item.unitPrice).toFixed(2)}`;
+    tr.innerHTML = `<td>${item.code}</td><td>${item.name}</td><td>${item.category || FALLBACK}</td><td>${unitPrice}</td>`;
+    body.appendChild(tr);
+  });
+  if(items.length > 6){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="4" class="muted-text">Showing first 6 of ${items.length} rows.</td>`;
+    body.appendChild(tr);
+  }
+}
+
+function clearImportPreview(){
+  const wrap = document.getElementById('importPreview');
+  const summaryEl = document.getElementById('importSummary');
+  const body = document.getElementById('importPreviewBody');
+  if(wrap) wrap.classList.add('hidden');
+  if(summaryEl) summaryEl.innerHTML = '';
+  if(body) body.innerHTML = '';
+  pendingImport = null;
 }
 
 function normalizeCategoryRules(raw){
@@ -289,9 +396,14 @@ async function loadItems(){
   try{
     const r = await fetch('/api/items',{credentials:'include'});
     if(r.status === 401){ window.location.href='login.html'; return []; }
-    if(r.ok) return await r.json();
+    if(r.ok){
+      const rows = await r.json();
+      itemsCache = Array.isArray(rows) ? rows : [];
+      return itemsCache;
+    }
   }catch(e){}
-  return [];
+  itemsCache = [];
+  return itemsCache;
 }
 
 async function loadSuppliers(){
@@ -330,6 +442,8 @@ async function renderTable(){
   });
   document.querySelectorAll('.edit-btn').forEach(btn=> btn.addEventListener('click',editItem));
   document.querySelectorAll('.delete-btn').forEach(btn=> btn.addEventListener('click',deleteItem));
+  const codeInput = document.getElementById('itemCode');
+  if(codeInput) updateCodeHint(codeInput.value, 'itemCodeHint');
 }
 
 function formatCategoryRequirements(rules){
@@ -575,6 +689,7 @@ function clearForm(){
     const el = document.getElementById(id);
     if(el) el.checked = false;
   });
+  updateCodeHint('', 'itemCodeHint');
 }
 
 document.addEventListener('DOMContentLoaded', async ()=>{
@@ -606,6 +721,16 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   }
   const searchBox = document.getElementById('searchBox');
   if(searchBox) searchBox.addEventListener('input', renderTable);
+  const codeInput = document.getElementById('itemCode');
+  if(codeInput){
+    updateCodeHint(codeInput.value, 'itemCodeHint');
+    codeInput.addEventListener('input', ()=> updateCodeHint(codeInput.value, 'itemCodeHint'));
+  }
+  const searchParam = new URLSearchParams(window.location.search).get('search');
+  if(searchParam && searchBox){
+    searchBox.value = searchParam;
+    renderTable();
+  }
   const hash = (window.location.hash || '').replace('#','').toLowerCase();
   const initial = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
   setMode(initial);
@@ -622,6 +747,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const importBtn = document.getElementById('importBtn');
   const importFile = document.getElementById('importFile');
   const importMsg = document.getElementById('importMsg');
+  const importConfirmBtn = document.getElementById('importConfirmBtn');
+  const importClearPreview = document.getElementById('importClearPreview');
   if(importBtn && importFile){
     importBtn.addEventListener('click', async ()=>{
       importMsg.textContent = '';
@@ -637,12 +764,31 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         importMsg.style.color = '#b91c1c';
         return;
       }
+      const summary = buildImportSummary(items);
+      pendingImport = { items: stripImportMeta(items), summary, skipped };
+      renderImportPreview(items, summary);
+      importMsg.textContent = `Preview ready${skipped ? `, skipped ${skipped} rows` : ''}. Review and confirm import.`;
+      importMsg.style.color = '#475569';
+    });
+    importFile.addEventListener('change', ()=> clearImportPreview());
+  }
+  if(importConfirmBtn){
+    importConfirmBtn.addEventListener('click', async ()=>{
+      if(!pendingImport?.items?.length){
+        importMsg.textContent = 'Preview a CSV file first.';
+        importMsg.style.color = '#b91c1c';
+        return;
+      }
+      if(pendingImport.summary?.dupFile > 0){
+        const proceed = confirm('Duplicate SKUs found in the file. Continue import?');
+        if(!proceed) return;
+      }
       try{
         const r = await fetch('/api/items/bulk', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           credentials:'include',
-          body: JSON.stringify({ items })
+          body: JSON.stringify({ items: pendingImport.items })
         });
         const data = await r.json().catch(()=>({}));
         if(!r.ok){
@@ -650,14 +796,19 @@ document.addEventListener('DOMContentLoaded', async ()=>{
           importMsg.style.color = '#b91c1c';
           return;
         }
-        importMsg.textContent = `Imported ${data.count} items${skipped ? `, skipped ${skipped}` : ''}.`;
+        importMsg.textContent = `Imported ${data.count} items${pendingImport.skipped ? `, skipped ${pendingImport.skipped}` : ''}.`;
         importMsg.style.color = '#15803d';
+        clearImportPreview();
+        if(importFile) importFile.value = '';
         await renderTable();
       }catch(e){
         importMsg.textContent = 'Import failed';
         importMsg.style.color = '#b91c1c';
       }
     });
+  }
+  if(importClearPreview){
+    importClearPreview.addEventListener('click', ()=> clearImportPreview());
   }
 
   const downloadBtn = document.getElementById('downloadTemplateBtn');
@@ -745,6 +896,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const minStockRaw = document.getElementById('itemMinStock').value;
     const description = document.getElementById('description').value.trim();
     if(!code||!name){alert('Code and name are required');return}
+    const duplicate = findDuplicateItem(code, currentEditId);
+    if(duplicate && !currentEditId){
+      updateCodeHint(code, 'itemCodeHint');
+      alert('SKU already exists. Use a unique code.');
+      return;
+    }
     
     const tags = normalizeTags(tagsRaw);
     const item = {

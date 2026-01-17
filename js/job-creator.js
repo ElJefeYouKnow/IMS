@@ -756,6 +756,13 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   await renderProjects();
   await renderReport();
 
+  const searchParam = new URLSearchParams(window.location.search).get('search');
+  const projectSearch = document.getElementById('projectSearchBox');
+  if(searchParam && projectSearch){
+    projectSearch.value = searchParam;
+    await renderProjects();
+  }
+
   document.getElementById('projectSearchBox')?.addEventListener('input', renderProjects);
   document.getElementById('reportSearchBox')?.addEventListener('input', renderReport);
   document.getElementById('reportStatusFilter')?.addEventListener('change', renderReport);

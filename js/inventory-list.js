@@ -1888,6 +1888,53 @@ async function refreshAll(){
   updateSummary();
 }
 
+function applyQueryParams(){
+  const params = new URLSearchParams(window.location.search);
+  const search = params.get('search');
+  const itemCode = params.get('item');
+  const tab = params.get('tab');
+  const activitySearch = params.get('activity');
+  if(search){
+    const searchBox = document.getElementById('searchBox');
+    if(searchBox){
+      searchBox.value = search;
+      renderOnhand();
+    }
+  }
+  if(itemCode){
+    const normalized = itemCode.toLowerCase();
+    let item = onhandBaseRows.find(r=> (r.code || '').toLowerCase() === normalized);
+    if(!item){
+      const meta = itemMetaByCode.get(itemCode) || itemMetaByCode.get(itemCode.toUpperCase());
+      if(meta){
+        item = {
+          code: meta.code,
+          name: meta.name || meta.code,
+          category: meta.category,
+          available: 0,
+          reserveQty: 0,
+          checkedOut: 0,
+          inTransit: 0,
+          damaged: 0,
+          returned: 0
+        };
+      }
+    }
+    if(item){
+      openItemPanel(item);
+      if(tab === 'activity'){
+        drawerState.cache.activity = {
+          filters: { range:'30', type:'', search: activitySearch || '', page:1 },
+          records: [],
+          hasMore: false,
+          refresh: true
+        };
+        setActiveTab('activity');
+      }
+    }
+  }
+}
+
 document.addEventListener('DOMContentLoaded',async ()=>{
   setupTabs();
   setupFilters();
@@ -1899,6 +1946,7 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   window.addEventListener('online', ()=> updateSyncStatus(false, lastSyncTs));
   window.addEventListener('offline', ()=> updateSyncStatus(true, lastSyncTs));
   await refreshAll();
+  applyQueryParams();
 
   const incomingSearchBox = document.getElementById('incomingSearchBox');
   if(incomingSearchBox) incomingSearchBox.addEventListener('input', renderIncoming);

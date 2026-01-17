@@ -55,7 +55,10 @@
           <h3>Add / Edit Item</h3>
           <form id="itemForm" class="inventory-form">
             <div class="form-row">
-              <label>SKU / Part Number<input id="itemCode" required placeholder="Unique identifier"></label>
+              <label>SKU / Part Number
+                <input id="itemCode" required placeholder="Unique identifier">
+                <span id="itemCodeHint" class="field-hint"></span>
+              </label>
               <label>Item Name<input id="itemName" required placeholder="Item description"></label>
             </div>
             <div class="form-row">
@@ -114,6 +117,19 @@
           <div class="form-row">
             <button id="importBtn" type="button">Import CSV</button>
             <div id="importMsg" style="font-size:0.9rem;"></div>
+          </div>
+          <div id="importPreview" class="import-preview hidden">
+            <div id="importSummary" class="import-summary"></div>
+            <div class="table-scroll">
+              <table class="import-table">
+                <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit Price</th></tr></thead>
+                <tbody id="importPreviewBody"></tbody>
+              </table>
+            </div>
+            <div class="form-row">
+              <button id="importConfirmBtn" type="button">Confirm Import</button>
+              <button id="importClearPreview" type="button" class="muted">Clear Preview</button>
+            </div>
           </div>
         </section>
 

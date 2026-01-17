@@ -320,6 +320,234 @@
       addMeta('apple-mobile-web-app-title', 'IMS');
       addMeta('theme-color', '#132a24');
       addLink('manifest', 'manifest.json');
+    },
+    initGlobalSearch(){
+      if(this._globalSearchInit) return;
+      this._globalSearchInit = true;
+      const init = ()=>{
+        if(!document.querySelector('.app')) return;
+        if(document.getElementById('globalSearchOverlay')) return;
+        const overlay = document.createElement('div');
+        overlay.id = 'globalSearchOverlay';
+        overlay.className = 'search-overlay';
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.innerHTML = `
+          <div class="search-panel" role="dialog" aria-modal="true" aria-label="Global search">
+            <div class="search-header">
+              <input id="globalSearchInput" type="search" placeholder="Search items, projects, activity..." autocomplete="off" />
+              <button class="search-close" type="button" aria-label="Close">Close</button>
+            </div>
+            <div id="globalSearchResults" class="search-results"></div>
+            <div class="search-footer">Tip: Ctrl+K or /</div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+
+        const topbar = document.querySelector('.topbar-right');
+        if(topbar && !topbar.querySelector('.search-trigger')){
+          const trigger = document.createElement('button');
+          trigger.type = 'button';
+          trigger.className = 'search-trigger muted';
+          trigger.textContent = 'Search';
+          topbar.prepend(trigger);
+          trigger.addEventListener('click', ()=> openSearch());
+        }
+
+        const input = overlay.querySelector('#globalSearchInput');
+        const results = overlay.querySelector('#globalSearchResults');
+        const closeBtn = overlay.querySelector('.search-close');
+        let activeResults = [];
+        let cache = { items: [], jobs: [], activity: [], ts: 0 };
+
+        const escapeHtml = (value)=> String(value || '')
+          .replace(/&/g,'&amp;')
+          .replace(/</g,'&lt;')
+          .replace(/>/g,'&gt;')
+          .replace(/\"/g,'&quot;')
+          .replace(/'/g,'&#39;');
+
+        const isTyping = (target)=>{
+          if(!target) return false;
+          const tag = (target.tagName || '').toLowerCase();
+          return tag === 'input' || tag === 'textarea' || target.isContentEditable;
+        };
+
+        const openSearch = async ()=>{
+          overlay.classList.add('open');
+          overlay.setAttribute('aria-hidden', 'false');
+          if(input) input.focus();
+          if(Date.now() - cache.ts > 60000 || !cache.ts){
+            const [items, jobs, activity] = await Promise.all([
+              this.fetchJsonSafe('/api/items', {}, []),
+              this.fetchJsonSafe('/api/jobs', {}, []),
+              this.fetchJsonSafe('/api/recent-activity', {}, [])
+            ]);
+            cache = {
+              items: Array.isArray(items) ? items : [],
+              jobs: Array.isArray(jobs) ? jobs : [],
+              activity: Array.isArray(activity) ? activity : [],
+              ts: Date.now()
+            };
+          }
+          renderResults(input?.value || '');
+        };
+
+        const closeSearch = ()=>{
+          overlay.classList.remove('open');
+          overlay.setAttribute('aria-hidden', 'true');
+        };
+
+        const buildGroup = (title, items)=>{
+          if(!items.length) return '';
+          const rows = items.map((item, idx)=>`
+            <button class="search-item" data-href="${item.href}" data-idx="${idx}">
+              <div class="search-item-main">${escapeHtml(item.label)}</div>
+              <div class="search-item-meta">${escapeHtml(item.meta || '')}</div>
+            </button>
+          `).join('');
+          return `<div class="search-group"><div class="search-group-title">${title}</div>${rows}</div>`;
+        };
+
+        const renderResults = (query)=>{
+          const q = (query || '').toLowerCase().trim();
+          activeResults = [];
+          if(!q){
+            results.innerHTML = '<div class="search-empty">Type at least 2 characters to search.</div>';
+            return;
+          }
+          if(q.length < 2){
+            results.innerHTML = '<div class="search-empty">Keep typing to see results.</div>';
+            return;
+          }
+          const itemMatches = cache.items.filter(i=>{
+            const code = (i.code || '').toLowerCase();
+            const name = (i.name || '').toLowerCase();
+            return code.includes(q) || name.includes(q);
+          }).slice(0,5).map(i=>{
+            const label = `${i.code || ''} - ${i.name || 'Item'}`.trim();
+            const meta = i.category ? `Category: ${i.category}` : '';
+            return { label, meta, href: `inventory-list.html?item=${encodeURIComponent(i.code || '')}` };
+          });
+          const jobMatches = cache.jobs.filter(j=>{
+            const code = (j.code || '').toLowerCase();
+            const name = (j.name || '').toLowerCase();
+            const location = (j.location || '').toLowerCase();
+            const status = (j.status || '').toLowerCase();
+            return code.includes(q) || name.includes(q) || location.includes(q) || status.includes(q);
+          }).slice(0,5).map(j=>{
+            const label = `${j.code || ''} - ${j.name || 'Project'}`.trim();
+            const meta = j.status ? `Status: ${j.status}` : (j.location ? `Location: ${j.location}` : '');
+            return { label, meta, href: `job-creator.html?search=${encodeURIComponent(j.code || '')}` };
+          });
+          const activityMatches = cache.activity.filter(a=>{
+            const code = (a.code || a.itemCode || a.item || '').toLowerCase();
+            const jobId = (a.jobId || a.project || '').toLowerCase();
+            const user = (a.user || a.userEmail || '').toLowerCase();
+            const reason = (a.reason || '').toLowerCase();
+            return code.includes(q) || jobId.includes(q) || user.includes(q) || reason.includes(q);
+          }).slice(0,5).map(a=>{
+            const code = a.code || a.itemCode || a.item || '';
+            const label = `${code || 'Item'} - ${(a.type || 'Activity').toString().toUpperCase()}`;
+            const meta = a.jobId ? `Project: ${a.jobId}` : (a.reason ? a.reason : '');
+            const search = a.jobId || a.reason || '';
+            return { label, meta, href: `inventory-list.html?item=${encodeURIComponent(code)}&tab=activity&activity=${encodeURIComponent(search)}` };
+          });
+
+          activeResults = [...itemMatches, ...jobMatches, ...activityMatches];
+          if(!activeResults.length){
+            results.innerHTML = '<div class="search-empty">No results found.</div>';
+            return;
+          }
+          results.innerHTML = [
+            buildGroup('Items', itemMatches),
+            buildGroup('Projects', jobMatches),
+            buildGroup('Activity', activityMatches)
+          ].join('');
+          results.querySelectorAll('.search-item').forEach(btn=>{
+            btn.addEventListener('click', ()=>{
+              const href = btn.getAttribute('data-href');
+              closeSearch();
+              if(href) window.location.href = href;
+            });
+          });
+        };
+
+        input?.addEventListener('input', (e)=> renderResults(e.target.value));
+        input?.addEventListener('keydown', (e)=>{
+          if(e.key === 'Enter'){
+            const first = results.querySelector('.search-item');
+            if(first){
+              first.click();
+            }
+          }
+        });
+        closeBtn?.addEventListener('click', closeSearch);
+        overlay.addEventListener('click', (e)=>{
+          if(e.target === overlay) closeSearch();
+        });
+        document.addEventListener('keydown', (e)=>{
+          const key = (e.key || '').toLowerCase();
+          if((e.ctrlKey || e.metaKey) && key === 'k'){
+            e.preventDefault();
+            openSearch();
+            return;
+          }
+          if(key === '/' && !isTyping(e.target)){
+            e.preventDefault();
+            openSearch();
+            return;
+          }
+          if(key === 'escape' && overlay.classList.contains('open')){
+            closeSearch();
+          }
+        });
+      };
+      if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+      else init();
+    },
+    initInstallPrompt(){
+      if(this._installPromptInit) return;
+      this._installPromptInit = true;
+      const isStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+      if(isStandalone || window.navigator.standalone) return;
+      let deferredPrompt = null;
+      const dismissed = localStorage.getItem('installPromptDismissed') === '1';
+      const showPrompt = ()=>{
+        if(dismissed || !deferredPrompt || document.getElementById('installPrompt')) return;
+        const banner = document.createElement('div');
+        banner.id = 'installPrompt';
+        banner.className = 'install-prompt';
+        banner.innerHTML = `
+          <span>Install the IMS app for faster access.</span>
+          <div class="install-actions">
+            <button type="button" class="install-btn">Install</button>
+            <button type="button" class="install-dismiss muted">Not now</button>
+          </div>
+        `;
+        document.body.appendChild(banner);
+        banner.querySelector('.install-btn')?.addEventListener('click', async ()=>{
+          if(!deferredPrompt) return;
+          deferredPrompt.prompt();
+          await deferredPrompt.userChoice;
+          deferredPrompt = null;
+          banner.remove();
+        });
+        banner.querySelector('.install-dismiss')?.addEventListener('click', ()=>{
+          localStorage.setItem('installPromptDismissed','1');
+          banner.remove();
+        });
+      };
+      window.addEventListener('beforeinstallprompt', (e)=>{
+        e.preventDefault();
+        deferredPrompt = e;
+        showPrompt();
+      });
+      window.addEventListener('appinstalled', ()=>{
+        localStorage.setItem('installPromptDismissed','1');
+        const banner = document.getElementById('installPrompt');
+        if(banner) banner.remove();
+        deferredPrompt = null;
+      });
     }
   };
 
@@ -354,4 +582,6 @@
   global.utils = utils;
   utils.initClock?.();
   utils.ensurePwaMeta?.();
+  utils.initGlobalSearch?.();
+  utils.initInstallPrompt?.();
 })(window);

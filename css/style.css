@@ -944,3 +944,158 @@ body.role-manager .admin-only{display:none}
   [data-ds="v1"] select,
   [data-ds="v1"] textarea{font-size:16px}
 }
+
+.search-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(5,20,16,0.55);
+  display:none;
+  align-items:flex-start;
+  justify-content:center;
+  padding:80px 16px 24px;
+  z-index:2000;
+}
+.search-overlay.open{display:flex;}
+.search-panel{
+  width:min(720px,100%);
+  background:#ffffff;
+  border-radius:16px;
+  padding:16px;
+  box-shadow:0 20px 60px rgba(15,23,42,0.25);
+}
+.search-header{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+#globalSearchInput{
+  flex:1;
+  padding:12px 14px;
+  border-radius:10px;
+  border:1px solid #e6edf3;
+  font-size:1rem;
+}
+.search-close{
+  padding:10px 14px;
+  border-radius:10px;
+  border:1px solid #e6edf3;
+  background:#f8fafc;
+}
+.search-results{
+  margin-top:12px;
+  max-height:60vh;
+  overflow:auto;
+}
+.search-group-title{
+  margin:12px 4px 6px;
+  font-size:0.72rem;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  color:#6b7280;
+}
+.search-item{
+  width:100%;
+  text-align:left;
+  border:1px solid #e6edf3;
+  border-radius:10px;
+  background:#f8fafc;
+  padding:10px 12px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  cursor:pointer;
+  margin-bottom:8px;
+}
+.search-item:hover{
+  background:#eef7f4;
+  border-color:#bfe3d7;
+}
+.search-item-main{font-weight:600;color:#0f172a;}
+.search-item-meta{font-size:0.85rem;color:#64748b;}
+.search-empty{
+  padding:16px;
+  text-align:center;
+  color:#6b7280;
+}
+.search-footer{
+  margin-top:8px;
+  font-size:0.8rem;
+  color:#94a3b8;
+  text-align:right;
+}
+.search-trigger{
+  margin-right:10px;
+}
+
+.install-prompt{
+  position:fixed;
+  right:16px;
+  bottom:90px;
+  background:#0f2d24;
+  color:#f8fafc;
+  padding:12px 14px;
+  border-radius:12px;
+  box-shadow:0 10px 30px rgba(15,23,42,0.25);
+  display:flex;
+  align-items:center;
+  gap:12px;
+  z-index:1500;
+}
+.install-actions{
+  display:flex;
+  gap:8px;
+}
+.install-btn{
+  background:#22c55e;
+  color:#082015;
+  border:none;
+  padding:8px 12px;
+  border-radius:8px;
+  font-weight:600;
+}
+
+.field-hint{
+  display:block;
+  font-size:0.78rem;
+  margin-top:4px;
+  color:#b91c1c;
+}
+.field-hint.warn{color:#b45309;}
+.field-hint.ok{color:#15803d;}
+
+.import-preview{
+  border:1px dashed #d4dde8;
+  border-radius:12px;
+  padding:12px;
+  background:#f8fafc;
+  margin-top:12px;
+}
+.import-preview.hidden{display:none;}
+.import-summary{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:10px;
+}
+.import-chip{
+  background:#eef2f7;
+  border-radius:999px;
+  padding:4px 10px;
+  font-size:0.8rem;
+  color:#475569;
+}
+.import-chip.warn{
+  background:#fef3c7;
+  color:#92400e;
+}
+.import-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:0.85rem;
+}
+.import-table th,.import-table td{
+  padding:6px 8px;
+  border-bottom:1px solid #e5e7eb;
+  text-align:left;
+}
