@@ -46,6 +46,7 @@
         <div class="mode-tabs inventory-tabs">
           <button class="mode-btn active" data-mode="items" type="button">Items</button>
           <button class="mode-btn" data-mode="categories" type="button">Categories</button>
+          <button class="mode-btn" data-mode="suppliers" type="button">Suppliers</button>
         </div>
       </section>
 
@@ -62,6 +63,7 @@
                 <select id="category"></select>
               </label>
               <label>Unit Price<input id="unitPrice" type="number" step="0.01" placeholder="Optional"></label>
+              <label>UOM<input id="itemUom" placeholder="ea, box, pack"></label>
             </div>
             <div class="form-row">
               <label>Material<input id="itemMaterial" placeholder="e.g., Steel, PVC"></label>
@@ -76,6 +78,18 @@
                 <input id="itemLowStockEnabled" type="checkbox" checked>
                 Enable low stock alerts
               </label>
+              <label style="display:flex;align-items:center;gap:8px;"><input id="itemSerialized" type="checkbox"> Serialized</label>
+              <label style="display:flex;align-items:center;gap:8px;"><input id="itemLot" type="checkbox"> Lot / Batch</label>
+              <label style="display:flex;align-items:center;gap:8px;"><input id="itemExpires" type="checkbox"> Expiration</label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1;">Default Warehouse<input id="itemWarehouse" placeholder="e.g., WH1"></label>
+              <label style="flex:1;">Default Zone<input id="itemZone" placeholder="e.g., A1"></label>
+              <label style="flex:1;">Default Bin<input id="itemBin" placeholder="e.g., B-12"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1;">Reorder Point<input id="itemReorderPoint" type="number" min="0" step="1" placeholder="Optional"></label>
+              <label style="flex:1;">Minimum Stock<input id="itemMinStock" type="number" min="0" step="1" placeholder="Optional"></label>
             </div>
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="itemNotes" rows="2" placeholder="Internal notes"></textarea></label>
@@ -108,10 +122,12 @@
           <div style="margin-bottom:12px;">
             <input id="searchBox" type="text" placeholder="Search by code or name..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:300px;">
           </div>
-          <table id="itemTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit Price</th><th>Material</th><th>Shape</th><th>Brand</th><th>Notes</th><th>Actions</th></tr></thead>
-            <tbody></tbody>
-          </table>
+          <div class="table-scroll">
+            <table id="itemTable">
+              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit Price</th><th>Material</th><th>Shape</th><th>Brand</th><th>Notes</th><th>Reorder Pt</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </section>
       </div>
 
@@ -165,6 +181,49 @@
           </table>
         </section>
       </div>
+
+      <div id="suppliers-mode" class="mode-content">
+        <section class="card inventory-card">
+          <h3>Supplier Directory</h3>
+          <div class="form-row">
+            <input id="supplierSearch" type="text" placeholder="Search supplier by name, contact, or email..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;width:100%;max-width:360px;">
+            <button id="supplierRefresh" type="button" class="muted">Refresh</button>
+          </div>
+          <table id="supplierTable">
+            <thead><tr><th>Name</th><th>Contact</th><th>Lead Time</th><th>MOQ</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <section class="card inventory-card">
+          <h3>Add / Edit Supplier</h3>
+          <form id="supplierForm" class="inventory-form">
+            <input type="hidden" id="supplierId">
+            <div class="form-row">
+              <label style="flex:1;">Name<input id="supplierName" required></label>
+              <label style="flex:1;">Contact<input id="supplierContact" placeholder="Contact name"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1;">Email<input id="supplierEmail" type="email" placeholder="email@example.com"></label>
+              <label style="flex:1;">Phone<input id="supplierPhone" placeholder="+1 555-1234"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1;">Lead Time Avg (days)<input id="supplierLeadAvg" type="number" min="0" step="1"></label>
+              <label style="flex:1;">Lead Time Min/Max (days)<input id="supplierLeadMin" type="number" min="0" step="1" style="max-width:120px;"> / <input id="supplierLeadMax" type="number" min="0" step="1" style="max-width:120px;"></label>
+              <label style="flex:1;">MOQ<input id="supplierMoq" type="number" min="0" step="1"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1;">Notes<textarea id="supplierNotes" rows="2" placeholder="Terms, preferred items, shipping lanes..."></textarea></label>
+            </div>
+            <div class="form-row">
+              <button id="supplierSave" type="submit">Save Supplier</button>
+              <button id="supplierClear" type="button" class="muted">Clear</button>
+            </div>
+            <div id="supplierMsg" style="font-size:0.9rem;"></div>
+          </form>
+          <p class="muted-text" style="margin-top:8px;">Edits here are shared with drawer logistics and procurement views.</p>
+        </section>
+      </div>
     </main>
   </div>
 
@@ -187,6 +246,7 @@
             <select id="itemEditCategory"></select>
           </label>
           <label>Unit Price<input id="itemEditUnitPrice" type="number" step="0.01" placeholder="Optional"></label>
+          <label>UOM<input id="itemEditUom" placeholder="ea, box, pack"></label>
         </div>
         <div class="form-row">
           <label>Material<input id="itemEditMaterial" placeholder="e.g., Steel, PVC"></label>
@@ -201,6 +261,18 @@
             <input id="itemEditLowStockEnabled" type="checkbox" checked>
             Enable low stock alerts
           </label>
+          <label style="display:flex;align-items:center;gap:8px;"><input id="itemEditSerialized" type="checkbox"> Serialized</label>
+          <label style="display:flex;align-items:center;gap:8px;"><input id="itemEditLot" type="checkbox"> Lot / Batch</label>
+          <label style="display:flex;align-items:center;gap:8px;"><input id="itemEditExpires" type="checkbox"> Expiration</label>
+        </div>
+        <div class="form-row">
+          <label style="flex:1;">Default Warehouse<input id="itemEditWarehouse" placeholder="e.g., WH1"></label>
+          <label style="flex:1;">Default Zone<input id="itemEditZone" placeholder="e.g., A1"></label>
+          <label style="flex:1;">Default Bin<input id="itemEditBin" placeholder="e.g., B-12"></label>
+        </div>
+        <div class="form-row">
+          <label style="flex:1;">Reorder Point<input id="itemEditReorderPoint" type="number" min="0" step="1" placeholder="Optional"></label>
+          <label style="flex:1;">Minimum Stock<input id="itemEditMinStock" type="number" min="0" step="1" placeholder="Optional"></label>
         </div>
         <div class="form-row">
           <label style="flex:1">Notes<textarea id="itemEditNotes" rows="2" placeholder="Internal notes"></textarea></label>
@@ -221,9 +293,5 @@
   <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
 </body>
 </html>
-
-
-
-
 
 

@@ -30,12 +30,16 @@ function parseTs(val){
 
 function fmtDT(val){
   if(window.utils?.formatDateTime) return utils.formatDateTime(val);
-  return val ? new Date(val).toLocaleString() : '';
+  if(!val) return '';
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
 
 function fmtDate(val){
   if(window.utils?.formatDateOnly) return utils.formatDateOnly(val);
-  return val ? new Date(val).toLocaleDateString() : '';
+  if(!val) return '';
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString([], { year:'numeric', month:'short', day:'2-digit' });
 }
 
 function setValue(id, val){

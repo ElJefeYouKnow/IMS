@@ -540,7 +540,7 @@ async function renderRecentOrders(){
       const tr=document.createElement('tr');
       const jobValue = o.jobId || '';
       const jobLabel = jobValue && jobValue.trim() ? jobValue : 'General';
-      const tsLabel = (window.utils && utils.formatDateTime) ? utils.formatDateTime(o.lastOrderTs) : (o.lastOrderTs ? new Date(o.lastOrderTs).toLocaleString() : '');
+      const tsLabel = utils.formatDateTime?.(o.lastOrderTs) || '';
       tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.openQty}</td><td>${jobLabel}</td><td>${o.eta||''}</td><td>${tsLabel}</td>`;
       tbody.appendChild(tr);
     });
@@ -797,7 +797,7 @@ function initReserve(){
     }
     filtered.slice().reverse().forEach(e=>{
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${e.code}</td><td>${e.jobId||''}</td><td>${e.qty}</td><td class="mobile-hide">${e.returnDate||''}</td><td class="mobile-hide">${e.ts ? new Date(e.ts).toLocaleString() : ''}</td>`;
+      tr.innerHTML=`<td>${e.code}</td><td>${e.jobId||''}</td><td>${e.qty}</td><td class="mobile-hide">${e.returnDate||''}</td><td class="mobile-hide">${utils.formatDateTime?.(e.ts) || ''}</td>`;
       reserveTable.appendChild(tr);
     });
   }

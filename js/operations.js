@@ -269,8 +269,18 @@ function wireSelectAll(tableId){
   });
 }
 
-function fmtDT(val){ return (window.utils && utils.formatDateTime) ? utils.formatDateTime(val) : (val ? new Date(val).toLocaleString() : ''); }
-function fmtD(val){ return (window.utils && utils.formatDateOnly) ? utils.formatDateOnly(val) : (val ? new Date(val).toLocaleDateString() : ''); }
+function fmtDT(val){
+  if(window.utils?.formatDateTime) return utils.formatDateTime(val);
+  if(!val) return '';
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+function fmtD(val){
+  if(window.utils?.formatDateOnly) return utils.formatDateOnly(val);
+  if(!val) return '';
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString([], { year:'numeric', month:'short', day:'2-digit' });
+}
 
 async function refreshReturnDropdown(select){
   const checkouts = await loadCheckouts();

@@ -16,10 +16,11 @@ function parseTs(val){
 }
 
 function formatWhen(val){
+  if(window.utils?.formatDateTime) return utils.formatDateTime(val);
   const ts = parseTs(val);
   if(ts === null) return '';
   const d = new Date(ts);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
 
 function typeLabel(t){

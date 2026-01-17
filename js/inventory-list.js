@@ -14,6 +14,20 @@ let itemMetaByCode = new Map();
 let categoryRulesByName = new Map();
 let closedJobIds = new Set();
 let itemPanelEls = null;
+const drawerState = {
+  itemCode: null,
+  activeTab: 'overview',
+  role: 'employee',
+  dirty: false,
+  cache: {
+    overview: null,
+    activity: null,
+    jobs: null,
+    logistics: null,
+    insights: null,
+    settings: null
+  }
+};
 
 function getItemPanelEls(){
   if(itemPanelEls) return itemPanelEls;
@@ -25,24 +39,13 @@ function getItemPanelEls(){
     close: document.getElementById('itemPanelClose'),
     title: document.getElementById('itemPanelTitle'),
     name: document.getElementById('itemPanelName'),
-    badges: document.getElementById('itemPanelBadges'),
-    available: document.getElementById('itemPanelAvailable'),
-    reserved: document.getElementById('itemPanelReserved'),
-    checkedOut: document.getElementById('itemPanelCheckedOut'),
-    code: document.getElementById('itemPanelCode'),
     category: document.getElementById('itemPanelCategory'),
-    price: document.getElementById('itemPanelPrice'),
-    tags: document.getElementById('itemPanelTags'),
-    threshold: document.getElementById('itemPanelThreshold'),
-    overdue: document.getElementById('itemPanelOverdue'),
-    projects: document.getElementById('itemPanelProjects'),
-    lastActivity: document.getElementById('itemPanelLastActivity'),
-    lastCount: document.getElementById('itemPanelLastCount'),
-    countedQty: document.getElementById('itemPanelCountedQty'),
-    discrepancy: document.getElementById('itemPanelDiscrepancy'),
-    checkedOutProjects: document.getElementById('itemPanelCheckedOutProjects'),
-    reservedProjects: document.getElementById('itemPanelReservedProjects'),
-    description: document.getElementById('itemPanelDescription')
+    status: document.getElementById('itemPanelStatus'),
+    statusDot: document.querySelector('#itemPanelStatus .dot'),
+    statusLabel: document.querySelector('#itemPanelStatus .label'),
+    actions: document.getElementById('itemDrawerActions'),
+    tabs: document.getElementById('itemDrawerTabs'),
+    body: document.getElementById('itemDrawerBody')
   };
   return itemPanelEls;
 }
@@ -54,6 +57,653 @@ function setPanelOpen(isOpen){
   if(els.backdrop) els.backdrop.classList.toggle('active', isOpen);
   document.body.classList.toggle('panel-open', isOpen);
   els.panel.setAttribute('aria-hidden', isOpen ? 'false' : 'true');
+}
+
+function getUserRole(){
+  const session = window.utils?.getSession?.();
+  const role = (session?.role || '').toLowerCase();
+  if(role === 'admin' || role === 'manager' || role === 'employee') return role;
+  return 'employee';
+}
+
+function computeStatus(item, threshold){
+  if(!item) return { tone: 'info', label: 'Active' };
+  if(Number.isFinite(item.available) && item.available <= 0) return { tone: 'danger', label: 'Out of stock' };
+  if(item.overdue) return { tone: 'warn', label: 'Overdue returns' };
+  if(Number.isFinite(threshold) && Number(item.available) <= threshold) return { tone: 'warn', label: 'Low stock' };
+  if(item.recent) return { tone: 'info', label: 'Recently active' };
+  return { tone: 'info', label: 'Active' };
+}
+
+function computeReorderStatus({ available, reorderPoint, inTransit, discrepancyUnits }){
+  const avail = Number(available);
+  const reorder = Number(reorderPoint);
+  const disc = Number(discrepancyUnits);
+  const transit = Number(inTransit);
+  if(Number.isFinite(avail) && avail <= 0 && Number.isFinite(transit) && transit > 0) return { label:'In Transit', tone:'info' };
+  if((Number.isFinite(avail) && avail <= 0) || (Number.isFinite(disc) && disc !== 0)) return { label:'Critical', tone:'danger' };
+  if(Number.isFinite(avail) && Number.isFinite(reorder) && avail <= reorder) return { label:'Attention', tone:'warn' };
+  return { label:'Healthy', tone:'success' };
+}
+
+function qtyCell(label, val, tooltip){
+  const num = Number(val);
+  const isNumber = Number.isFinite(num);
+  const display = isNumber ? num : (val ?? '—');
+  const cls = ['qty-cell'];
+  if(isNumber && num < 0) cls.push('neg');
+  else if(isNumber && num === 0) cls.push('zero');
+  const tip = tooltip ? ` title="${tooltip}"` : '';
+  return `<div class="${cls.join(' ')}"><span class="qty-label">${label}<span class="help-dot"${tip}>?</span></span><strong>${display}</strong></div>`;
+}
+
+function formatLastEvent(ev){
+  if(!ev) return '—';
+  const type = ev.type || 'Event';
+  const ts = ev.timestamp || ev.ts || '';
+  const user = ev.user || ev.userEmail || '';
+  const when = ts ? fmtDT(ts) : '—';
+  return `${type} · ${when}${user ? ' · ' + user : ''}`;
+}
+
+function renderDrawerHeader(item, meta, role, data){
+  const els = getItemPanelEls();
+  if(!els) return;
+  const category = item.category || DEFAULT_CATEGORY_NAME;
+  if(els.title) els.title.textContent = item.code || 'Item';
+  if(els.name) els.name.textContent = item.name || 'Unnamed item';
+  if(els.category) els.category.textContent = category;
+  const status = computeStatus(item, data?.threshold);
+  if(els.statusLabel) els.statusLabel.textContent = status.label || '-';
+  if(els.status){
+    els.status.classList.remove('warn','danger');
+    if(status.tone === 'warn') els.status.classList.add('warn');
+    if(status.tone === 'danger') els.status.classList.add('danger');
+  }
+  if(els.statusDot){
+    els.statusDot.style.background = status.tone === 'danger' ? '#ef4444' : status.tone === 'warn' ? '#f59e0b' : '#22c55e';
+  }
+
+  if(els.actions){
+    els.actions.innerHTML = '';
+    const makeBtn = (label, cls, handler)=>{
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `action-btn ${cls || ''}`.trim();
+      btn.textContent = label;
+      btn.addEventListener('click', handler);
+      return btn;
+    };
+    els.actions.appendChild(makeBtn('Check Out', 'primary', ()=> window.location.href='inventory-operations.html?mode=checkout'));
+    els.actions.appendChild(makeBtn('Reserve', 'outline', ()=> window.location.href='order-register.html#reserve'));
+    if(role === 'manager' || role === 'admin'){
+      els.actions.appendChild(makeBtn('Adjust', '', ()=> window.location.href='inventory-operations.html?mode=checkin'));
+    }
+  }
+}
+
+function allowedTabsForRole(role){
+  const base = ['overview','activity','jobs','insights'];
+  if(role === 'manager' || role === 'admin') base.push('logistics');
+  if(role === 'admin') base.push('settings');
+  return base;
+}
+
+function renderDrawerTabs(role){
+  const els = getItemPanelEls();
+  if(!els?.tabs) return;
+  const tabs = allowedTabsForRole(role);
+  if(!tabs.includes(drawerState.activeTab)) drawerState.activeTab = 'overview';
+  const labels = { overview:'Overview', activity:'Activity', jobs:'Jobs', logistics:'Logistics', insights:'Insights', settings:'Settings' };
+  els.tabs.innerHTML = '';
+  tabs.forEach(key=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'drawer-tab';
+    if(drawerState.activeTab === key) btn.classList.add('active');
+    btn.dataset.tab = key;
+    btn.textContent = labels[key] || key;
+    els.tabs.appendChild(btn);
+  });
+}
+
+function renderTabOverview(data){
+  const item = data?.item || {};
+  const states = data?.states || {};
+  const summary = data?.summary || {};
+  const meta = data?.meta || {};
+  const availability = Number.isFinite(states.available) ? states.available : null;
+  const status = computeReorderStatus({
+    available: availability,
+    reorderPoint: summary.reorderPoint,
+    inTransit: states.inTransit,
+    discrepancyUnits: summary.discrepancyUnits
+  });
+  const reorderBadge = `<span class="status-chip ${status.tone === 'danger' ? 'danger' : status.tone === 'warn' ? 'warn' : 'success'}"><span class="dot"></span><span class="label">${status.label}</span></span>`;
+  const qtyTips = {
+    onHand:'Total physical units across locations.',
+    available:'Units free to allocate (on hand minus reserved/issued).',
+    reserved:'Units held for projects/orders.',
+    checkedOut:'Units currently issued/picked.',
+    inTransit:'Units on open POs not yet received.',
+    damaged:'Units marked damaged/unusable.',
+    returned:'Units recently returned.'
+  };
+  const qtyGrid = `
+    <div class="qty-grid">
+      ${qtyCell('On Hand', states.onHand ?? states.available ?? 0, qtyTips.onHand)}
+      ${qtyCell('Available', states.available ?? 0, qtyTips.available)}
+      ${qtyCell('Reserved', states.reserved ?? 0, qtyTips.reserved)}
+      ${qtyCell('Checked Out', states.checkedOut ?? 0, qtyTips.checkedOut)}
+      ${qtyCell('In Transit', states.inTransit ?? 0, qtyTips.inTransit)}
+      ${qtyCell('Damaged', states.damaged ?? 0, qtyTips.damaged)}
+      ${qtyCell('Returned', states.returned ?? 0, qtyTips.returned)}
+    </div>
+  `;
+  const estDays = (Number.isFinite(states.available) && Number.isFinite(summary.avgDailyUsage) && summary.avgDailyUsage > 0)
+    ? Math.max(0, Math.round(states.available / summary.avgDailyUsage))
+    : '—';
+  const lastActivity = formatLastEvent(summary.lastActivity);
+  const lastCount = summary.lastCount ? `${fmtDate(summary.lastCount.date || summary.lastCount)}${summary.lastCount.user ? ' · ' + summary.lastCount.user : ''}` : '—';
+  const discUnits = summary.discrepancyUnits;
+  const discVal = summary.discrepancyValue;
+  const discLabel = discUnits === undefined || discUnits === null
+    ? '—'
+    : `${discUnits > 0 ? '+' : ''}${discUnits}${discVal ? ` (${discVal})` : ''}`;
+
+  return `
+    <div class="panel-section">
+      <h3>Quantity States</h3>
+      ${qtyGrid}
+    </div>
+    <div class="panel-section">
+      <h3>Reorder &amp; Health</h3>
+      <div class="reorder-row">
+        <div class="reorder-field"><span>Reorder Point</span><strong>${summary.reorderPoint ?? '—'}</strong></div>
+        <div class="reorder-field"><span>Minimum Stock</span><strong>${summary.minStock ?? '—'}</strong></div>
+        <div class="reorder-field"><span>Reorder Status</span>${reorderBadge}</div>
+        <div class="reorder-field"><span>Est. Days of Stock</span><strong>${estDays}</strong></div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>Last Control Events</h3>
+      <div class="panel-list compact">
+        <div class="panel-row"><span>Last Activity</span><strong>${lastActivity}</strong></div>
+        <div class="panel-row"><span>Last Physical Count</span><strong>${lastCount}</strong></div>
+        <div class="panel-row"><span>Discrepancy</span><strong>${discLabel}</strong></div>
+      </div>
+      <a class="muted-link" data-action="view-activity" href="#activity">View full activity</a>
+    </div>
+  `;
+}
+
+function renderTabActivity(data){
+  const cache = data || { records: [], filters: {}, loading: true, page:1, hasMore:false };
+  const filters = cache.filters || {};
+  const records = cache.records || [];
+  const loading = cache.loading;
+  const rows = records.map(r=>{
+    const when = fmtDT(r.ts || r.timestamp);
+    const qty = r.qty ?? '—';
+    const from = r.from || r.source || '';
+    const to = r.to || r.destination || '';
+    const related = r.related || r.jobId || r.po || '';
+    const reason = r.reason || '';
+    const user = r.user || r.userEmail || '';
+    return `<tr>
+      <td>${when}</td>
+      <td>${(r.type || '').toUpperCase()}</td>
+      <td>${qty}</td>
+      <td>${from || '—'}${to ? ` → ${to}` : ''}</td>
+      <td>${related || '—'}</td>
+      <td>${user || '—'}</td>
+      <td>${reason || '—'}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="panel-section">
+      <div class="filters-row">
+        <select id="activity-range">
+          <option value="7" ${filters.range==='7'?'selected':''}>Last 7 days</option>
+          <option value="30" ${filters.range==='30'?'selected':''}>Last 30 days</option>
+          <option value="90" ${filters.range==='90'?'selected':''}>Last 90 days</option>
+          <option value="custom" ${filters.range==='custom'?'selected':''}>Custom</option>
+        </select>
+        <select id="activity-type">
+          <option value="">All Types</option>
+          ${['IN','OUT','RESERVE','RETURN','ADJUST','TRANSFER'].map(t=>`<option value="${t}" ${filters.type===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+        <input id="activity-search" type="search" placeholder="Search job, PO, user, reason" value="${filters.search || ''}">
+      </div>
+      <div class="panel-table-wrap">
+        <table class="drawer-table">
+          <thead><tr><th>Date/Time</th><th>Type</th><th>Qty</th><th>From → To</th><th>Related</th><th>User</th><th>Reason</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7" class="muted-text">No activity yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="pager-row">
+        ${loading ? '<span class="muted-text">Loading...</span>' : ''}
+        ${cache.hasMore ? '<button id="activity-loadMore" type="button" class="muted">Load more</button>' : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderTabJobs(data){
+  const cache = data || { active: [], history: [], filters: {} };
+  const filters = cache.filters || {};
+  const activeRows = cache.active.map(r=>`
+    <tr data-job="${r.jobId || ''}" class="${r.canNavigate ? 'job-link' : ''}">
+      <td>${r.jobId || '—'}</td>
+      <td>${r.project || r.customer || '—'}</td>
+      <td>${r.reservedQty ?? '—'}</td>
+      <td>${r.issuedQty ?? '—'}</td>
+      <td>${r.status || '—'}</td>
+    </tr>
+  `).join('');
+  const historyRows = cache.history.map(r=>`
+    <tr data-job="${r.jobId || ''}" class="${r.canNavigate ? 'job-link' : ''}">
+      <td>${r.jobId || '—'}</td>
+      <td>${r.usedQty ?? '—'}</td>
+      <td>${r.returnedQty ?? '—'}</td>
+      <td>${r.variance ?? '—'}</td>
+      <td>${r.closedDate ? fmtDate(r.closedDate) : '—'}</td>
+    </tr>
+  `).join('');
+  return `
+    <div class="panel-section">
+      <div class="filters-row">
+        <select id="jobs-status">
+          <option value="open" ${filters.status==='open'?'selected':''}>Open</option>
+          <option value="closed" ${filters.status==='closed'?'selected':''}>Closed</option>
+          <option value="all" ${filters.status==='all'?'selected':''}>All</option>
+        </select>
+        <select id="jobs-range">
+          <option value="30" ${filters.range==='30'?'selected':''}>30 days</option>
+          <option value="90" ${filters.range==='90'?'selected':''}>90 days</option>
+          <option value="365" ${filters.range==='365'?'selected':''}>365 days</option>
+        </select>
+      </div>
+      <h4 class="subhead">Active Allocations</h4>
+      <div class="panel-table-wrap">
+        <table class="drawer-table">
+          <thead><tr><th>Job ID</th><th>Project</th><th>Reserved Qty</th><th>Issued Qty</th><th>Status</th></tr></thead>
+          <tbody>${activeRows || '<tr><td colspan="5" class="muted-text">No active allocations.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <h4 class="subhead">Historical Usage</h4>
+      <div class="panel-table-wrap">
+        <table class="drawer-table">
+          <thead><tr><th>Job ID</th><th>Used Qty</th><th>Returned Qty</th><th>Variance</th><th>Closed</th></tr></thead>
+          <tbody>${historyRows || '<tr><td colspan="5" class="muted-text">No history.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderTabLogistics(data){
+  if(!data) return `<div class="panel-section"><p class="panel-note">No supplier/PO history yet.</p></div>`;
+  const suppliers = data.suppliers || {};
+  const lead = suppliers.leadTime || {};
+  const alt = (suppliers.alternates || []).filter(Boolean).join(', ');
+  const history = (data.procurementHistory || []).slice(0,5).map(po=>`
+    <tr><td>${po.po || '—'}</td><td>${po.orderDate ? fmtDate(po.orderDate) : '—'}</td><td>${po.expected ? fmtDate(po.expected) : '—'}</td><td>${po.received ?? '—'}</td><td>${po.fillRate ?? '—'}</td><td>${po.variance ?? '—'}</td></tr>
+  `).join('');
+  const transit = (data.inTransit || []).map(po=>`
+    <tr><td>${po.po || '—'}</td><td>${po.qty ?? '—'}</td><td>${po.expected ? fmtDate(po.expected) : '—'}</td><td><span class="status-chip ${po.risk === 'Late' ? 'warn' : 'success'}"><span class="dot"></span><span class="label">${po.risk || 'On Track'}</span></span></td></tr>
+  `).join('');
+  const canEdit = drawerState.role === 'admin';
+  return `
+    <div class="panel-section">
+      <h3>Supplier Overview</h3>
+      <div class="panel-list">
+        <div class="panel-row logistic-row" data-field="preferred">
+          <span>Preferred Supplier</span>
+          <div class="edit-wrap"><strong>${suppliers.preferred || '—'}</strong>${canEdit ? '<input class="edit-input" type="text" style="display:none;" value="'+(suppliers.preferred||'')+'"><button type="button" class="muted-link edit-log" data-field="preferred">✎</button><button type="button" class="muted-link save-log" data-field="preferred" style="display:none;">Save</button>' : ''}</div>
+        </div>
+        <div class="panel-row"><span>Alternate Suppliers</span><strong>${alt || '—'}</strong></div>
+        <div class="panel-row"><span>Lead Time (avg/min/max)</span><strong>${lead.avg ?? '—'}/${lead.min ?? '—'}/${lead.max ?? '—'}</strong></div>
+        <div class="panel-row logistic-row" data-field="moq">
+          <span>MOQ</span>
+          <div class="edit-wrap"><strong>${suppliers.moq ?? '—'}</strong>${canEdit ? '<input class="edit-input" type="number" min="0" style="display:none;" value="'+(suppliers.moq ?? '')+'"><button type="button" class="muted-link edit-log" data-field="moq">✎</button><button type="button" class="muted-link save-log" data-field="moq" style="display:none;">Save</button>' : ''}</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>Procurement History (last 5)</h3>
+      <div class="panel-table-wrap">
+        <table class="drawer-table"><thead><tr><th>PO#</th><th>Order</th><th>Expected</th><th>Received</th><th>Fill Rate</th><th>Variance</th></tr></thead><tbody>${history || '<tr><td colspan="6" class="muted-text">No history.</td></tr>'}</tbody></table>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>In Transit</h3>
+      <div class="panel-table-wrap">
+        <table class="drawer-table"><thead><tr><th>PO#</th><th>Qty</th><th>Expected</th><th>Risk</th></tr></thead><tbody>${transit || '<tr><td colspan="4" class="muted-text">No in-transit POs.</td></tr>'}</tbody></table>
+      </div>
+    </div>
+  `;
+}
+
+function renderTabInsights(data){
+  const velocity = data?.velocity || {};
+  const perf = data?.performance || {};
+  const risk = data?.risk || {};
+  const doh = (Number.isFinite(perf.available) && Number.isFinite(velocity.avg30) && velocity.avg30 > 0)
+    ? Math.round(perf.available / velocity.avg30)
+    : '—';
+  return `
+    <div class="panel-section">
+      <h3>Velocity</h3>
+      <div class="panel-list">
+        <div class="panel-row"><span>Avg Daily (7)</span><strong>${velocity.avg7 ?? '—'}</strong></div>
+        <div class="panel-row"><span>Avg Daily (30)</span><strong>${velocity.avg30 ?? '—'}</strong></div>
+        <div class="panel-row"><span>Avg Daily (90)</span><strong>${velocity.avg90 ?? '—'}</strong></div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>Performance</h3>
+      <div class="panel-list">
+        <div class="panel-row"><span>Days on Hand</span><strong>${doh}</strong></div>
+        <div class="panel-row"><span>Dead Stock (90+)</span><strong>${perf.deadStock ? 'Yes' : 'No'}</strong></div>
+        <div class="panel-row"><span>Slow Mover</span><strong>${perf.slowMover ? 'Yes' : 'No'}</strong></div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>Risk</h3>
+      <div class="panel-list">
+        <div class="panel-row"><span>Stockouts (90d)</span><strong>${risk.stockouts ?? '—'}</strong></div>
+        <div class="panel-row"><span>Adjustments (30d)</span><strong>${risk.adjustments ?? '—'}</strong></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTabSettings(data){
+  const meta = data?.meta || {};
+  return `
+    <form id="drawerSettingsForm" class="panel-section">
+      <h3>Identity</h3>
+      <div class="form-row">
+        <label style="flex:1;">Name<input name="name" value="${meta.name || ''}" required></label>
+        <label style="flex:1;">Category<input name="category" value="${meta.category || ''}" required></label>
+      </div>
+      <div class="form-row">
+        <label style="flex:1;">Description<input name="description" value="${meta.description || ''}"></label>
+        <label style="flex:1;">Unit of Measure<input name="uom" value="${meta.uom || meta.unit || ''}" required></label>
+      </div>
+      <h3>Control Flags</h3>
+      <div class="form-row">
+        <label class="toggle-inline"><input type="checkbox" name="serialized" ${meta.serialized ? 'checked' : ''}> Serialized</label>
+        <label class="toggle-inline"><input type="checkbox" name="lot" ${meta.lot ? 'checked' : ''}> Lot/Batch</label>
+        <label class="toggle-inline"><input type="checkbox" name="expires" ${meta.expires ? 'checked' : ''}> Expiration</label>
+      </div>
+      <h3>Storage Defaults</h3>
+      <div class="form-row">
+        <label style="flex:1;">Warehouse<input name="warehouse" value="${meta.warehouse || ''}"></label>
+        <label style="flex:1;">Zone<input name="zone" value="${meta.zone || ''}"></label>
+        <label style="flex:1;">Bin<input name="bin" value="${meta.bin || ''}"></label>
+      </div>
+      <h3>Reorder Rules</h3>
+      <div class="form-row">
+        <label style="flex:1;">Reorder Point<input name="reorderPoint" type="number" min="0" value="${meta.reorderPoint ?? ''}"></label>
+        <label style="flex:1;">Minimum Stock<input name="minStock" type="number" min="0" value="${meta.minStock ?? ''}"></label>
+      </div>
+      <div class="form-row" style="justify-content:flex-end;">
+        <span id="drawerSettingsMsg" class="muted-text"></span>
+        <button type="submit" class="action-btn primary">Save</button>
+      </div>
+    </form>
+  `;
+}
+
+async function ensureTabData(tab){
+  const code = drawerState.itemCode;
+  if(!code) return;
+  if(tab === 'activity'){
+    if(drawerState.cache.activity && !drawerState.cache.activity.refresh) return;
+    const existing = drawerState.cache.activity || { filters:{ range:'30', type:'', search:'', page:1 }, records:[], hasMore:false };
+    drawerState.cache.activity = { ...existing, loading:true };
+    const res = await loadActivity(code, existing.filters);
+    drawerState.cache.activity = { ...existing, ...res, loading:false, refresh:false };
+  }else if(tab === 'jobs'){
+    if(drawerState.cache.jobs && !drawerState.cache.jobs.refresh) return;
+    const filters = drawerState.cache.jobs?.filters || { status:'open', range:'30' };
+    const res = await loadJobs(code, filters);
+    drawerState.cache.jobs = { ...res, filters, refresh:false };
+  }else if(tab === 'logistics'){
+    if(drawerState.cache.logistics && !drawerState.cache.logistics.refresh) return;
+    const res = await loadLogistics(code);
+    drawerState.cache.logistics = res || null;
+  }else if(tab === 'insights'){
+    if(drawerState.cache.insights && !drawerState.cache.insights.refresh) return;
+    const res = await loadInsights(code);
+    drawerState.cache.insights = res || {};
+  }else if(tab === 'settings'){
+    if(drawerState.cache.settings && !drawerState.cache.settings.refresh) return;
+    drawerState.cache.settings = { meta: drawerState.cache.overview?.meta || {}, item: drawerState.cache.overview?.item || {} };
+  }
+}
+
+function bindTabEvents(tab){
+  const els = getItemPanelEls();
+  if(!els?.body) return;
+  if(tab === 'overview'){
+    els.body.querySelector('[data-action="view-activity"]')?.addEventListener('click',(e)=>{e.preventDefault(); setActiveTab('activity');});
+  }else if(tab === 'activity'){
+    const getFilters=()=>{
+      const range = els.body.querySelector('#activity-range')?.value || '30';
+      const type = els.body.querySelector('#activity-type')?.value || '';
+      const search = els.body.querySelector('#activity-search')?.value || '';
+      return { range, type, search, page:1 };
+    };
+    ['change','input'].forEach(ev=>{
+      els.body.querySelector('#activity-range')?.addEventListener(ev, async ()=>{
+        drawerState.cache.activity = { ...drawerState.cache.activity, filters: getFilters(), refresh:true };
+        await setActiveTab('activity');
+      });
+      els.body.querySelector('#activity-type')?.addEventListener(ev, async ()=>{
+        drawerState.cache.activity = { ...drawerState.cache.activity, filters: getFilters(), refresh:true };
+        await setActiveTab('activity');
+      });
+    });
+    els.body.querySelector('#activity-search')?.addEventListener('change', async ()=>{
+      drawerState.cache.activity = { ...drawerState.cache.activity, filters: getFilters(), refresh:true };
+      await setActiveTab('activity');
+    });
+    els.body.querySelector('#activity-loadMore')?.addEventListener('click', async ()=>{
+      const filters = { ...(drawerState.cache.activity?.filters||{}), page:(drawerState.cache.activity?.filters?.page||1)+1 };
+      const res = await loadActivity(drawerState.itemCode, filters);
+      drawerState.cache.activity = {
+        ...drawerState.cache.activity,
+        filters,
+        records: [...(drawerState.cache.activity?.records||[]), ...(res.records||[])],
+        hasMore: res.hasMore
+      };
+      await setActiveTab('activity');
+    });
+  }else if(tab === 'jobs'){
+    const body = els.body;
+    body.querySelector('#jobs-status')?.addEventListener('change', async (e)=>{
+      const filters = { ...(drawerState.cache.jobs?.filters||{}), status: e.target.value };
+      drawerState.cache.jobs = { ...drawerState.cache.jobs, filters, refresh:true };
+      await setActiveTab('jobs');
+    });
+    body.querySelector('#jobs-range')?.addEventListener('change', async (e)=>{
+      const filters = { ...(drawerState.cache.jobs?.filters||{}), range: e.target.value };
+      drawerState.cache.jobs = { ...drawerState.cache.jobs, filters, refresh:true };
+      await setActiveTab('jobs');
+    });
+    body.querySelectorAll('.job-link').forEach(row=>{
+      row.addEventListener('click', ()=>{
+        const jobId = row.dataset.job;
+        if(jobId) window.location.href = `job-creator.html#${encodeURIComponent(jobId)}`;
+      });
+    });
+  }else if(tab === 'settings'){
+    const form = els.body.querySelector('#drawerSettingsForm');
+    if(form){
+      form.addEventListener('input', ()=>{ drawerState.dirty = true; });
+      form.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        const formData = new FormData(form);
+        const payload = {};
+        formData.forEach((val,key)=>{
+          if(['serialized','lot','expires'].includes(key)) payload[key] = form.querySelector(`[name="${key}"]`).checked;
+          else payload[key] = val;
+        });
+        if(!payload.name || !payload.category || !payload.uom){
+          const msg = form.querySelector('#drawerSettingsMsg'); if(msg) msg.textContent = 'Name, category, and UOM are required.'; return;
+        }
+        const numFields = ['reorderPoint','minStock'];
+        for(const f of numFields){
+          if(payload[f] === '') continue;
+          const n = Number(payload[f]);
+          if(!Number.isFinite(n) || n < 0){
+            const msg = form.querySelector('#drawerSettingsMsg'); if(msg) msg.textContent = `${f} must be 0 or greater.`; return;
+          }
+          payload[f] = n;
+        }
+        const ok = await saveSettings(drawerState.itemCode, payload);
+        const msg = form.querySelector('#drawerSettingsMsg');
+        if(ok){
+          drawerState.dirty = false;
+          drawerState.cache.settings = { ...drawerState.cache.settings, meta: { ...drawerState.cache.settings.meta, ...payload } };
+          if(msg) msg.textContent = 'Saved';
+        }else{
+          if(msg) msg.textContent = 'Save failed';
+        }
+      });
+    }
+  }else if(tab === 'logistics' && drawerState.role === 'admin'){
+    els.body.querySelectorAll('.edit-log').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const row = btn.closest('.logistic-row');
+        if(!row) return;
+        row.querySelector('strong').style.display = 'none';
+        const input = row.querySelector('.edit-input'); if(input){ input.style.display='inline-block'; input.focus(); }
+        btn.style.display = 'none';
+        const save = row.querySelector('.save-log'); if(save) save.style.display='inline-block';
+      });
+    });
+    els.body.querySelectorAll('.save-log').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const field = btn.dataset.field;
+        const row = btn.closest('.logistic-row');
+        const input = row?.querySelector('.edit-input');
+        const value = input?.value || '';
+        const ok = await saveLogistics(drawerState.itemCode, field, value);
+        if(ok){
+          drawerState.cache.logistics = drawerState.cache.logistics || { suppliers:{} };
+          drawerState.cache.logistics.suppliers = drawerState.cache.logistics.suppliers || {};
+          if(field === 'preferred') drawerState.cache.logistics.suppliers.preferred = value;
+          if(field === 'moq') drawerState.cache.logistics.suppliers.moq = value === '' ? null : Number(value);
+          drawerState.cache.logistics.refresh = true;
+          await setActiveTab('logistics');
+        }
+      });
+    });
+  }
+}
+
+async function setActiveTab(key){
+  const els = getItemPanelEls();
+  if(!els?.tabs || !els?.body) return;
+  const tabs = allowedTabsForRole(drawerState.role);
+  const nextKey = tabs.includes(key) ? key : 'overview';
+  drawerState.activeTab = nextKey;
+  els.tabs.querySelectorAll('.drawer-tab').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.tab === nextKey);
+  });
+  els.body.innerHTML = '<div class="muted-text" style="padding:12px 0;">Loading...</div>';
+  await ensureTabData(nextKey);
+  let content = '';
+  if(nextKey === 'overview') content = renderTabOverview(drawerState.cache.overview);
+  else if(nextKey === 'activity') content = renderTabActivity(drawerState.cache.activity);
+  else if(nextKey === 'jobs') content = renderTabJobs(drawerState.cache.jobs);
+  else if(nextKey === 'logistics') content = renderTabLogistics(drawerState.cache.logistics);
+  else if(nextKey === 'insights') content = renderTabInsights(drawerState.cache.insights);
+  else if(nextKey === 'settings') content = renderTabSettings(drawerState.cache.settings);
+  els.body.innerHTML = content;
+  bindTabEvents(nextKey);
+}
+
+async function loadActivity(code, filters){
+  try{
+    const params = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([k,v])=>{
+      if(v !== undefined && v !== '') params.set(k, v);
+    });
+    const res = await fetch(`/api/items/${encodeURIComponent(code)}/activity?${params.toString()}`);
+    if(!res.ok) throw new Error('load activity failed');
+    const data = await res.json();
+    const records = Array.isArray(data.records) ? data.records : Array.isArray(data) ? data : [];
+    return { records, hasMore: data.hasMore || records.length === Number(filters.page || 1)*50 };
+  }catch(e){
+    return { records: [], hasMore:false };
+  }
+}
+
+async function loadJobs(code, filters){
+  try{
+    const params = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([k,v])=>{
+      if(v !== undefined && v !== '') params.set(k, v);
+    });
+    const res = await fetch(`/api/items/${encodeURIComponent(code)}/jobs?${params.toString()}`);
+    if(!res.ok) throw new Error('load jobs failed');
+    const data = await res.json();
+    return { active: data.active || [], history: data.history || [], filters };
+  }catch(e){
+    return { active: [], history: [], filters };
+  }
+}
+
+async function loadLogistics(code){
+  try{
+    const res = await fetch(`/api/items/${encodeURIComponent(code)}/logistics`);
+    if(!res.ok) throw new Error('logistics');
+    return await res.json();
+  }catch(e){
+    return null;
+  }
+}
+
+async function loadInsights(code){
+  try{
+    const res = await fetch(`/api/items/${encodeURIComponent(code)}/insights`);
+    if(!res.ok) throw new Error('insights');
+    return await res.json();
+  }catch(e){
+    return {};
+  }
+}
+
+async function saveLogistics(code, field, value){
+  try{
+    const payload = { [field]: value };
+    const res = await fetch(`/api/items/${encodeURIComponent(code)}/logistics`,{
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    return res.ok;
+  }catch(e){
+    return false;
+  }
+}
+
+async function saveSettings(code, payload){
+  try{
+    const res = await fetch(`/api/items/${encodeURIComponent(code)}`,{
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    return res.ok;
+  }catch(e){
+    return false;
+  }
 }
 
 function renderJobBreakdown(container, rows, emptyText){
@@ -87,74 +737,52 @@ function openItemPanel(item){
   if(!els || !item) return;
   const meta = itemMetaByCode.get(item.code) || {};
   const staticTags = normalizeTags(meta.tags);
-  const threshold = Number.isFinite(Number(item.lowStockThreshold)) ? Number(item.lowStockThreshold) : DEFAULT_LOW_STOCK_THRESHOLD;
-  const countDate = item.countedAt ? fmtDate(item.countedAt) : FALLBACK;
-  const countedQty = item.countedQty !== null && item.countedQty !== undefined ? item.countedQty : FALLBACK;
-  const discrepancy = item.discrepancy !== null && item.discrepancy !== undefined
-    ? `${item.discrepancy > 0 ? '+' : ''}${item.discrepancy}`
-    : FALLBACK;
-
-  els.title.textContent = item.code || 'Item';
-  els.name.textContent = item.name || 'Unnamed item';
-  if(els.code) els.code.textContent = item.code || FALLBACK;
-  els.available.textContent = Number.isFinite(Number(item.available)) ? item.available : FALLBACK;
-  els.reserved.textContent = Number.isFinite(Number(item.reserveQty)) ? item.reserveQty : FALLBACK;
-  els.checkedOut.textContent = Number.isFinite(Number(item.checkedOut)) ? item.checkedOut : FALLBACK;
-  els.category.textContent = item.category || DEFAULT_CATEGORY_NAME;
-  if(els.price) els.price.textContent = fmtMoney(meta.unitPrice);
-  if(els.tags) els.tags.textContent = staticTags.length ? staticTags.join(', ') : FALLBACK;
-  els.threshold.textContent = item.lowStockEnabled === false ? 'Disabled' : threshold;
-  if(els.overdue) els.overdue.textContent = item.overdue ? 'Yes' : 'No';
-  els.projects.textContent = item.jobsList || FALLBACK;
-  els.lastActivity.textContent = item.lastDate || FALLBACK;
-  els.lastCount.textContent = countDate;
-  els.countedQty.textContent = countedQty;
-  els.discrepancy.textContent = discrepancy;
-  els.description.textContent = (meta.description || '').toString().trim() || 'No description provided.';
-
-  if(els.badges){
-    els.badges.innerHTML = '';
-    const badges = [];
-    if(item.available <= 0){
-      badges.push({ text: 'Out of stock', cls: 'danger' });
-    }else if(item.available <= threshold){
-      badges.push({ text: 'Low stock', cls: 'warn' });
-    }
-    if(item.overdue) badges.push({ text: 'Overdue returns', cls: 'danger' });
-    if(item.recent) badges.push({ text: 'Recently active', cls: 'info' });
-    if(!badges.length){
-      badges.push({ text: 'On hand', cls: 'info' });
-    }
-    badges.forEach(badge=>{
-      const el = document.createElement('span');
-      el.className = badge.cls ? `badge ${badge.cls}` : 'badge';
-      el.textContent = badge.text;
-      els.badges.appendChild(el);
-    });
-  }
-
-  const outRows = [];
-  const reserveRows = [];
-  if(item.jobs && item.jobs.size){
-    item.jobs.forEach((stats, jobId)=>{
-      const checkedOut = Math.max(0, Number(stats.out || 0));
-      if(checkedOut > 0){
-        outRows.push({ jobId, label: `${checkedOut} out` });
-      }
-      const reserved = Math.max(0, Number(stats.reserve || 0));
-      if(reserved > 0){
-        reserveRows.push({ jobId, label: `${reserved} reserved` });
-      }
-    });
-  }
-  renderJobBreakdown(els.checkedOutProjects, outRows, 'No active job checkouts.');
-  renderJobBreakdown(els.reservedProjects, reserveRows, 'No active reservations.');
-
+  const lowStockCfg = getLowStockConfigForCode(item.code);
+  const threshold = Number.isFinite(lowStockCfg?.threshold) ? lowStockCfg.threshold : (Number.isFinite(item.lowStockThreshold) ? item.lowStockThreshold : DEFAULT_LOW_STOCK_THRESHOLD);
+  const states = {
+    onHand: Number.isFinite(item.onHand) ? item.onHand : (Number(item.available || 0) + Number(item.reserveQty || 0) + Number(item.checkedOut || 0)),
+    available: item.available ?? 0,
+    reserved: item.reserveQty ?? 0,
+    checkedOut: item.checkedOut ?? 0,
+    inTransit: item.inTransit ?? 0,
+    damaged: item.damaged ?? 0,
+    returned: item.returned ?? 0
+  };
+  const summary = {
+    reorderPoint: threshold,
+    minStock: meta.minStock ?? null,
+    lastActivity: item.lastType || item.lastDate ? { type: item.lastType || 'Activity', timestamp: item.lastDate, user: item.lastUser } : null,
+    lastCount: item.countedAt ? { date: item.countedAt, user: item.countedBy } : null,
+    discrepancyUnits: item.discrepancy ?? null,
+    discrepancyValue: item.discrepancyValue ?? null,
+    avgDailyUsage: meta.avgDailyUsage ?? null
+  };
+  const role = getUserRole();
+  drawerState.itemCode = item.code;
+  drawerState.role = role;
+  drawerState.dirty = false;
+  drawerState.activeTab = 'overview';
+  drawerState.cache = {
+    overview: { item, states, summary, meta, tags: staticTags, threshold },
+    activity: null,
+    jobs: null,
+    logistics: null,
+    insights: null,
+    settings: null
+  };
+  renderDrawerHeader(item, meta, role, drawerState.cache.overview);
+  renderDrawerTabs(role);
+  setActiveTab('overview');
   setPanelOpen(true);
 }
 
 function closeItemPanel(){
+  if(drawerState.dirty){
+    const proceed = confirm('You have unsaved changes. Close anyway?');
+    if(!proceed) return;
+  }
   setPanelOpen(false);
+  drawerState.dirty = false;
 }
 
 function setupItemPanel(){
@@ -162,6 +790,13 @@ function setupItemPanel(){
   if(!els) return;
   if(els.close) els.close.addEventListener('click', closeItemPanel);
   if(els.backdrop) els.backdrop.addEventListener('click', closeItemPanel);
+  if(els.tabs){
+    els.tabs.addEventListener('click', (event)=>{
+      const btn = event.target.closest('.drawer-tab');
+      if(!btn) return;
+      setActiveTab(btn.dataset.tab);
+    });
+  }
   document.addEventListener('keydown', (e)=>{
     if(e.key === 'Escape' && els.panel.classList.contains('open')){
       closeItemPanel();
@@ -321,17 +956,17 @@ async function saveCounts(lines){
 }
 
 function fmtDT(val){
-  if(window.utils && utils.formatDateTime){
-    return utils.formatDateTime(val);
-  }
-  return val ? new Date(val).toLocaleString() : FALLBACK;
+  if(window.utils?.formatDateTime) return utils.formatDateTime(val);
+  if(!val) return FALLBACK;
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? FALLBACK : d.toLocaleString([], { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit' });
 }
 
 function fmtDate(val){
-  if(window.utils && utils.formatDateOnly){
-    return utils.formatDateOnly(val);
-  }
-  return val ? new Date(val).toLocaleDateString() : FALLBACK;
+  if(window.utils?.formatDateOnly) return utils.formatDateOnly(val);
+  if(!val) return FALLBACK;
+  const d = new Date(val);
+  return Number.isNaN(d.getTime()) ? FALLBACK : d.toLocaleDateString([], { year:'numeric', month:'short', day:'2-digit' });
 }
 
 function fmtMoney(val){
@@ -772,7 +1407,7 @@ function renderOverdue(){
   });
 }
 
-function setActiveTab(tab){
+function setInventoryTab(tab){
   document.querySelectorAll('.mode-btn').forEach(btn=>{
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
@@ -783,7 +1418,7 @@ function setActiveTab(tab){
 
 function setupTabs(){
   document.querySelectorAll('.mode-btn').forEach(btn=>{
-    btn.addEventListener('click', ()=> setActiveTab(btn.dataset.tab));
+    btn.addEventListener('click', ()=> setInventoryTab(btn.dataset.tab));
   });
 }
 
@@ -993,5 +1628,3 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   const incomingSearchBox = document.getElementById('incomingSearchBox');
   if(incomingSearchBox) incomingSearchBox.addEventListener('input', renderIncoming);
 });
-
-

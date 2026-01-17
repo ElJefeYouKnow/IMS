@@ -133,50 +133,23 @@
   <div class="side-panel-backdrop" id="itemPanelBackdrop"></div>
   <aside class="side-panel" id="itemPanel" aria-hidden="true">
     <div class="side-panel-header">
-      <div>
+      <div class="drawer-head">
         <div class="panel-kicker">Item Details</div>
-        <h2 id="itemPanelTitle">Item</h2>
+        <div class="drawer-title-row">
+          <h2 id="itemPanelTitle">Item</h2>
+          <div class="drawer-tags">
+            <span class="pill pill-tonal" id="itemPanelCategory">Category</span>
+            <span class="status-chip" id="itemPanelStatus"><span class="dot"></span><span class="label">-</span></span>
+          </div>
+        </div>
         <div class="panel-sub" id="itemPanelName">-</div>
       </div>
+      <div class="drawer-actions" id="itemDrawerActions"></div>
       <button class="icon-btn" id="itemPanelClose" type="button" aria-label="Close">×</button>
     </div>
     <div class="side-panel-body">
-      <div class="panel-badges" id="itemPanelBadges"></div>
-      <div class="panel-metrics">
-        <div class="panel-metric"><span>Available</span><strong id="itemPanelAvailable">-</strong></div>
-        <div class="panel-metric"><span>Reserved</span><strong id="itemPanelReserved">-</strong></div>
-        <div class="panel-metric"><span>Checked Out</span><strong id="itemPanelCheckedOut">-</strong></div>
-      </div>
-      <div class="panel-section">
-        <h3>Item Information</h3>
-        <div class="panel-list">
-          <div class="panel-row"><span>Item Code</span><strong id="itemPanelCode">-</strong></div>
-          <div class="panel-row"><span>Category</span><strong id="itemPanelCategory">-</strong></div>
-          <div class="panel-row"><span>Unit Price</span><strong id="itemPanelPrice">-</strong></div>
-          <div class="panel-row"><span>Tags</span><strong id="itemPanelTags">-</strong></div>
-        </div>
-        <p class="panel-note" id="itemPanelDescription"></p>
-      </div>
-      <div class="panel-section">
-        <h3>Operational Snapshot</h3>
-        <div class="panel-list">
-          <div class="panel-row"><span>Low Stock Threshold</span><strong id="itemPanelThreshold">-</strong></div>
-          <div class="panel-row"><span>Assigned Projects</span><strong id="itemPanelProjects">-</strong></div>
-          <div class="panel-row"><span>Overdue Returns</span><strong id="itemPanelOverdue">-</strong></div>
-          <div class="panel-row"><span>Last Activity</span><strong id="itemPanelLastActivity">-</strong></div>
-          <div class="panel-row"><span>Last Count</span><strong id="itemPanelLastCount">-</strong></div>
-          <div class="panel-row"><span>Counted Qty</span><strong id="itemPanelCountedQty">-</strong></div>
-          <div class="panel-row"><span>Discrepancy</span><strong id="itemPanelDiscrepancy">-</strong></div>
-        </div>
-      </div>
-      <div class="panel-section">
-        <h3>Checked Out by Project</h3>
-        <div id="itemPanelCheckedOutProjects"></div>
-      </div>
-      <div class="panel-section">
-        <h3>Reserved by Project</h3>
-        <div id="itemPanelReservedProjects"></div>
-      </div>
+      <div class="drawer-tabs" id="itemDrawerTabs" role="tablist" aria-label="Item details tabs"></div>
+      <div class="drawer-body" id="itemDrawerBody"></div>
     </div>
   </aside>
 
@@ -185,7 +158,6 @@
   <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
 </body>
 </html>
-
 
 
 

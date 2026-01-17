@@ -146,7 +146,7 @@ async function renderPurchaseTable(){
     return;
   }
   rows.slice().reverse().slice(0,12).forEach(e=>{
-    const when = e.ts ? new Date(e.ts).toLocaleString() : '';
+    const when = utils.formatDateTime?.(e.ts) || '';
     const vendor = e.sourceMeta?.vendor || '';
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${e.code}</td><td>${e.name||''}</td><td>${e.qty}</td><td>${e.jobId||'General'}</td><td>${when}</td><td>${vendor}</td>`;

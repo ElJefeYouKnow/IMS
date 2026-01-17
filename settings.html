@@ -156,6 +156,7 @@
                   <label>Role
                     <select id="userRole">
                       <option value="user">User</option>
+                      <option value="manager">Manager</option>
                       <option value="admin">Admin</option>
                     </select>
                   </label>
@@ -181,6 +182,10 @@
                   <strong id="userAdmins">-</strong>
                 </div>
                 <div class="summary-item">
+                  <span>Managers</span>
+                  <strong id="userManagers">-</strong>
+                </div>
+                <div class="summary-item">
                   <span>Employees</span>
                   <strong id="userEmployees">-</strong>
                 </div>
@@ -194,6 +199,7 @@
                 <select id="userRoleFilter">
                   <option value="">All Roles</option>
                   <option value="admin">Admins</option>
+                  <option value="manager">Managers</option>
                   <option value="user">Employees</option>
                 </select>
                 <select id="userSort">
@@ -238,6 +244,7 @@
             <label>Role
               <select id="edit-userRole">
                 <option value="user">User</option>
+                <option value="manager">Manager</option>
                 <option value="admin">Admin</option>
               </select>
             </label>
@@ -261,7 +268,6 @@
     <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
   </body>
   </html>
-
 
 
 
