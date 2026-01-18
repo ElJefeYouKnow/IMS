@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Password Reset</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="auth-page" data-page="reset">
+  <div class="auth-wrapper">
+    <div class="auth-card">
+      <div id="resetRequest">
+        <h1>Reset Password</h1>
+        <p class="auth-subtitle">We will email you a reset link.</p>
+        <form id="resetRequestForm" class="inventory-form" autocomplete="off">
+          <div class="form-row">
+            <label>Email<input id="resetEmail" type="email" required autocomplete="off"></label>
+          </div>
+          <div class="form-row auth-actions">
+            <button type="submit">Send Reset Link</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="resetFormWrap" class="hidden">
+        <h1>Set New Password</h1>
+        <p class="auth-subtitle">Choose a new password for your account.</p>
+        <form id="resetForm" class="inventory-form" autocomplete="off">
+          <div class="form-row">
+            <label>New Password<input id="resetPassword" type="password" required autocomplete="new-password"></label>
+          </div>
+          <div class="form-row">
+            <label>Confirm Password<input id="resetPasswordConfirm" type="password" required autocomplete="new-password"></label>
+          </div>
+          <div class="form-row auth-actions">
+            <button type="submit">Update Password</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="resetStatus" class="auth-error auth-error-tight"></div>
+      <div class="auth-links">
+        <a class="auth-link" href="login.html">Back to login</a>
+      </div>
+    </div>
+  </div>
+  <script src="js/reset.js"></script>
+</body>
+</html>

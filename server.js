@@ -13,6 +13,7 @@ const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { Parser } = require('json2csv');
+const nodemailer = require('nodemailer');
 
 const PORT = process.env.PORT || 8000;
 const BASE_DOMAIN = process.env.BASE_DOMAIN || 'modulr.pro';
@@ -20,6 +21,14 @@ const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || (IS_PROD ? `https://${BAS
 const COOKIE_SECURE = process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : IS_PROD;
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || (IS_PROD ? BASE_DOMAIN : undefined);
 const SESSION_STORE = process.env.SESSION_STORE || (IS_PROD ? 'db' : 'memory');
+const EMAIL_FROM = process.env.EMAIL_FROM || process.env.SMTP_FROM || `Modulr <no-reply@${BASE_DOMAIN}>`;
+const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || '';
+const SMTP_HOST = process.env.SMTP_HOST || '';
+const SMTP_PORT = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
+const SMTP_USER = process.env.SMTP_USER || '';
+const SMTP_PASS = process.env.SMTP_PASS || '';
+const SMTP_SECURE = process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : SMTP_PORT === 465;
+const REQUIRE_EMAIL_VERIFICATION = process.env.EMAIL_VERIFICATION_REQUIRED ? process.env.EMAIL_VERIFICATION_REQUIRED === 'true' : IS_PROD;
 const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || (IS_PROD ? PUBLIC_BASE_URL : '')).split(',')
   .map((value) => value.trim())
   .filter(Boolean));
@@ -32,6 +41,9 @@ if (!IS_PROD) {
 const sessions = new Map();
 const SESSION_TTL_MS = 1000 * 60 * 60 * 8; // 8 hours
 const REMEMBER_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+const VERIFY_TOKEN_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
+const RESET_TOKEN_TTL_MS = 1000 * 60 * 60 * 2; // 2 hours
+const INVITE_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 const SESSION_COOKIE = 'sid';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 if (IS_PROD && SESSION_SECRET === 'dev-secret-change-me') {
@@ -287,6 +299,144 @@ function verifyPassword(password, salt, hash) {
   return h === hash;
 }
 
+function isEmailConfigured() {
+  return !!(SMTP_HOST && SMTP_USER && SMTP_PASS && EMAIL_FROM);
+}
+
+let mailTransport = null;
+function getMailTransport() {
+  if (mailTransport) return mailTransport;
+  if (!isEmailConfigured()) return null;
+  mailTransport = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    auth: { user: SMTP_USER, pass: SMTP_PASS }
+  });
+  return mailTransport;
+}
+
+async function sendEmail({ to, subject, text, html }) {
+  const transport = getMailTransport();
+  if (!transport) {
+    console.warn('Email not configured; skipping send to', to);
+    return { ok: false, skipped: true };
+  }
+  try {
+    await transport.sendMail({
+      from: EMAIL_FROM,
+      to,
+      subject,
+      text,
+      html,
+      replyTo: EMAIL_REPLY_TO || undefined
+    });
+    return { ok: true };
+  } catch (e) {
+    console.warn('Email send failed:', e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
+function buildAppLink(pathname, params) {
+  const base = (PUBLIC_BASE_URL || '').replace(/\/$/, '');
+  const cleanPath = pathname.replace(/^\//, '');
+  const url = new URL(`${base}/app/${cleanPath}`);
+  if (params && typeof params === 'object') {
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') url.searchParams.set(key, String(val));
+    });
+  }
+  return url.toString();
+}
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+async function createAuthToken({ type, userId, tenantId, email, meta, ttlMs }) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(token);
+  const now = Date.now();
+  const expiresAt = now + ttlMs;
+  await runAsync(
+    'INSERT INTO auth_tokens(id,type,tokenHash,userId,tenantId,email,createdAt,expiresAt,meta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+    [newId(), type, tokenHash, userId || null, tenantId || null, email || null, now, expiresAt, meta ? JSON.stringify(meta) : null]
+  );
+  return token;
+}
+
+async function consumeAuthToken(rawToken, type) {
+  if (!rawToken) return null;
+  const tokenHash = hashToken(rawToken);
+  const row = await getAsync('SELECT * FROM auth_tokens WHERE tokenHash=$1 AND type=$2', [tokenHash, type]);
+  if (!row) return null;
+  const consumedAt = row.consumedat || row.consumedAt;
+  const expiresAt = row.expiresat || row.expiresAt;
+  if (consumedAt) return null;
+  if (expiresAt && expiresAt < Date.now()) return null;
+  await runAsync('UPDATE auth_tokens SET consumedAt=$1 WHERE id=$2', [Date.now(), row.id]);
+  return row;
+}
+
+async function sendVerificationEmail(user) {
+  const token = await createAuthToken({
+    type: 'verify',
+    userId: user.id,
+    tenantId: user.tenantid || user.tenantId,
+    email: user.email,
+    ttlMs: VERIFY_TOKEN_TTL_MS
+  });
+  const link = buildAppLink('verify.html', { token });
+  const subject = 'Verify your Modulr account';
+  const text = `Verify your email to finish setup: ${link}`;
+  const html = `<p>Verify your email to finish setup:</p><p><a href="${link}">Verify email</a></p><p>If the button doesn't work, copy this link: ${link}</p>`;
+  const result = await sendEmail({ to: user.email, subject, text, html });
+  if (!result.ok && result.skipped && !IS_PROD) {
+    console.log('Verify link:', link);
+  }
+  return { ...result, token };
+}
+
+async function sendResetEmail(user) {
+  const token = await createAuthToken({
+    type: 'reset',
+    userId: user.id,
+    tenantId: user.tenantid || user.tenantId,
+    email: user.email,
+    ttlMs: RESET_TOKEN_TTL_MS
+  });
+  const link = buildAppLink('reset.html', { token });
+  const subject = 'Reset your Modulr password';
+  const text = `Reset your password: ${link}`;
+  const html = `<p>Reset your password:</p><p><a href="${link}">Set a new password</a></p><p>If the button doesn't work, copy this link: ${link}</p>`;
+  const result = await sendEmail({ to: user.email, subject, text, html });
+  if (!result.ok && result.skipped && !IS_PROD) {
+    console.log('Reset link:', link);
+  }
+  return { ...result, token };
+}
+
+async function sendInviteEmail(user, inviter) {
+  const token = await createAuthToken({
+    type: 'invite',
+    userId: user.id,
+    tenantId: user.tenantid || user.tenantId,
+    email: user.email,
+    ttlMs: INVITE_TOKEN_TTL_MS,
+    meta: { inviter: inviter || '' }
+  });
+  const link = buildAppLink('invite.html', { token });
+  const subject = 'You have been invited to Modulr';
+  const text = `You're invited to Modulr. Set your password here: ${link}`;
+  const html = `<p>You're invited to Modulr.</p><p><a href="${link}">Set your password</a></p><p>If the button doesn't work, copy this link: ${link}</p>`;
+  const result = await sendEmail({ to: user.email, subject, text, html });
+  if (!result.ok && result.skipped && !IS_PROD) {
+    console.log('Invite link:', link);
+  }
+  return { ...result, token };
+}
+
 function normalizeUserRole(role) {
   const r = (role || '').toString().trim().toLowerCase();
   if (!r || r === 'user') return 'employee';
@@ -301,7 +451,8 @@ function safeUser(u) {
     name: u.name || '',
     role: normalizeUserRole(u.role),
     tenantId: u.tenantid || u.tenantId,
-    createdAt: u.createdat || u.createdAt
+    createdAt: u.createdat || u.createdAt,
+    emailVerified: u.emailverified ?? u.emailVerified ?? false
   };
 }
 function normalizeTenantCode(code) {
@@ -309,6 +460,26 @@ function normalizeTenantCode(code) {
 }
 function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
+}
+async function resolveUserByEmail(emailNorm, tenantCode) {
+  const rawTenant = (tenantCode || '').toString().trim();
+  if (rawTenant) {
+    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [normalizeTenantCode(rawTenant)]);
+    if (!tenant) return { error: 'tenant' };
+    const user = await getAsync('SELECT * FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [emailNorm, tenant.id]);
+    return { user, tenant };
+  }
+  const matches = await allAsync(
+    'SELECT u.*, t.code AS tenantCode FROM users u JOIN tenants t ON t.id = u.tenantId WHERE LOWER(u.email)=LOWER($1)',
+    [emailNorm]
+  );
+  if (matches.length === 1) {
+    const user = matches[0];
+    const tenant = { id: user.tenantid || user.tenantId, code: user.tenantcode || user.tenantCode };
+    return { user, tenant };
+  }
+  if (matches.length > 1) return { error: 'multiple' };
+  return { user: null };
 }
 async function emailExistsGlobal(emailNorm, excludeId) {
   if (!emailNorm) return null;
@@ -759,6 +930,9 @@ async function initDb() {
     salt TEXT NOT NULL,
     hash TEXT NOT NULL,
     createdAt BIGINT,
+    emailVerified BOOLEAN,
+    emailVerifiedAt BIGINT,
+    invitedAt BIGINT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS sessions(
@@ -768,6 +942,21 @@ async function initDb() {
     createdAt BIGINT
   )`);
   await runAsync('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires)');
+  await runAsync(`CREATE TABLE IF NOT EXISTS auth_tokens(
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    tokenHash TEXT UNIQUE NOT NULL,
+    userId TEXT,
+    tenantId TEXT REFERENCES tenants(id),
+    email TEXT,
+    createdAt BIGINT,
+    expiresAt BIGINT,
+    consumedAt BIGINT,
+    meta JSONB
+  )`);
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_auth_tokens_user ON auth_tokens(userId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_auth_tokens_email ON auth_tokens(LOWER(email))');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires ON auth_tokens(expiresAt)');
   await runAsync(`CREATE TABLE IF NOT EXISTS inventory_counts(
     id TEXT PRIMARY KEY,
     code TEXT,
@@ -806,6 +995,9 @@ async function initDb() {
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS notes TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerified BOOLEAN`);
+  await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerifiedAt BIGINT`);
+  await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS invitedAt BIGINT`);
   await runAsync(`ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`UPDATE items SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE items SET category=$1 WHERE category IS NULL OR category=''`, [DEFAULT_CATEGORY_NAME]);
@@ -816,6 +1008,7 @@ async function initDb() {
   await runAsync(`UPDATE jobs SET status = 'planned' WHERE status IS NULL OR status = ''`);
   await runAsync(`UPDATE jobs SET updatedAt = COALESCE(updatedAt, $1::bigint)`, [Date.now()]);
   await runAsync(`UPDATE users SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE users SET emailVerified=true WHERE emailVerified IS NULL`);
   await runAsync(`UPDATE inventory_counts SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE tenants SET status = 'active' WHERE status IS NULL OR status = ''`);
   await runAsync(`UPDATE tenants SET plan = 'starter' WHERE plan IS NULL OR plan = ''`);
@@ -929,9 +1122,20 @@ async function initDb() {
     const tenantId = 'default';
     const pwd = 'ChangeMe123!';
     const { salt, hash } = await hashPassword(pwd);
-    const user = { id: newId(), email: 'admin@example.com', name: 'Admin', role: 'admin', salt, hash, createdAt: Date.now(), tenantId };
-    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
+    const user = {
+      id: newId(),
+      email: 'admin@example.com',
+      name: 'Admin',
+      role: 'admin',
+      salt,
+      hash,
+      createdAt: Date.now(),
+      tenantId,
+      emailVerified: true,
+      emailVerifiedAt: Date.now()
+    };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.emailVerified, user.emailVerifiedAt, user.tenantId]);
     console.log('Seeded default tenant + admin: admin@example.com / ChangeMe123! (change after login).');
   }
   await ensureDevAccount();
@@ -1159,10 +1363,10 @@ async function ensureDevAccount() {
     [tenantId, code, 'Dev Tenant', Date.now()]);
   await ensureDefaultCategory(tenantId);
   const { salt, hash } = await hashPassword(DEV_PASSWORD);
-  await runAsync(`INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-    ON CONFLICT (email, tenantId) DO UPDATE SET role='dev', salt=EXCLUDED.salt, hash=EXCLUDED.hash, name=EXCLUDED.name`,
-    [newId(), normalizeEmail(DEV_EMAIL), 'Dev', 'dev', salt, hash, Date.now(), tenantId]);
+  await runAsync(`INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,tenantId)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    ON CONFLICT (email, tenantId) DO UPDATE SET role='dev', salt=EXCLUDED.salt, hash=EXCLUDED.hash, name=EXCLUDED.name, emailVerified=true, emailVerifiedAt=EXCLUDED.emailVerifiedAt`,
+    [newId(), normalizeEmail(DEV_EMAIL), 'Dev', 'dev', salt, hash, Date.now(), true, Date.now(), tenantId]);
 }
 
 async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn, returnWindowDays, sourceType, sourceId, sourceMeta }) {
@@ -1763,9 +1967,27 @@ app.delete('/api/categories/:id', requireRole('admin'), async (req, res) => {
     const adminEmailNorm = normalizeEmail(adminEmail);
     const globalAdmin = await emailExistsGlobal(adminEmailNorm);
     if (globalAdmin) return res.status(400).json({ error: 'email already exists in another business' });
-    const user = { id: newId(), email: adminEmailNorm, name: adminName || name || 'Admin', role: 'admin', salt, hash, createdAt: Date.now(), tenantId };
-    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
+    const emailVerified = !REQUIRE_EMAIL_VERIFICATION;
+    const emailVerifiedAt = emailVerified ? Date.now() : null;
+    const user = {
+      id: newId(),
+      email: adminEmailNorm,
+      name: adminName || name || 'Admin',
+      role: 'admin',
+      salt,
+      hash,
+      createdAt: Date.now(),
+      emailVerified,
+      emailVerifiedAt,
+      tenantId
+    };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.emailVerified, user.emailVerifiedAt, user.tenantId]);
+    if (REQUIRE_EMAIL_VERIFICATION) {
+      const mail = await sendVerificationEmail(user);
+      if (!mail.ok && IS_PROD) return res.status(500).json({ error: 'failed to send verification email' });
+      return res.status(201).json({ tenant: { id: tenantId, code: normCode, name }, admin: safeUser(user), status: 'verify' });
+    }
     const token = await createSession(user.id);
     setSessionCookie(res, token);
     res.status(201).json({ tenant: { id: tenantId, code: normCode, name }, admin: safeUser(user) });
@@ -1794,12 +2016,30 @@ app.delete('/api/categories/:id', requireRole('admin'), async (req, res) => {
       role = 'admin';
     }
     const { salt, hash } = await hashPassword(password);
-    const user = { id: newId(), email: emailNorm, name, role: normalizeUserRole(role), salt, hash, createdAt: Date.now(), tenantId: tenant.id };
-    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
+    const emailVerified = !REQUIRE_EMAIL_VERIFICATION;
+    const emailVerifiedAt = emailVerified ? Date.now() : null;
+    const user = {
+      id: newId(),
+      email: emailNorm,
+      name,
+      role: normalizeUserRole(role),
+      salt,
+      hash,
+      createdAt: Date.now(),
+      emailVerified,
+      emailVerifiedAt,
+      tenantId: tenant.id
+    };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.emailVerified, user.emailVerifiedAt, user.tenantId]);
+    await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.register', details: { email } });
+    if (REQUIRE_EMAIL_VERIFICATION) {
+      const mail = await sendVerificationEmail(user);
+      if (!mail.ok && IS_PROD) return res.status(500).json({ error: 'failed to send verification email' });
+      return res.status(201).json({ status: 'verify', email: user.email });
+    }
     const token = await createSession(user.id);
     setSessionCookie(res, token);
-    await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.register', details: { email } });
     res.status(201).json(safeUser(user));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -1870,6 +2110,11 @@ const LOCK_MS = 15 * 60 * 1000;
       }
       return res.status(401).json({ error: 'Incorrect password' });
     }
+    const verified = user.emailverified ?? user.emailVerified;
+    if (REQUIRE_EMAIL_VERIFICATION && !verified && !isDevEmail) {
+      await sendVerificationEmail(user);
+      return res.status(403).json({ error: 'email not verified', code: 'email_not_verified' });
+    }
     loginAttempts.delete(attemptKey);
     const rememberFlag = remember === true || remember === 'true';
     const ttlMs = rememberFlag ? REMEMBER_SESSION_TTL_MS : SESSION_TTL_MS;
@@ -1877,6 +2122,89 @@ const LOCK_MS = 15 * 60 * 1000;
     setSessionCookie(res, token, ttlMs);
     await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login', details: { email: emailNorm } });
     res.json(safeUser(user));
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/auth/verify/resend', async (req, res) => {
+  try {
+    const { email, tenantCode } = req.body || {};
+    const emailNorm = normalizeEmail(email);
+    if (!emailNorm) return res.status(400).json({ error: 'email required' });
+    const resolved = await resolveUserByEmail(emailNorm, tenantCode);
+    if (resolved.error === 'tenant') return res.status(400).json({ error: 'invalid tenant' });
+    if (resolved.error === 'multiple') {
+      return res.status(400).json({ error: 'multiple businesses found for this email. Use your business link.' });
+    }
+    const user = resolved.user;
+    if (!user) return res.json({ status: 'ok' });
+    const verified = user.emailverified ?? user.emailVerified;
+    if (verified) return res.json({ status: 'ok' });
+    const mail = await sendVerificationEmail(user);
+    if (!mail.ok && IS_PROD) return res.status(500).json({ error: 'failed to send verification email' });
+    res.json({ status: 'ok' });
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.get('/api/auth/verify', async (req, res) => {
+  try {
+    const token = (req.query?.token || '').toString().trim();
+    if (!token) return res.status(400).json({ error: 'token required' });
+    const record = await consumeAuthToken(token, 'verify');
+    if (!record) return res.status(400).json({ error: 'invalid or expired token' });
+    const user = await getAsync('SELECT * FROM users WHERE id=$1', [record.userid || record.userId]);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+    await runAsync('UPDATE users SET emailVerified=true, emailVerifiedAt=$1 WHERE id=$2', [Date.now(), user.id]);
+    res.json({ status: 'ok' });
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/auth/password/request', async (req, res) => {
+  try {
+    const { email, tenantCode } = req.body || {};
+    const emailNorm = normalizeEmail(email);
+    if (!emailNorm) return res.status(400).json({ error: 'email required' });
+    const resolved = await resolveUserByEmail(emailNorm, tenantCode);
+    if (resolved.error === 'tenant') return res.status(400).json({ error: 'invalid tenant' });
+    if (resolved.error === 'multiple') {
+      return res.status(400).json({ error: 'multiple businesses found for this email. Use your business link.' });
+    }
+    const user = resolved.user;
+    if (!user) return res.json({ status: 'ok' });
+    const mail = await sendResetEmail(user);
+    if (!mail.ok && IS_PROD) return res.status(500).json({ error: 'failed to send reset email' });
+    res.json({ status: 'ok' });
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/auth/password/reset', async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+    if (!token || !password) return res.status(400).json({ error: 'token and password required' });
+    if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
+    const record = await consumeAuthToken(token, 'reset');
+    if (!record) return res.status(400).json({ error: 'invalid or expired token' });
+    const user = await getAsync('SELECT * FROM users WHERE id=$1', [record.userid || record.userId]);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+    const { salt, hash } = await hashPassword(password);
+    await runAsync('UPDATE users SET salt=$1, hash=$2 WHERE id=$3', [salt, hash, user.id]);
+    res.json({ status: 'ok' });
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/auth/invite/accept', async (req, res) => {
+  try {
+    const { token, password, name } = req.body || {};
+    if (!token || !password) return res.status(400).json({ error: 'token and password required' });
+    if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
+    const record = await consumeAuthToken(token, 'invite');
+    if (!record) return res.status(400).json({ error: 'invalid or expired token' });
+    const user = await getAsync('SELECT * FROM users WHERE id=$1', [record.userid || record.userId]);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+    const { salt, hash } = await hashPassword(password);
+    const updatedName = (name || '').trim() || user.name || '';
+    await runAsync('UPDATE users SET salt=$1, hash=$2, name=$3, emailVerified=true, emailVerifiedAt=$4 WHERE id=$5',
+      [salt, hash, updatedName, Date.now(), user.id]);
+    res.json({ status: 'ok' });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
@@ -1911,10 +2239,67 @@ app.get('/api/users', requireRole('admin'), async (req, res) => {
       const exists = await getAsync('SELECT id FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [emailNorm, t]);
       if (exists) return res.status(400).json({ error: 'email already exists' });
       const { salt, hash } = await hashPassword(password);
-    const user = { id: newId(), email: emailNorm, name, role: normalizeUserRole(role), salt, hash, createdAt: Date.now(), tenantId: t };
-    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
+    const emailVerified = !REQUIRE_EMAIL_VERIFICATION;
+    const emailVerifiedAt = emailVerified ? Date.now() : null;
+    const user = {
+      id: newId(),
+      email: emailNorm,
+      name,
+      role: normalizeUserRole(role),
+      salt,
+      hash,
+      createdAt: Date.now(),
+      emailVerified,
+      emailVerifiedAt,
+      tenantId: t
+    };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.emailVerified, user.emailVerifiedAt, user.tenantId]);
+    if (REQUIRE_EMAIL_VERIFICATION) {
+      const mail = await sendVerificationEmail(user);
+      if (!mail.ok && IS_PROD) return res.status(500).json({ error: 'failed to send verification email' });
+    }
     res.status(201).json(safeUser(user));
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/users/invite', requireRole('admin'), async (req, res) => {
+  try {
+    const { email, name, role = 'employee' } = req.body || {};
+    const emailNorm = normalizeEmail(email);
+    if (!emailNorm) return res.status(400).json({ error: 'email required' });
+    const t = tenantId(req);
+    const existing = await getAsync('SELECT * FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [emailNorm, t]);
+    if (existing) {
+      const verified = existing.emailverified ?? existing.emailVerified;
+      if (verified) return res.status(400).json({ error: 'user already exists' });
+      const mail = await sendInviteEmail(existing, req.user?.email || '');
+      if (!mail.ok && IS_PROD) return res.status(500).json({ error: 'failed to send invite email' });
+      return res.json({ status: 'resent', user: safeUser(existing) });
+    }
+    const globalExisting = await emailExistsGlobal(emailNorm);
+    if (globalExisting) return res.status(400).json({ error: 'email already exists in another business' });
+    const tempPassword = crypto.randomBytes(18).toString('hex');
+    const { salt, hash } = await hashPassword(tempPassword);
+    const now = Date.now();
+    const user = {
+      id: newId(),
+      email: emailNorm,
+      name,
+      role: normalizeUserRole(role),
+      salt,
+      hash,
+      createdAt: now,
+      emailVerified: false,
+      emailVerifiedAt: null,
+      invitedAt: now,
+      tenantId: t
+    };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,invitedAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.emailVerified, user.emailVerifiedAt, user.invitedAt, user.tenantId]);
+    const mail = await sendInviteEmail(user, req.user?.email || '');
+    if (!mail.ok && IS_PROD) return res.status(500).json({ error: 'failed to send invite email' });
+    res.status(201).json({ status: 'invited', user: safeUser(user) });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
@@ -2149,6 +2534,7 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       await client.query('TRUNCATE jobs');
       await client.query('TRUNCATE users');
       await client.query('TRUNCATE sessions');
+      await client.query('TRUNCATE auth_tokens');
       await client.query('TRUNCATE categories');
       await client.query("DELETE FROM tenants WHERE id <> 'default'");
       await client.query(`INSERT INTO tenants(id,code,name,createdAt) VALUES('default','default','Default Tenant',$1)
@@ -2161,10 +2547,10 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       const adminPwd = 'ChangeMe123!';
       const adminHash = await hashPassword(adminPwd);
       const devHash = await hashPassword(DEV_PASSWORD);
-      await client.query('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-        [newId(), 'admin@example.com', 'Admin', 'admin', adminHash.salt, adminHash.hash, Date.now(), 'default']);
-      await client.query('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-        [newId(), DEV_EMAIL, 'Dev', 'admin', devHash.salt, devHash.hash, Date.now(), 'default']);
+      await client.query('INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+        [newId(), 'admin@example.com', 'Admin', 'admin', adminHash.salt, adminHash.hash, Date.now(), true, Date.now(), 'default']);
+      await client.query('INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+        [newId(), DEV_EMAIL, 'Dev', 'admin', devHash.salt, devHash.hash, Date.now(), true, Date.now(), 'default']);
     });
     await clearSessions();
     res.json({ status: 'ok', message: 'Database truncated. Default admin and dev users reseeded.' });
@@ -2524,8 +2910,8 @@ app.post('/api/seller/clients', requireDev, async (req, res) => {
         [tenantId, tCode, name, now, planVal, statusVal, adminEmail, notes || '', seatLimit, now]
       );
       await client.query(
-        'INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-        [newId(), adminEmail, adminName || name || 'Admin', 'admin', salt, hash, now, tenantId]
+        'INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+        [newId(), adminEmail, adminName || name || 'Admin', 'admin', salt, hash, now, true, now, tenantId]
       );
     });
     await ensureDefaultCategory(tenantId);

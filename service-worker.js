@@ -1,9 +1,12 @@
-const CACHE_NAME = 'ims-cache-v6';
+const CACHE_NAME = 'ims-cache-v7';
 const ASSETS = [
   '/',
   '/index.html',
   '/login.html',
   '/register.html',
+  '/verify.html',
+  '/reset.html',
+  '/invite.html',
   '/tenant-create.html',
   '/dashboard.html',
   '/employee-dashboard.html',
@@ -23,6 +26,9 @@ const ASSETS = [
   '/js/utils.js',
   '/js/login.js',
   '/js/register.js',
+  '/js/verify.js',
+  '/js/reset.js',
+  '/js/invite.js',
   '/js/tenant-create.js',
   '/js/dashboard.js',
   '/js/inventory-list.js',

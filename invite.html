@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Accept Invite</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="auth-page" data-page="invite">
+  <div class="auth-wrapper">
+    <div class="auth-card">
+      <h1>You're Invited</h1>
+      <p class="auth-subtitle">Set your password to activate your account.</p>
+      <form id="inviteForm" class="inventory-form" autocomplete="off">
+        <div class="form-row">
+          <label>Name<input id="inviteName" type="text" autocomplete="name"></label>
+        </div>
+        <div class="form-row">
+          <label>Password<input id="invitePassword" type="password" required autocomplete="new-password"></label>
+        </div>
+        <div class="form-row">
+          <label>Confirm Password<input id="invitePasswordConfirm" type="password" required autocomplete="new-password"></label>
+        </div>
+        <div class="form-row auth-actions">
+          <button type="submit">Set Password</button>
+        </div>
+      </form>
+      <div id="inviteStatus" class="auth-error auth-error-tight"></div>
+      <div class="auth-links">
+        <a class="auth-link" href="login.html">Back to login</a>
+      </div>
+    </div>
+  </div>
+  <script src="js/invite.js"></script>
+</body>
+</html>

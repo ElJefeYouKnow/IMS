@@ -48,8 +48,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
         err.textContent = data.error || 'Registration failed';
         return;
       }
-      const user = await r.json();
-      saveSession(user);
+      const data = await r.json();
+      if(data.status === 'verify'){
+        err.style.color = '#15803d';
+        err.textContent = 'Check your email to verify your account, then sign in.';
+        setTimeout(()=>{ window.location.href = 'login.html'; }, 1800);
+        return;
+      }
+      saveSession(data);
       window.location.href = 'dashboard.html';
     }catch(e){
       err.textContent = 'Unable to register';

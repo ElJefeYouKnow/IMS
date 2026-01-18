@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const form = document.getElementById('loginForm');
   const err = document.getElementById('login-error');
   const staySignedIn = document.getElementById('login-remember-session');
+  const resendBtn = document.getElementById('resendVerify');
   const backBtn = document.getElementById('backToMarketing');
   const urlParams = new URLSearchParams(window.location.search || '');
   const tenantCodeParam = (urlParams.get('tenant') || '').trim();
@@ -15,9 +16,41 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const target = baseHost ? `${protocol}//${baseHost}${port}/index.html` : 'index.html';
     backBtn.addEventListener('click', ()=>{ window.location.href = target; });
   }
+  if(resendBtn){
+    resendBtn.addEventListener('click', async ()=>{
+      const email = document.getElementById('login-email').value.trim();
+      if(!email){
+        err.textContent = 'Enter your email to resend verification.';
+        return;
+      }
+      resendBtn.disabled = true;
+      const label = resendBtn.textContent;
+      resendBtn.textContent = 'Sending...';
+      try{
+        const payload = { email };
+        if(tenantCodeParam) payload.tenantCode = tenantCodeParam;
+        const r = await fetch('/api/auth/verify/resend', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        if(r.ok){
+          err.textContent = 'Verification email sent.';
+        }else{
+          err.textContent = 'Unable to send verification email.';
+        }
+      }catch(e){
+        err.textContent = 'Unable to send verification email.';
+      }finally{
+        resendBtn.disabled = false;
+        resendBtn.textContent = label;
+      }
+    });
+  }
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
     err.textContent = '';
+    if(resendBtn) resendBtn.classList.add('hidden');
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
     const remember = !!staySignedIn?.checked;
@@ -29,6 +62,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(!r.ok){
         const data = await r.json().catch(()=>({error:'Login failed'}));
         err.textContent = data.error || 'Login failed';
+        if(data.code === 'email_not_verified' && resendBtn){
+          resendBtn.classList.remove('hidden');
+        }
         return;
       }
       const user = await r.json();

@@ -227,6 +227,11 @@ async function createUser(role, user){
   return r;
 }
 
+async function inviteUser(role, user){
+  const r = await fetch('/api/users/invite',{method:'POST',headers:{'Content-Type':'application/json','x-admin-role':role},body:JSON.stringify(user)});
+  return r;
+}
+
 function generateTempPassword(){
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$';
   let pwd = '';
@@ -488,9 +493,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   refreshUsers();
   const form=document.getElementById('userForm');
   const err=document.getElementById('userError');
+  const inviteBtn = document.getElementById('userInviteBtn');
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
     err.textContent='';
+    err.style.color = '#b91c1c';
     const name=document.getElementById('userName').value.trim();
     const email=document.getElementById('userEmail').value.trim();
     const password=document.getElementById('userPassword').value;
@@ -502,6 +509,26 @@ document.addEventListener('DOMContentLoaded', ()=>{
       err.textContent = data.error || 'Failed to create user';
       return;
     }
+    err.style.color = '#15803d';
+    err.textContent = 'User created. Verification email sent.';
+    form.reset();
+    refreshUsers();
+  });
+  inviteBtn?.addEventListener('click', async ()=>{
+    err.textContent = '';
+    err.style.color = '#b91c1c';
+    const name=document.getElementById('userName').value.trim();
+    const email=document.getElementById('userEmail').value.trim();
+    const role=document.getElementById('userRole').value;
+    if(!email){ err.textContent = 'Email is required for invites.'; return; }
+    const r = await inviteUser(session.role,{name,email,role});
+    if(!r.ok){
+      const data = await r.json().catch(()=>({error:'Failed to send invite'}));
+      err.textContent = data.error || 'Failed to send invite';
+      return;
+    }
+    err.style.color = '#15803d';
+    err.textContent = 'Invite sent.';
     form.reset();
     refreshUsers();
   });

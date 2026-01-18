@@ -21,6 +21,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
         return;
       }
       const data = await r.json();
+      if(data.status === 'verify'){
+        err.style.color = '#15803d';
+        err.textContent = 'Check your email to verify the admin account, then sign in.';
+        setTimeout(()=>{ window.location.href = 'login.html'; }, 1800);
+        return;
+      }
       localStorage.setItem('sessionUser', JSON.stringify(data.admin));
       window.location.href = 'dashboard.html';
     }catch(e){
