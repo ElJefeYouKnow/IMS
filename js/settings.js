@@ -404,6 +404,11 @@ function renderUsersTable(allUsers){
       if(!confirm(`Delete user ${user.email}? This cannot be undone.`)) return;
       const ok = await deleteUser(user);
       if(!ok) alert('Failed to delete user');
+      if(ok){
+        const idx = usersCache.findIndex(u=> u.id === user.id);
+        if(idx !== -1) usersCache.splice(idx, 1);
+        renderUsersTable(usersCache);
+      }
       await refreshUsers();
     });
   });
