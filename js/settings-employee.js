@@ -1,6 +1,15 @@
 document.addEventListener('DOMContentLoaded', ()=>{
   if(window.utils){
-    utils.requireRole?.('employee');
+    const session = utils.getSession?.();
+    if(!session){
+      window.location.href = 'login.html';
+      return;
+    }
+    const role = (session.role || '').toLowerCase();
+    if(role === 'admin' || role === 'dev'){
+      window.location.href = 'settings.html';
+      return;
+    }
     utils.applyNavVisibility?.();
     utils.setupLogout?.();
     utils.applyStoredTheme?.();
