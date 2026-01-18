@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const profileSaveBtn = document.getElementById('profileSave');
   const shortcutsSaveBtn = document.getElementById('shortcutsSave');
   const localeSaveBtn = document.getElementById('localeSave');
+  const refreshBtn = document.getElementById('refreshSessionBtn');
   const session = window.utils?.getSession?.();
 
   // Load stored prefs
@@ -109,6 +110,26 @@ document.addEventListener('DOMContentLoaded', ()=>{
   localeSaveBtn?.addEventListener('click', saveLocale);
   shortcutsSaveBtn?.addEventListener('click', saveShortcuts);
   profileSaveBtn?.addEventListener('click', saveProfile);
+  refreshBtn?.addEventListener('click', async ()=>{
+    msg.textContent = 'Refreshing access...';
+    const fresh = await utils.refreshSession?.();
+    if(!fresh){
+      msg.textContent = 'Unable to refresh access.';
+      return;
+    }
+    utils.applyNavVisibility?.();
+    const roleLabel = (role)=>{
+      const r = (role || '').toLowerCase();
+      if(r === 'admin' || r === 'dev') return 'Admin';
+      if(r === 'manager') return 'Manager';
+      return 'Employee';
+    };
+    msg.textContent = `Access refreshed as ${roleLabel(fresh.role)}.`;
+    const target = utils.getDashboardHref?.(fresh.role);
+    if(target && !window.location.pathname.endsWith('settings-employee.html') && !window.location.pathname.endsWith(target)){
+      window.location.href = target;
+    }
+  });
 
   // Tabs
   setupTabs();

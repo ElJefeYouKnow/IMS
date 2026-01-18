@@ -449,6 +449,23 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(content) content.style.display='none';
     return;
   }
+  const refreshBtn = document.getElementById('refreshSessionBtn');
+  refreshBtn?.addEventListener('click', async ()=>{
+    const msg = document.getElementById('adminSettingsMsg');
+    if(msg) msg.textContent = 'Refreshing access...';
+    const fresh = await utils.refreshSession?.();
+    if(!fresh){
+      if(msg) msg.textContent = 'Unable to refresh access.';
+      return;
+    }
+    setSession(fresh);
+    utils.applyNavVisibility?.();
+    if(fresh.role !== 'admin'){
+      window.location.href = utils.getDashboardHref?.(fresh.role) || 'employee-dashboard.html';
+      return;
+    }
+    if(msg) msg.textContent = `Access refreshed as ${formatRoleLabel(fresh.role)}.`;
+  });
   setupTabs();
   initAppearanceSettings();
   initInstallLink();
