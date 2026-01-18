@@ -288,7 +288,7 @@ function verifyPassword(password, salt, hash) {
 }
 
 function safeUser(u) {
-  return { id: u.id, email: u.email, name: u.name || '', role: u.role || 'user', tenantId: u.tenantid || u.tenantId, createdAt: u.createdat || u.createdAt };
+  return { id: u.id, email: u.email, name: u.name || '', role: u.role || 'employee', tenantId: u.tenantid || u.tenantId, createdAt: u.createdat || u.createdAt };
 }
 function normalizeTenantCode(code) {
   return (code || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'default';
@@ -1754,7 +1754,7 @@ app.post('/api/auth/register', async (req, res) => {
     const existing = await getAsync('SELECT id FROM users WHERE email=$1 AND tenantId=$2', [emailNorm, tenant.id]);
     if (existing) return res.status(400).json({ error: 'email already exists' });
     const totalCount = (await getAsync('SELECT COUNT(*) as c FROM users WHERE tenantId=$1', [tenant.id])).c;
-    let role = totalCount === 0 ? 'admin' : 'user';
+    let role = totalCount === 0 ? 'admin' : 'employee';
     const adminSecret = process.env.ADMIN_SIGNUP_SECRET;
     if (requestedRole === 'admin') {
       if (!adminSecret) return res.status(400).json({ error: 'admin signups disabled (missing ADMIN_SIGNUP_SECRET)' });
@@ -1844,7 +1844,7 @@ app.get('/api/users', requireRole('admin'), async (req, res) => {
 
 app.post('/api/users', requireRole('admin'), async (req, res) => {
   try {
-    const { email, password, name, role = 'user' } = req.body;
+    const { email, password, name, role = 'employee' } = req.body;
     const emailNorm = normalizeEmail(email);
     if (!emailNorm || !password) return res.status(400).json({ error: 'email and password required' });
     if (password.length < 10) return res.status(400).json({ error: 'password too weak' });

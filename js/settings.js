@@ -340,10 +340,12 @@ function renderUsersTable(allUsers){
   users.forEach(u=>{
     const tr=document.createElement('tr');
     const dt = formatDateTimeSafe(u.createdAt);
-    const roleLabel = formatRoleLabel(u.role);
-    const roleToggle = u.role === 'admin' ? 'Demote to Employee' : 'Make Admin';
+    const rawRole = (u.role || '').toLowerCase();
+    const normalizedRole = rawRole === 'user' || !rawRole ? 'employee' : rawRole;
+    const roleLabel = formatRoleLabel(normalizedRole);
+    const roleToggle = normalizedRole === 'admin' ? 'Demote to Employee' : 'Make Admin';
     const btn = `
-      <button type="button" class="action-btn edit-user" data-id="${u.id}" data-email="${u.email}" data-name="${u.name||''}" data-role="${u.role}">Edit</button>
+      <button type="button" class="action-btn edit-user" data-id="${u.id}" data-email="${u.email}" data-name="${u.name||''}" data-role="${normalizedRole}">Edit</button>
       <button type="button" class="action-btn role-user" data-id="${u.id}">${roleToggle}</button>
       <button type="button" class="action-btn delete-user" data-id="${u.id}">Delete</button>
     `;
@@ -369,7 +371,9 @@ function renderUsersTable(allUsers){
       const id = btn.dataset.id;
       const user = allUsers.find(u=> u.id === id);
       if(!user) return;
-      const nextRole = user.role === 'admin' ? 'employee' : 'admin';
+      const currentRole = (user.role || '').toLowerCase();
+      const normalizedRole = currentRole === 'user' || !currentRole ? 'employee' : currentRole;
+      const nextRole = normalizedRole === 'admin' ? 'employee' : 'admin';
       if(!confirm(`Change role for ${user.email} to ${nextRole}?`)) return;
       const ok = await updateUserRole(user, nextRole);
       if(!ok) alert('Failed to update role');
@@ -483,10 +487,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
     editErr.textContent='';
     const id = document.getElementById('edit-userId').value;
     if(!id){ editErr.textContent='Select a user from the table first.'; return; }
+    const rawRole = document.getElementById('edit-userRole').value;
     const payload = {
       name: document.getElementById('edit-userName').value.trim(),
       email: document.getElementById('edit-userEmail').value.trim(),
-      role: document.getElementById('edit-userRole').value
+      role: rawRole === 'user' ? 'employee' : rawRole
     };
     const pw = document.getElementById('edit-userPassword').value;
     if(pw) payload.password = pw;
