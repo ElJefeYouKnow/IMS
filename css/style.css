@@ -196,56 +196,38 @@ label{font-size:var(--text-sm);font-weight:600;color:var(--muted)}
 .quick-actions.compact .tile-sub{font-size:0.8rem}
 .quick-actions.sticky{position:sticky;top:88px;z-index:20;background:var(--card)}
 .dark .quick-actions.sticky{background:#16221f}
-body[data-page="employee-dashboard"] .employee-hero{
-  background:linear-gradient(135deg,#132a24,#1f6f5c);
-  color:#fff;
-  box-shadow:0 14px 36px rgba(24,36,32,0.25);
-}
-body[data-page="employee-dashboard"] .employee-hero-inner{
+body[data-page="employee-dashboard"] .employee-actions{
   display:flex;
-  justify-content:space-between;
-  align-items:center;
-  flex-wrap:wrap;
-  gap:10px;
+  flex-direction:column;
+  gap:14px;
+  width:100%;
 }
-body[data-page="employee-dashboard"] .employee-hero-title{
-  color:rgba(255,255,255,0.85);
-  margin-bottom:6px;
-}
-body[data-page="employee-dashboard"] .employee-hero-sub{
-  font-size:var(--text-base);
-  opacity:0.85;
-}
-body[data-page="employee-dashboard"] .employee-hero-actions{
+body[data-page="employee-dashboard"] .employee-action{
   display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-}
-body[data-page="employee-dashboard"] .task-btn{
-  display:inline-flex;
   align-items:center;
   justify-content:center;
-  gap:6px;
-  padding:10px 14px;
-  border-radius:var(--radius-md);
-  font-weight:800;
-  text-decoration:none;
-  transition:transform .15s ease, box-shadow .15s ease, opacity .15s ease;
-}
-body[data-page="employee-dashboard"] .task-btn:hover{
-  transform:translateY(-2px);
-  box-shadow:0 12px 26px rgba(0,0,0,0.22);
-  opacity:0.95;
-}
-body[data-page="employee-dashboard"] .task-btn.primary{
-  background:#fff;
-  color:#132a24;
-  box-shadow:0 10px 22px rgba(255,255,255,0.2);
-}
-body[data-page="employee-dashboard"] .task-btn.ghost{
-  background:rgba(255,255,255,0.14);
+  min-height:84px;
+  width:100%;
+  border-radius:var(--radius-lg);
+  background:linear-gradient(135deg,#132a24,#1f6f5c);
   color:#fff;
-  border:1px solid rgba(255,255,255,0.25);
+  font-weight:800;
+  font-size:1.05rem;
+  text-decoration:none;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  box-shadow:0 16px 34px rgba(24,36,32,0.22);
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+body[data-page="employee-dashboard"] .employee-action:nth-child(2){
+  background:linear-gradient(135deg,#145a4c,#2b8a71);
+}
+body[data-page="employee-dashboard"] .employee-action:nth-child(3){
+  background:linear-gradient(135deg,#0f3f36,#1f6f5c);
+}
+body[data-page="employee-dashboard"] .employee-action:hover{
+  transform:translateY(-2px);
+  box-shadow:0 18px 38px rgba(24,36,32,0.28);
 }
 
 body[data-page="inventory-operations"] .ops-hero{
