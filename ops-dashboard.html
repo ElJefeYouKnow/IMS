@@ -25,7 +25,8 @@
       </div>
       <nav>
         <a href="dashboard.html" data-role="admin">Dashboard</a>
-        <a class="active" href="ops-dashboard.html" data-role="employee">Dashboard</a>
+        <a class="active" href="ops-dashboard.html" data-role="manager">Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Dashboard</a>
         <a href="inventory-operations.html">Operations</a>
         <a href="field-purchase.html">Field Purchases</a>
         <a href="inventory-list.html">Inventory</a>
@@ -48,7 +49,7 @@
         </div>
       </header>
 
-      <section class="card quick-actions">
+      <section class="card quick-actions compact">
         <div class="card-header">
           <h3>Floor Shortcuts</h3>
         </div>
@@ -185,7 +186,7 @@
         if(!utils.requireSession?.()) return;
         utils.wrapFetchWithRole?.();
         utils.applyStoredTheme?.();
-        utils.requireRole?.('employee');
+        utils.requireRole?.('manager');
         utils.buildMobileNav?.();
         utils.applyNavVisibility?.();
         utils.registerServiceWorker?.();

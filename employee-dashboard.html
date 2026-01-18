@@ -32,8 +32,9 @@
         </div>
       </div>
                   <nav>
-        <a  href="dashboard.html" data-role="admin">Dashboard</a>
-        <a class="active" href="ops-dashboard.html" data-role="employee">Dashboard</a>
+        <a href="dashboard.html" data-role="admin">Dashboard</a>
+        <a href="ops-dashboard.html" data-role="manager">Dashboard</a>
+        <a class="active" href="employee-dashboard.html" data-role="employee">Dashboard</a>
         <a href="inventory-operations.html">Operations</a>
         <a href="field-purchase.html" >Field Purchases</a>
         <a href="inventory-list.html">Inventory</a>
@@ -61,34 +62,13 @@
             <h3 style="color:rgba(255,255,255,0.85);margin-bottom:6px;">Go to your tasks</h3>
             <div style="font-size:0.95rem;opacity:0.85;">Jump straight into your daily workflows.</div>
           </div>
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <a href="inventory-operations.html?mode=checkout" class="task-btn" style="background:#fff;color:#132a24;box-shadow:0 10px 22px rgba(255,255,255,0.2);">Receive / Pick</a>
             <a href="inventory-list.html" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Check Stock</a>
             <a href="job-creator.html#report" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Project Activity</a>
             <a href="field-purchase.html" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Field Purchases</a>
           </div>
         </div>
-      </section>
-
-      <section class="card" id="pendingCard">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
-          <div>
-            <h3 style="margin-bottom:4px;">Pending Returns</h3>
-            <div style="color:#6b7280;font-size:0.9rem;">Items you picked that still need to come back.</div>
-          </div>
-        </div>
-        <table id="pendingTable">
-          <thead><tr><th>Code</th><th>Project</th><th>Qty Out</th><th>Outstanding</th><th>Last Out</th></tr></thead>
-          <tbody><tr><td colspan="5" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-        </table>
-      </section>
-
-      <section class="card">
-        <h3>Recent Activity</h3>
-        <table id="empActivityTable">
-          <thead><tr><th>Type</th><th>Code</th><th>Qty</th><th>Project</th><th>When</th></tr></thead>
-          <tbody><tr><td colspan="5" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-        </table>
       </section>
     </main>
   </div>
@@ -107,85 +87,7 @@
         utils.registerServiceWorker?.();
       }
     });
-    function typeLabel(t){
-      if(t==='in') return 'Check-In';
-      if(t==='out') return 'Check-Out';
-      if(t==='reserve') return 'Reserve';
-      if(t==='return') return 'Return';
-      if(t==='purchase') return 'Field Purchase';
-      return t;
-    }
-    async function loadEntries(){
-      try{const r=await fetch('/api/inventory'); if(r.ok) return await r.json();}catch(e){}
-      return [];
-    }
-    async function getCurrentUser(){
-      const local = utils.getSession?.();
-      if(local) return local;
-      try{
-        const r = await fetch('/api/auth/me');
-        if(r.ok) return await r.json();
-      }catch(e){}
-      return null;
-    }
-    function computeOutstanding(entries, userEmail){
-      const map = new Map();
-      entries.forEach(e=>{
-        if(!userEmail || e.userEmail !== userEmail) return;
-        const key = `${e.code}|${e.jobId||''}`;
-        const cur = map.get(key) || { code:e.code, jobId:e.jobId||'', out:0, ret:0, lastOut:0 };
-        if(e.type === 'out'){ cur.out += Number(e.qty||0); cur.lastOut = Math.max(cur.lastOut || 0, e.ts||0); }
-        if(e.type === 'return'){ cur.ret += Number(e.qty||0); }
-        map.set(key, cur);
-      });
-      return Array.from(map.values()).map(x=>({ ...x, outstanding: Math.max(0, (x.out||0) - (x.ret||0)) }));
-    }
-    async function renderPending(){
-      const tbody = document.querySelector('#pendingTable tbody'); tbody.innerHTML='';
-      const user = await getCurrentUser();
-      if(!user){
-        const tr=document.createElement('tr');
-        tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">Please log in</td>`;
-        tbody.appendChild(tr);
-        return;
-      }
-      const entries = await loadEntries();
-      const pending = computeOutstanding(entries, user.email).filter(x=> x.outstanding > 0);
-      if(!pending.length){
-        const tr=document.createElement('tr');
-        tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No pending returns</td>`;
-        tbody.appendChild(tr);
-        return;
-      }
-      pending.slice(0,8).forEach(p=>{
-        const tr=document.createElement('tr');
-        const overdue = (Date.now() - (p.lastOut||0)) > 2*24*60*60*1000;
-        const dt = utils.formatDateTime?.(p.lastOut) || '';
-        tr.innerHTML=`<td>${p.code}</td><td>${p.jobId||''}</td><td>${p.out}</td><td style="${overdue?'color:#b91c1c;font-weight:700;':''}">${p.outstanding}</td><td>${dt}</td>`;
-        tbody.appendChild(tr);
-      });
-    }
-    async function renderEmpActivity(){
-      const tbody=document.querySelector('#empActivityTable tbody');tbody.innerHTML='';
-      const entries = await loadEntries();
-      const recent = entries.slice().sort((a,b)=> (b.ts||0)-(a.ts||0)).slice(0,8);
-      if(!recent.length){
-        const tr=document.createElement('tr');
-        tr.innerHTML=`<td colspan="5" style="text-align:center;color:#6b7280;">No activity yet</td>`;
-        tbody.appendChild(tr);
-        return;
-      }
-      recent.forEach(e=>{
-        const tr=document.createElement('tr');
-        const dt = utils.formatDateTime?.(e.ts) || '';
-        tr.innerHTML=`<td>${typeLabel(e.type)}</td><td>${e.code}</td><td>${e.qty}</td><td>${e.jobId||''}</td><td>${dt}</td>`;
-        tbody.appendChild(tr);
-      });
-    }
-    document.addEventListener('DOMContentLoaded', ()=>{
-      renderPending();
-      renderEmpActivity();
-    });
+    // Employee dashboard is intentionally lightweight (quick actions only).
   </script>
   <script>
     (function(){

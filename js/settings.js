@@ -285,7 +285,13 @@ function applyUserFilters(allUsers){
     });
   }
   if(roleFilter){
-    filtered = filtered.filter(u=> (u.role || '') === roleFilter);
+    filtered = filtered.filter(u=>{
+      const role = (u.role || '').toLowerCase();
+      if(roleFilter === 'employee'){
+        return role === 'employee' || role === 'user' || (role !== 'admin' && role !== 'manager');
+      }
+      return role === roleFilter;
+    });
   }
   if(sort === 'az'){
     filtered.sort((a,b)=> (a.email || '').localeCompare(b.email || ''));
@@ -335,7 +341,7 @@ function renderUsersTable(allUsers){
     const tr=document.createElement('tr');
     const dt = formatDateTimeSafe(u.createdAt);
     const roleLabel = formatRoleLabel(u.role);
-    const roleToggle = u.role === 'admin' ? 'Demote to User' : 'Make Admin';
+    const roleToggle = u.role === 'admin' ? 'Demote to Employee' : 'Make Admin';
     const btn = `
       <button type="button" class="action-btn edit-user" data-id="${u.id}" data-email="${u.email}" data-name="${u.name||''}" data-role="${u.role}">Edit</button>
       <button type="button" class="action-btn role-user" data-id="${u.id}">${roleToggle}</button>
@@ -349,7 +355,8 @@ function renderUsersTable(allUsers){
       document.getElementById('edit-userId').value = btn.dataset.id;
       document.getElementById('edit-userName').value = btn.dataset.name || '';
       document.getElementById('edit-userEmail').value = btn.dataset.email || '';
-      document.getElementById('edit-userRole').value = btn.dataset.role || 'user';
+      const role = (btn.dataset.role || '').toLowerCase();
+      document.getElementById('edit-userRole').value = role === 'user' ? 'employee' : (role || 'employee');
       document.getElementById('edit-userPassword').value = '';
       document.getElementById('edit-userError').textContent = '';
       const meta = document.getElementById('edit-userMeta');
@@ -362,7 +369,7 @@ function renderUsersTable(allUsers){
       const id = btn.dataset.id;
       const user = allUsers.find(u=> u.id === id);
       if(!user) return;
-      const nextRole = user.role === 'admin' ? 'user' : 'admin';
+      const nextRole = user.role === 'admin' ? 'employee' : 'admin';
       if(!confirm(`Change role for ${user.email} to ${nextRole}?`)) return;
       const ok = await updateUserRole(user, nextRole);
       if(!ok) alert('Failed to update role');

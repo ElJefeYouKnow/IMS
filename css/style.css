@@ -124,6 +124,10 @@ h1,h2,h3,.brand,.mode-btn,.tab-btn,.filter-btn{font-family:var(--font-display)}
 .action-tile:hover{transform:translateY(-2px);box-shadow:0 14px 32px rgba(24,36,32,0.18)}
 .tile-title{font-weight:800;font-size:1rem;color:var(--accent-strong);text-transform:uppercase;letter-spacing:0.08em}
 .tile-sub{color:var(--muted);font-size:0.9rem}
+.quick-actions.compact .quick-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.quick-actions.compact .action-tile{padding:10px;border-radius:14px;box-shadow:0 8px 18px rgba(24,36,32,0.12)}
+.quick-actions.compact .tile-title{font-size:0.85rem;letter-spacing:0.06em}
+.quick-actions.compact .tile-sub{font-size:0.8rem}
 .dark .tile-title{color:var(--ink)}
 .dark .action-tile{border-color:#22312d;background:linear-gradient(135deg,rgba(31,111,92,0.22),rgba(9,20,17,0.3));color:var(--ink)}
 .table-card table{font-size:0.9rem}

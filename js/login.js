@@ -42,7 +42,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       }
       const user = await r.json();
       localStorage.setItem('sessionUser', JSON.stringify(user));
-      window.location.href = user.role === 'admin' ? 'dashboard.html' : 'ops-dashboard.html';
+      const role = (user.role || '').toLowerCase();
+      let target = 'employee-dashboard.html';
+      if(role === 'admin' || role === 'dev') target = 'dashboard.html';
+      else if(role === 'manager') target = 'ops-dashboard.html';
+      window.location.href = target;
     }catch(e){
       err.textContent = 'Unable to login';
     }

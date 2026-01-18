@@ -103,6 +103,12 @@
       const profileAvatar = this.getProfileValue?.('avatar') || '';
       const profilePic = this.getProfileValue?.('pic') || '';
       const displayName = profileName || user?.name || user?.email || 'User';
+      const roleLabel = (role)=>{
+        const r = (role || '').toLowerCase();
+        if(r === 'admin' || r === 'dev') return 'Admin';
+        if(r === 'manager') return 'Manager';
+        return 'Employee';
+      };
       if(user){
         if(avatar){
           if(profilePic){
@@ -119,7 +125,7 @@
           }
         }
         if(name) name.textContent = displayName;
-        if(roleText) roleText.textContent = user.role ? user.role.charAt(0).toUpperCase()+user.role.slice(1) : 'User';
+        if(roleText) roleText.textContent = roleLabel(user.role);
       }
     },
     requireSession(){
@@ -154,16 +160,27 @@
       }
       if(persist) localStorage.setItem('theme', theme);
     },
+    getDashboardHref(role){
+      const r = (role || '').toLowerCase();
+      if(r === 'admin' || r === 'dev') return 'dashboard.html';
+      if(r === 'manager') return 'ops-dashboard.html';
+      return 'employee-dashboard.html';
+    },
     requireRole(role){
       const user = this.getSession();
       if(!user){
         window.location.href='login.html';
         return;
       }
-      if(role === 'admin' && user.role !== 'admin'){
-        window.location.href = 'ops-dashboard.html';
-      }else if(role === 'employee' && user.role === 'admin'){
-        window.location.href = 'dashboard.html';
+      const userRole = (user.role || '').toLowerCase();
+      const target = this.getDashboardHref(userRole);
+      const isAdmin = userRole === 'admin' || userRole === 'dev';
+      if(role === 'admin' && !isAdmin){
+        window.location.href = target;
+      }else if(role === 'manager' && userRole !== 'manager'){
+        window.location.href = target;
+      }else if(role === 'employee' && (userRole === 'admin' || userRole === 'manager' || userRole === 'dev')){
+        window.location.href = target;
       }
     },
     applyNavVisibility(){
@@ -245,7 +262,7 @@
       });
 
       const role = (this.getSession?.()?.role || '').toLowerCase();
-      dashboardBtn.href = role === 'admin' ? 'dashboard.html' : 'ops-dashboard.html';
+      dashboardBtn.href = this.getDashboardHref(role);
       opsBtn.href = 'inventory-operations.html';
       if(window.location.pathname.endsWith(dashboardBtn.href)) dashboardBtn.classList.add('active');
       if(window.location.pathname.endsWith(opsBtn.href)) opsBtn.classList.add('active');

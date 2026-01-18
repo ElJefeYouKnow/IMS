@@ -21,8 +21,9 @@
         </div>
       </div>
                   <nav>
-        <a  href="dashboard.html" data-role="admin">Dashboard</a>
-        <a  href="ops-dashboard.html" data-role="employee">Dashboard</a>
+        <a href="dashboard.html" data-role="admin">Dashboard</a>
+        <a href="ops-dashboard.html" data-role="manager">Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Dashboard</a>
         <a href="inventory-operations.html">Operations</a>
         <a href="field-purchase.html" >Field Purchases</a>
         <a href="inventory-list.html">Inventory</a>
@@ -163,7 +164,7 @@
                   <label>Password<input id="userPassword" type="password" required></label>
                   <label>Role
                     <select id="userRole">
-                      <option value="user">User</option>
+                      <option value="employee">Employee</option>
                       <option value="manager">Manager</option>
                       <option value="admin">Admin</option>
                     </select>
@@ -208,7 +209,7 @@
                   <option value="">All Roles</option>
                   <option value="admin">Admins</option>
                   <option value="manager">Managers</option>
-                  <option value="user">Employees</option>
+                  <option value="employee">Employees</option>
                 </select>
                 <select id="userSort">
                   <option value="az">Sort A-Z</option>
@@ -251,7 +252,7 @@
           <div class="form-row">
             <label>Role
               <select id="edit-userRole">
-                <option value="user">User</option>
+                <option value="employee">Employee</option>
                 <option value="manager">Manager</option>
                 <option value="admin">Admin</option>
               </select>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Dashboard</title>
+  <title>Admin Dashboard</title>
   <meta name="theme-color" content="#132a24" />
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/style.css" />
@@ -25,7 +25,8 @@
       </div>
                   <nav>
         <a class="active" href="dashboard.html" data-role="admin">Dashboard</a>
-        <a  href="ops-dashboard.html" data-role="employee">Dashboard</a>
+        <a href="ops-dashboard.html" data-role="manager">Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Dashboard</a>
         <a href="inventory-operations.html">Operations</a>
         <a href="field-purchase.html" >Field Purchases</a>
         <a href="inventory-list.html">Inventory</a>
@@ -40,105 +41,103 @@
     </aside>
     <main class="main dashboard-main">
       <header class="topbar">
-        <h1>Dashboard</h1>
+        <h1>Admin Dashboard</h1>
         <div class="topbar-right">
-          <div class="clock-pill"><span class="clock-label">Now</span><span id="clock" class="clock-value"></span></div>
+          <div class="clock-pill"><span class="clock-label">Now</span><span id="clockOps" class="clock-value"></span></div>
           <button id="logoutBtn" class="muted">Logout</button>
         </div>
       </header>
 
-      <section class="card quick-actions">
+      <section class="card quick-actions compact">
         <div class="card-header">
-          <h3>Quick Actions</h3>
+          <h3>Executive Shortcuts</h3>
         </div>
         <div class="quick-grid">
-          <a class="action-tile" href="inventory-operations.html">
-            <div class="tile-title">Check-in / Pick</div>
-            <div class="tile-sub">Move items fast</div>
+          <a class="action-tile" href="analytics.html">
+            <div class="tile-title">Analytics</div>
+            <div class="tile-sub">Review key metrics</div>
           </a>
-          <a class="action-tile" href="order-register.html">
-            <div class="tile-title">Procurement &amp; Allocation</div>
-            <div class="tile-sub">Place/allocate stock</div>
+          <a class="action-tile" href="inventory-list.html">
+            <div class="tile-title">Inventory</div>
+            <div class="tile-sub">Snapshot + counts</div>
           </a>
           <a class="action-tile" href="item-master.html">
             <div class="tile-title">Catalog</div>
-            <div class="tile-sub">Edit catalog</div>
+            <div class="tile-sub">Item governance</div>
           </a>
-          <a class="action-tile" href="job-creator.html">
-            <div class="tile-title">Projects</div>
-            <div class="tile-sub">Schedule &amp; manage</div>
+          <a class="action-tile" href="settings.html">
+            <div class="tile-title">Settings</div>
+            <div class="tile-sub">Controls &amp; access</div>
           </a>
         </div>
       </section>
 
       <section class="dashboard-grid">
         <div class="card">
-          <h3>Operations Pulse</h3>
+          <h3>Capital Efficiency</h3>
           <div class="summary-grid">
-            <div class="summary-item"><span>Available Units</span><strong id="availableUnits">-</strong></div>
-            <div class="summary-item"><span>In Use</span><strong id="checkedOutUnits">-</strong></div>
-            <div class="summary-item"><span>Reserved Units</span><strong id="reservedUnits">-</strong></div>
-            <div class="summary-item"><span>Active Projects</span><strong id="activeJobs">-</strong></div>
-            <div class="summary-item"><span>Low Stock Alerts</span><strong id="lowStockCount">-</strong></div>
-            <div class="summary-item"><span>Open Orders</span><strong id="openOrdersCount">-</strong></div>
-            <div class="summary-item"><span>Overdue Returns</span><strong id="overdueCount">-</strong></div>
-            <div class="summary-item"><span>Out of Stock</span><strong id="outOfStockCount">-</strong></div>
-            <div class="summary-item"><span>Cycle Counts Due</span><strong id="countDueCount">-</strong></div>
+            <div class="summary-item"><span>Inventory Value</span><strong id="kpi-inv-value">-</strong></div>
+            <div class="summary-item"><span>Inventory Trend</span><strong id="kpi-inv-trend">-</strong></div>
+            <div class="summary-item"><span>Stock Turnover</span><strong id="kpi-turnover">-</strong></div>
+            <div class="summary-item"><span>Days On Hand</span><strong id="kpi-doh">-</strong></div>
           </div>
         </div>
-
-        <div class="table-card">
-          <h3>Low Stock Alerts</h3>
-          <table id="lowStockTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Available</th><th>Reserved</th></tr></thead>
-            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-          </table>
+        <div class="card">
+          <h3>Accuracy &amp; Control</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Inventory Accuracy</span><strong id="kpi-accuracy">-</strong></div>
+            <div class="summary-item"><span>Adjustment Rate</span><strong id="kpi-adjustment">-</strong></div>
+            <div class="summary-item"><span>Discrepancy Value</span><strong id="kpi-discrepancy">-</strong></div>
+            <div class="summary-item"><span>Not Counted (30d)</span><strong id="kpi-not-counted">-</strong></div>
+          </div>
         </div>
-
-        <div class="table-card">
-          <h3>Overdue Check-Outs</h3>
-          <table id="overdueTable">
-            <thead><tr><th>Code</th><th>Qty</th><th>Project</th><th>Out Since</th></tr></thead>
-            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-          </table>
-        </div>
-
-        <div class="table-card">
-          <h3>Inbound / Ordered</h3>
-          <table id="orderedTable">
-            <thead><tr><th>Code</th><th>Open Qty</th><th>ETA</th><th>Project</th></tr></thead>
-            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-          </table>
-        </div>
-
-        <div class="table-card">
-          <h3>Top Movers (7 Days)</h3>
-          <table id="topMoversTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>In Use</th></tr></thead>
-            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-          </table>
-        </div>
-
-        <div class="table-card">
-          <h3>Cycle Counts Due</h3>
-          <table id="countDueTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Last Counted</th><th>Days Since</th></tr></thead>
-            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-          </table>
+        <div class="card">
+          <h3>Waste &amp; Leakage</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Shrinkage %</span><strong id="kpi-shrinkage">-</strong></div>
+            <div class="summary-item"><span>Damaged %</span><strong id="kpi-damaged">-</strong></div>
+            <div class="summary-item"><span>Write-offs</span><strong id="kpi-writeoffs">-</strong></div>
+            <div class="summary-item"><span>Lost Value</span><strong id="kpi-lost-value">-</strong></div>
+          </div>
         </div>
       </section>
 
-      <section class="chart-card dashboard-wide">
-        <h3>Weekly Activity</h3>
-        <canvas id="trafficChart" width="600" height="200"></canvas>
+      <section class="dashboard-grid">
+        <div class="card">
+          <h3>Demand Intelligence</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Top Usage Qty</span><strong id="kpi-usage-trend">-</strong></div>
+            <div class="summary-item"><span>80/20 SKUs</span><strong id="kpi-8020">-</strong></div>
+            <div class="summary-item"><span>Dead Stock %</span><strong id="kpi-dead-stock">-</strong></div>
+            <div class="summary-item"><span>Slow Moving</span><strong id="kpi-slow-moving">-</strong></div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Supply Chain Health</h3>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Fill Rate</span><strong id="kpi-fill-rate">-</strong></div>
+            <div class="summary-item"><span>Service Level</span><strong id="kpi-service-level">-</strong></div>
+            <div class="summary-item"><span>Avg Lead Time</span><strong id="kpi-lead-time">-</strong></div>
+            <div class="summary-item"><span>On-Time Delivery</span><strong id="kpi-on-time">-</strong></div>
+          </div>
+        </div>
       </section>
 
-      <section class="table-card dashboard-wide">
-        <h3>Recent Activity</h3>
-        <table id="activityTable">
-          <thead><tr><th>Type</th><th>Code</th><th>Qty</th><th>Project</th><th>When</th></tr></thead>
-          <tbody><tr><td colspan="5" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-        </table>
+      <section class="dashboard-grid">
+        <div class="table-card">
+          <h3>Slow Moving Inventory (30d)</h3>
+          <table id="slowMovingTable">
+            <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>Available</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
+        <div class="table-card">
+          <h3>Top Usage Items (30d)</h3>
+          <table id="topUsageTable">
+            <thead><tr><th>Code</th><th>Name</th><th>Issued Qty</th><th>Share</th></tr></thead>
+            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+          </table>
+        </div>
       </section>
     </main>
   </div>
@@ -157,9 +156,10 @@
       }
     });
   </script>
-  <script src="js/dashboard.js"></script>
+  <script src="js/ops-dashboard.js"></script>
 </body>
 </html>
+
 
 
 
