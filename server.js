@@ -1790,32 +1790,49 @@ app.post('/api/auth/register', async (req, res) => {
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 15 * 60 * 1000;
 
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password, tenantCode, remember } = req.body;
-    const emailNorm = normalizeEmail(email);
-    if (!emailNorm || !password) return res.status(400).json({ error: 'email and password required' });
-    const normalizedTenant = normalizeTenantCode(tenantCode);
-    const isDevEmail = emailNorm === DEV_EMAIL.toLowerCase();
-    const attemptKey = `${emailNorm}:${normalizedTenant}`;
-    const attempt = loginAttempts.get(attemptKey) || { count: 0, lockUntil: 0 };
-    if (!isDevEmail && attempt.lockUntil > Date.now()) return res.status(429).json({ error: 'account locked, try later' });
-
-    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [normalizedTenant]);
-    if (!tenant) return res.status(400).json({ error: 'Business code not found' });
-
-    const user = await getAsync('SELECT * FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [emailNorm, tenant.id]);
-    if (!user) {
-      if (!isDevEmail) {
-        attempt.count += 1;
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { email, password, tenantCode, remember } = req.body;
+      const emailNorm = normalizeEmail(email);
+      if (!emailNorm || !password) return res.status(400).json({ error: 'email and password required' });
+      const rawTenant = (tenantCode || '').toString().trim();
+      const hasTenantCode = !!rawTenant;
+      const normalizedTenant = hasTenantCode ? normalizeTenantCode(rawTenant) : null;
+      const isDevEmail = emailNorm === DEV_EMAIL.toLowerCase();
+      const attemptKey = hasTenantCode ? `${emailNorm}:${normalizedTenant}` : `${emailNorm}:__auto__`;
+      const attempt = loginAttempts.get(attemptKey) || { count: 0, lockUntil: 0 };
+      if (!isDevEmail && attempt.lockUntil > Date.now()) return res.status(429).json({ error: 'account locked, try later' });
+  
+      let tenant = null;
+      let user = null;
+      if (hasTenantCode) {
+        tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [normalizedTenant]);
+        if (!tenant) return res.status(400).json({ error: 'Business code not found' });
+        user = await getAsync('SELECT * FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [emailNorm, tenant.id]);
+      } else {
+        const matches = await allAsync(
+          'SELECT u.*, t.code AS tenantCode FROM users u JOIN tenants t ON t.id = u.tenantId WHERE LOWER(u.email)=LOWER($1)',
+          [emailNorm]
+        );
+        if (matches.length > 1) {
+          return res.status(400).json({ error: 'Multiple businesses found for this email. Ask an admin to use a unique email.' });
+        }
+        if (matches.length === 1) {
+          user = matches[0];
+          tenant = { id: user.tenantid || user.tenantId, code: user.tenantcode || user.tenantCode };
+        }
+      }
+      if (!user) {
+        if (!isDevEmail) {
+          attempt.count += 1;
         if (attempt.count >= MAX_ATTEMPTS) {
           attempt.lockUntil = Date.now() + LOCK_MS;
           attempt.count = 0;
         }
         loginAttempts.set(attemptKey, attempt);
       }
-      return res.status(401).json({ error: 'Email not found for this business' });
-    }
+        return res.status(401).json({ error: hasTenantCode ? 'Email not found for this business' : 'Email not found' });
+      }
     if (!verifyPassword(password, user.salt, user.hash)) {
       if (!isDevEmail) {
         attempt.count += 1;
