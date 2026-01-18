@@ -544,6 +544,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('userSearch')?.addEventListener('input', ()=> renderUsersTable(usersCache));
   document.getElementById('userRoleFilter')?.addEventListener('change', ()=> renderUsersTable(usersCache));
   document.getElementById('userSort')?.addEventListener('change', ()=> renderUsersTable(usersCache));
+  document.getElementById('userRefreshBtn')?.addEventListener('click', refreshUsers);
   document.getElementById('userExportBtn')?.addEventListener('click', exportUsersCSV);
 
   // Profile panel
