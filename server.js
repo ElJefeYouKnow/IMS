@@ -310,6 +310,19 @@ function normalizeTenantCode(code) {
 function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
 }
+async function emailExistsGlobal(emailNorm, excludeId) {
+  if (!emailNorm) return null;
+  if (excludeId) {
+    return await getAsync(
+      'SELECT id, tenantId FROM users WHERE LOWER(email)=LOWER($1) AND id<>$2 LIMIT 1',
+      [emailNorm, excludeId]
+    );
+  }
+  return await getAsync(
+    'SELECT id, tenantId FROM users WHERE LOWER(email)=LOWER($1) LIMIT 1',
+    [emailNorm]
+  );
+}
 function normalizeJobId(value) {
   const val = (value || '').toString().trim();
   if (!val) return '';
@@ -1731,9 +1744,9 @@ app.delete('/api/categories/:id', requireRole('admin'), async (req, res) => {
 });
 
 // AUTH + USERS
-app.post('/api/tenants', tenantLimiter, async (req, res) => {
-  try {
-  const { code, name, adminEmail, adminPassword, adminName } = req.body;
+  app.post('/api/tenants', tenantLimiter, async (req, res) => {
+    try {
+    const { code, name, adminEmail, adminPassword, adminName } = req.body;
   const tenantSecret = process.env.TENANT_SIGNUP_SECRET;
   if (!tenantSecret) return res.status(400).json({ error: 'tenant signups disabled (missing TENANT_SIGNUP_SECRET)' });
   const provided = req.headers['x-tenant-signup'] || req.body?.tenantKey;
@@ -1744,30 +1757,34 @@ app.post('/api/tenants', tenantLimiter, async (req, res) => {
   if (!normCode) return res.status(400).json({ error: 'invalid code' });
   const exists = await getAsync('SELECT id FROM tenants WHERE code=$1', [normCode]);
   if (exists) return res.status(400).json({ error: 'tenant already exists' });
-  const tenantId = newId();
-  await runAsync('INSERT INTO tenants(id,code,name,createdAt) VALUES($1,$2,$3,$4)', [tenantId, normCode, name, Date.now()]);
-  const { salt, hash } = await hashPassword(adminPassword);
-  const adminEmailNorm = normalizeEmail(adminEmail);
-  const user = { id: newId(), email: adminEmailNorm, name: adminName || name || 'Admin', role: 'admin', salt, hash, createdAt: Date.now(), tenantId };
-  await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
-    [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
+    const tenantId = newId();
+    await runAsync('INSERT INTO tenants(id,code,name,createdAt) VALUES($1,$2,$3,$4)', [tenantId, normCode, name, Date.now()]);
+    const { salt, hash } = await hashPassword(adminPassword);
+    const adminEmailNorm = normalizeEmail(adminEmail);
+    const globalAdmin = await emailExistsGlobal(adminEmailNorm);
+    if (globalAdmin) return res.status(400).json({ error: 'email already exists in another business' });
+    const user = { id: newId(), email: adminEmailNorm, name: adminName || name || 'Admin', role: 'admin', salt, hash, createdAt: Date.now(), tenantId };
+    await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+      [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
     const token = await createSession(user.id);
     setSessionCookie(res, token);
     res.status(201).json({ tenant: { id: tenantId, code: normCode, name }, admin: safeUser(user) });
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { email, password, name, role: requestedRole, adminKey, tenantCode } = req.body;
-    const emailNorm = normalizeEmail(email);
-    if (!emailNorm || !password) return res.status(400).json({ error: 'email and password required' });
-    if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
-    const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [normalizeTenantCode(tenantCode)]);
-    if (!tenant) return res.status(400).json({ error: 'invalid tenant' });
-    const existing = await getAsync('SELECT id FROM users WHERE email=$1 AND tenantId=$2', [emailNorm, tenant.id]);
-    if (existing) return res.status(400).json({ error: 'email already exists' });
-    const totalCount = (await getAsync('SELECT COUNT(*) as c FROM users WHERE tenantId=$1', [tenant.id])).c;
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const { email, password, name, role: requestedRole, adminKey, tenantCode } = req.body;
+      const emailNorm = normalizeEmail(email);
+      if (!emailNorm || !password) return res.status(400).json({ error: 'email and password required' });
+      if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
+      const tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [normalizeTenantCode(tenantCode)]);
+      if (!tenant) return res.status(400).json({ error: 'invalid tenant' });
+      const globalExisting = await emailExistsGlobal(emailNorm);
+      if (globalExisting) return res.status(400).json({ error: 'email already exists in another business' });
+      const existing = await getAsync('SELECT id FROM users WHERE email=$1 AND tenantId=$2', [emailNorm, tenant.id]);
+      if (existing) return res.status(400).json({ error: 'email already exists' });
+      const totalCount = (await getAsync('SELECT COUNT(*) as c FROM users WHERE tenantId=$1', [tenant.id])).c;
     let role = totalCount === 0 ? 'admin' : 'employee';
     const adminSecret = process.env.ADMIN_SIGNUP_SECRET;
     if (requestedRole === 'admin') {
@@ -1805,27 +1822,36 @@ const LOCK_MS = 15 * 60 * 1000;
   
       let tenant = null;
       let user = null;
+      let passwordVerified = false;
       if (hasTenantCode) {
         tenant = await getAsync('SELECT * FROM tenants WHERE code=$1', [normalizedTenant]);
         if (!tenant) return res.status(400).json({ error: 'Business code not found' });
         user = await getAsync('SELECT * FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [emailNorm, tenant.id]);
+        if (user && verifyPassword(password, user.salt, user.hash)) passwordVerified = true;
       } else {
         const matches = await allAsync(
           'SELECT u.*, t.code AS tenantCode FROM users u JOIN tenants t ON t.id = u.tenantId WHERE LOWER(u.email)=LOWER($1)',
           [emailNorm]
         );
-        if (matches.length > 1) {
-          return res.status(400).json({ error: 'Multiple businesses found for this email. Ask an admin to use a unique email.' });
-        }
         if (matches.length === 1) {
           user = matches[0];
           tenant = { id: user.tenantid || user.tenantId, code: user.tenantcode || user.tenantCode };
+          if (verifyPassword(password, user.salt, user.hash)) passwordVerified = true;
+        } else if (matches.length > 1) {
+          const valid = matches.filter(candidate => verifyPassword(password, candidate.salt, candidate.hash));
+          if (valid.length === 1) {
+            user = valid[0];
+            tenant = { id: user.tenantid || user.tenantId, code: user.tenantcode || user.tenantCode };
+            passwordVerified = true;
+          } else if (valid.length > 1) {
+            return res.status(400).json({ error: 'Multiple businesses found for this email. Use your business link or contact support.' });
+          }
         }
       }
       if (!user) {
         if (!isDevEmail) {
           attempt.count += 1;
-        if (attempt.count >= MAX_ATTEMPTS) {
+          if (attempt.count >= MAX_ATTEMPTS) {
           attempt.lockUntil = Date.now() + LOCK_MS;
           attempt.count = 0;
         }
@@ -1833,10 +1859,10 @@ const LOCK_MS = 15 * 60 * 1000;
       }
         return res.status(401).json({ error: hasTenantCode ? 'Email not found for this business' : 'Email not found' });
       }
-    if (!verifyPassword(password, user.salt, user.hash)) {
-      if (!isDevEmail) {
-        attempt.count += 1;
-        if (attempt.count >= MAX_ATTEMPTS) {
+      if (!passwordVerified && !verifyPassword(password, user.salt, user.hash)) {
+        if (!isDevEmail) {
+          attempt.count += 1;
+          if (attempt.count >= MAX_ATTEMPTS) {
           attempt.lockUntil = Date.now() + LOCK_MS;
           attempt.count = 0;
         }
@@ -1873,16 +1899,18 @@ app.get('/api/users', requireRole('admin'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/users', requireRole('admin'), async (req, res) => {
-  try {
-    const { email, password, name, role = 'employee' } = req.body;
-    const emailNorm = normalizeEmail(email);
-    if (!emailNorm || !password) return res.status(400).json({ error: 'email and password required' });
-    if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
-    const t = tenantId(req);
-    const exists = await getAsync('SELECT id FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [emailNorm, t]);
-    if (exists) return res.status(400).json({ error: 'email already exists' });
-    const { salt, hash } = await hashPassword(password);
+  app.post('/api/users', requireRole('admin'), async (req, res) => {
+    try {
+      const { email, password, name, role = 'employee' } = req.body;
+      const emailNorm = normalizeEmail(email);
+      if (!emailNorm || !password) return res.status(400).json({ error: 'email and password required' });
+      if (password.length < 10) return res.status(400).json({ error: 'password too weak' });
+      const t = tenantId(req);
+      const globalExisting = await emailExistsGlobal(emailNorm);
+      if (globalExisting) return res.status(400).json({ error: 'email already exists in another business' });
+      const exists = await getAsync('SELECT id FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [emailNorm, t]);
+      if (exists) return res.status(400).json({ error: 'email already exists' });
+      const { salt, hash } = await hashPassword(password);
     const user = { id: newId(), email: emailNorm, name, role: normalizeUserRole(role), salt, hash, createdAt: Date.now(), tenantId: t };
     await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
@@ -1897,11 +1925,13 @@ app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
     const t = tenantId(req);
     const user = await getAsync('SELECT * FROM users WHERE id=$1 AND tenantId=$2', [id, t]);
     if (!user) return res.status(404).json({ error: 'not found' });
-    let emailNorm = email ? normalizeEmail(email) : user.email;
-    if (email) {
-      const dup = await getAsync('SELECT id FROM users WHERE LOWER(email)=LOWER($1) AND id<>$2 AND tenantId=$3', [emailNorm, id, t]);
-      if (dup) return res.status(400).json({ error: 'email already exists' });
-    }
+      let emailNorm = email ? normalizeEmail(email) : user.email;
+      if (email) {
+        const dup = await getAsync('SELECT id FROM users WHERE LOWER(email)=LOWER($1) AND id<>$2 AND tenantId=$3', [emailNorm, id, t]);
+        if (dup) return res.status(400).json({ error: 'email already exists' });
+        const globalDup = await emailExistsGlobal(emailNorm, id);
+        if (globalDup) return res.status(400).json({ error: 'email already exists in another business' });
+      }
     let salt = user.salt;
     let hash = user.hash;
     if (password) {

@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const err = document.getElementById('login-error');
   const staySignedIn = document.getElementById('login-remember-session');
   const backBtn = document.getElementById('backToMarketing');
+  const urlParams = new URLSearchParams(window.location.search || '');
+  const tenantCodeParam = (urlParams.get('tenant') || '').trim();
   if(backBtn){
     const protocol = window.location.protocol === 'http:' ? 'http:' : 'https:';
     const hostname = window.location.hostname || '';
@@ -21,7 +23,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const remember = !!staySignedIn?.checked;
     if(!email || !password){ err.textContent = 'Email and password required'; return; }
     try{
-      const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password,remember})});
+      const payload = { email, password, remember };
+      if(tenantCodeParam) payload.tenantCode = tenantCodeParam;
+      const r = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       if(!r.ok){
         const data = await r.json().catch(()=>({error:'Login failed'}));
         err.textContent = data.error || 'Login failed';
