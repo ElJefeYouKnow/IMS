@@ -5,49 +5,12 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>Login</title>
   <link rel="stylesheet" href="css/style.css" />
-  <style>
-    body{margin:0;font-family:var(--font-body);background:linear-gradient(135deg,#0f332c 0%,#1f6f5c 100%);color:var(--ink);}
-    body::before{
-      content:"";
-      position:fixed;
-      inset:-20% -10%;
-      background-image:
-        repeating-linear-gradient(135deg, rgba(255,255,255,0.08) 0 2px, transparent 2px 26px),
-        repeating-radial-gradient(circle at 18% 20%, rgba(255,255,255,0.1) 0 1px, transparent 1px 22px);
-      opacity:0.35;
-      pointer-events:none;
-      z-index:0;
-    }
-    body::after{
-      content:"";
-      position:fixed;
-      inset:0;
-      background:radial-gradient(circle at top right, rgba(255,255,255,0.12), transparent 55%);
-      pointer-events:none;
-      z-index:0;
-    }
-    .auth-wrapper{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;position:relative;z-index:1;}
-    .auth-card{background:var(--card);color:var(--ink);padding:28px;border-radius:16px;box-shadow:0 20px 60px rgba(24,36,32,0.2);width:100%;max-width:420px;border:1px solid var(--line);}
-    .auth-card h1{margin-top:0;margin-bottom:10px;font-weight:800;letter-spacing:0.3px;}
-    .auth-card .inventory-form{gap:14px;}
-    .auth-card a{color:var(--accent);font-weight:700;text-decoration:none;}
-    label{color:var(--muted);}
-    input{background:#fff;color:var(--ink);border:1px solid var(--line);}
-    button{background:linear-gradient(135deg,#1f6f5c,#2b8a71);border:none;color:#fff;font-weight:800;box-shadow:0 10px 30px rgba(31,111,92,0.35);}
-    .back-link{margin-top:14px;width:100%;background:linear-gradient(135deg,rgba(31,111,92,0.14),rgba(19,42,36,0.16));border:1px solid rgba(31,111,92,0.4);box-shadow:0 10px 24px rgba(31,111,92,0.2);color:var(--accent-strong);font-weight:800;text-transform:uppercase;letter-spacing:0.12em;font-size:0.75rem;padding:12px;border-radius:12px;cursor:pointer;transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease, background .15s ease;}
-    .back-link:hover{transform:translateY(-1px);box-shadow:0 12px 26px rgba(31,111,92,0.28);border-color:rgba(31,111,92,0.7);}
-    .back-link:focus-visible{outline:3px solid rgba(31,111,92,0.35);outline-offset:2px;}
-    .auth-actions{align-items:center;justify-content:space-between;gap:12px;}
-    .auth-checks{display:flex;flex-direction:column;gap:6px;flex:1;}
-    .auth-actions .remember-label{display:flex;align-items:center;gap:10px;font-size:0.85rem;color:var(--muted);flex-direction:row;}
-    .auth-actions input[type="checkbox"]{width:16px;height:16px;margin:0;accent-color:#1f6f5c;border-radius:4px;box-shadow:0 0 0 1px rgba(31,111,92,0.2);}
-  </style>
 </head>
-<body>
+<body class="auth-page" data-page="login">
   <div class="auth-wrapper">
     <div class="auth-card">
       <h1>Welcome Back</h1>
-      <p style="color:var(--muted);margin-top:0;margin-bottom:16px;">Sign in to continue.</p>
+      <p class="auth-subtitle">Sign in to continue.</p>
       <form id="loginForm" class="inventory-form" autocomplete="off">
         <div class="form-row">
           <label>Email<input id="login-email" type="email" required autocomplete="off"></label>
@@ -64,8 +27,8 @@
           </div>
           <button type="submit">Login</button>
         </div>
-        <div style="font-size:0.9rem;color:var(--muted);">Need access? Contact your administrator.</div>
-        <div id="login-error" style="color:#b91c1c;font-size:0.9rem;margin-top:8px;"></div>
+        <div class="auth-footer">Need access? Contact your administrator.</div>
+        <div id="login-error" class="auth-error"></div>
       </form>
       <button id="backToMarketing" class="back-link" type="button">Back to website</button>
     </div>

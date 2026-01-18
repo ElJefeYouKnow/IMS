@@ -7,16 +7,8 @@
   <meta name="theme-color" content="#132a24" />
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/style.css" />
-  <style>
-    .quick-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px;}
-    .quick-actions a{display:flex;align-items:center;justify-content:center;padding:24px;font-size:1.1rem;font-weight:700;text-decoration:none;border-radius:10px;background:linear-gradient(135deg,#4f46e5,#6366f1);color:#fff;box-shadow:0 10px 25px rgba(79,70,229,0.25);}
-    .quick-actions a.secondary{background:linear-gradient(135deg,#0ea5e9,#22d3ee);}
-    .quick-actions a.warn{background:linear-gradient(135deg,#f97316,#facc15);}
-    .task-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 14px;border-radius:10px;font-weight:800;text-decoration:none;transition:transform .15s ease, box-shadow .15s ease, opacity .15s ease;}
-    .task-btn:hover{transform:translateY(-2px);box-shadow:0 12px 26px rgba(0,0,0,0.22);opacity:0.95;}
-  </style>
 </head>
-<body data-ds="pro">
+<body data-ds="pro" data-page="employee-dashboard">
   <div class="app">
     <aside class="sidebar">
       <div>
@@ -56,17 +48,17 @@
         </div>
       </header>
 
-      <section class="card" style="background:linear-gradient(135deg,#132a24,#1f6f5c);color:#fff;box-shadow:0 14px 36px rgba(24,36,32,0.25);">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <section class="card employee-hero">
+        <div class="employee-hero-inner">
           <div>
-            <h3 style="color:rgba(255,255,255,0.85);margin-bottom:6px;">Go to your tasks</h3>
-            <div style="font-size:0.95rem;opacity:0.85;">Jump straight into your daily workflows.</div>
+            <h3 class="employee-hero-title">Go to your tasks</h3>
+            <div class="employee-hero-sub">Jump straight into your daily workflows.</div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <a href="inventory-operations.html?mode=checkout" class="task-btn" style="background:#fff;color:#132a24;box-shadow:0 10px 22px rgba(255,255,255,0.2);">Receive / Pick</a>
-            <a href="inventory-list.html" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Check Stock</a>
-            <a href="job-creator.html#report" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Project Activity</a>
-            <a href="field-purchase.html" class="task-btn" style="background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.25);">Field Purchases</a>
+          <div class="employee-hero-actions">
+            <a href="inventory-operations.html?mode=checkout" class="task-btn primary">Receive / Pick</a>
+            <a href="inventory-list.html" class="task-btn ghost">Check Stock</a>
+            <a href="job-creator.html#report" class="task-btn ghost">Project Activity</a>
+            <a href="field-purchase.html" class="task-btn ghost">Field Purchases</a>
           </div>
         </div>
       </section>

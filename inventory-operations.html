@@ -7,29 +7,8 @@
   <meta name="theme-color" content="#132a24" />
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/style.css" />
-  <style>
-    .mode-tabs {display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
-    .mode-tabs button {padding:12px 16px;border-radius:999px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-weight:700;cursor:pointer;transition:all .2s;}
-    .mode-tabs button.active {background:linear-gradient(135deg,#132a24,#1f6f5c);color:#fff;border-color:rgba(31,111,92,0.4);box-shadow:0 10px 24px rgba(24,36,32,0.18);}
-    .mode-tabs button:hover {transform:translateY(-1px);box-shadow:0 8px 18px rgba(0,0,0,0.1);}
-    .mode-content {display:none;}
-    .mode-content.active {display:block;}
-    .ops-hero {display:grid;grid-template-columns:1.6fr 1fr;gap:12px;margin-bottom:16px;}
-    .ops-hero .card{margin:0;}
-    .ops-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;}
-    .ops-metric{padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);box-shadow:0 8px 20px rgba(24,36,32,0.08);}
-    .ops-metric .label{color:var(--muted);font-size:12px;font-weight:700;letter-spacing:0.3px;text-transform:uppercase;}
-    .ops-metric .value{font-size:20px;font-weight:800;color:#1f6f5c;margin-top:4px;}
-    .ops-list{margin:0;padding-left:18px;color:var(--muted);font-size:14px;line-height:1.5;}
-    .ops-list li{margin-bottom:6px;}
-    .dark .mode-tabs button{background:#16221f;color:var(--ink);border-color:#22312d;}
-    .dark .mode-tabs button.active{background:linear-gradient(135deg,#0b2b26,#1f6f5c);border-color:rgba(124,225,196,0.4);}
-    .dark .ops-metric{background:#16221f;border-color:#22312d;box-shadow:0 8px 20px rgba(0,0,0,0.35);}
-    .dark .ops-metric .label{color:var(--muted);}
-    @media(max-width:900px){.ops-hero{grid-template-columns:1fr}}
-  </style>
 </head>
-<body data-ds="pro">
+<body data-ds="pro" data-page="inventory-operations">
   <div class="app">
     <aside class="sidebar">
       <div>

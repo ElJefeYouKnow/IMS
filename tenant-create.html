@@ -5,20 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
   <title>Create Business</title>
   <link rel="stylesheet" href="css/style.css" />
-  <style>
-    body{margin:0;font-family:var(--font-body);background:var(--bg);color:var(--ink);}
-    .auth-wrapper{display:flex;align-items:center;justify-content:center;min-height:100vh;background:transparent;padding:20px;position:relative;z-index:1;}
-    .auth-card{background:var(--card);color:var(--ink);padding:28px;border-radius:16px;box-shadow:0 20px 60px rgba(24,36,32,0.2);width:100%;max-width:440px;border:1px solid var(--line);}
-    .auth-card h1{margin-top:0;margin-bottom:10px;font-weight:800;letter-spacing:0.3px;}
-    .auth-card .inventory-form{gap:14px;}
-    .hint{color:var(--muted);font-size:0.95rem;margin-bottom:14px;line-height:1.45;}
-    label{color:var(--muted);}
-    input{background:#fff;color:var(--ink);border:1px solid var(--line);}
-    button{background:linear-gradient(135deg,#1f6f5c,#2b8a71);border:none;color:#fff;font-weight:800;box-shadow:0 10px 30px rgba(31,111,92,0.35);}
-    .auth-card a{color:var(--accent);font-weight:700;text-decoration:none;}
-  </style>
 </head>
-<body>
+<body class="auth-page" data-page="tenant-create">
   <div class="auth-wrapper">
     <div class="auth-card">
       <h1>Create Your Business</h1>
@@ -42,8 +30,8 @@
         <div class="form-row">
           <button type="submit">Create Business</button>
         </div>
-        <div id="tenant-error" style="color:#b91c1c;font-size:0.9rem;margin-top:4px;"></div>
-        <div style="font-size:0.9rem;color:var(--muted);">Already have one? <a href="login.html">Log in</a></div>
+        <div id="tenant-error" class="auth-error auth-error-tight"></div>
+        <div class="auth-footer">Already have one? <a href="login.html">Log in</a></div>
       </form>
     </div>
   </div>
