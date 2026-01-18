@@ -1305,7 +1305,9 @@ body.role-manager .admin-only{display:none}
 .search-trigger{
   margin-right:10px;
 }
-.global-search-row{display:none;margin:0 0 12px;}
+.topbar-right .search-trigger{display:none;}
+.global-search-row{display:flex;gap:8px;align-items:center;margin:0 0 12px;}
+.global-search-row .search-trigger{margin-right:0;}
 .search-trigger-wide{
   width:100%;
   text-align:left;
