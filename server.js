@@ -2595,8 +2595,12 @@ app.post('/api/dev/delete-tenant', requireDev, async (req, res) => {
     await withTransaction(async (client) => {
       await client.query('DELETE FROM inventory WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM audit_events WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM inventory_counts WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM auth_tokens WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM users WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM tenants WHERE id=$1', [tenant.id]);
     });
@@ -3014,11 +3018,11 @@ app.delete('/api/seller/clients/:id', requireDev, async (req, res) => {
       await client.query('DELETE FROM audit_events WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM inventory_counts WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM auth_tokens WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM users WHERE tenantId=$1', [tenant.id]);
-      await client.query('DELETE FROM inventory_counts WHERE tenantId=$1', [tenant.id]);
-      await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM tenants WHERE id=$1', [tenant.id]);
     });
     res.status(204).end();
