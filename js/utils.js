@@ -166,57 +166,91 @@
       if(r === 'manager') return 'ops-dashboard.html';
       return 'employee-dashboard.html';
     },
+    async refreshSession(){
+      try{
+        const res = await fetch('/api/auth/me');
+        if(!res.ok) return null;
+        const user = await res.json();
+        if(user && user.id) localStorage.setItem('sessionUser', JSON.stringify(user));
+        return user;
+      }catch(e){
+        return null;
+      }
+    },
     requireRole(role){
       const user = this.getSession();
       if(!user){
         window.location.href='login.html';
         return;
       }
-      const userRole = (user.role || '').toLowerCase();
-      const target = this.getDashboardHref(userRole);
-      const isAdmin = userRole === 'admin' || userRole === 'dev';
-      if(role === 'admin' && !isAdmin){
+      const isAllowed = (candidate)=>{
+        const userRole = (candidate?.role || '').toLowerCase();
+        const isAdmin = userRole === 'admin' || userRole === 'dev';
+        if(role === 'admin') return isAdmin;
+        if(role === 'manager') return userRole === 'manager';
+        if(role === 'employee') return !(userRole === 'admin' || userRole === 'manager' || userRole === 'dev');
+        return true;
+      };
+      if(isAllowed(user)) return;
+      if(this._roleRefreshInFlight) return;
+      this._roleRefreshInFlight = true;
+      this.refreshSession?.().then(fresh=>{
+        this._roleRefreshInFlight = false;
+        const resolved = fresh || user;
+        if(isAllowed(resolved)) return;
+        const target = this.getDashboardHref(resolved?.role);
         window.location.href = target;
-      }else if(role === 'manager' && userRole !== 'manager'){
-        window.location.href = target;
-      }else if(role === 'employee' && (userRole === 'admin' || userRole === 'manager' || userRole === 'dev')){
-        window.location.href = target;
-      }
+      }).catch(()=>{
+        this._roleRefreshInFlight = false;
+        window.location.href = this.getDashboardHref(user.role);
+      });
     },
     applyNavVisibility(){
       this.buildMobileNav?.();
       this.registerServiceWorker?.();
-      const user = this.getSession();
-      document.body.classList.remove('role-admin','role-employee','role-manager','role-none');
-      if(!user){
-        document.body.classList.add('role-none');
-        return;
-      }
-      const role = (user.role || '').toLowerCase();
-      const tenant = (user.tenantId || user.tenantid || '').toLowerCase();
-      const isDev = role === 'dev' || tenant === 'dev';
-      if(role === 'admin'){
-        document.body.classList.add('role-admin');
-      }else if(role === 'manager'){
-        document.body.classList.add('role-manager');
-        document.body.classList.add('role-employee'); // Inherit employee visibility by default
-      }else{
-        document.body.classList.add('role-employee');
-      }
-      document.querySelectorAll('[data-dev-only]').forEach(el=>{
-        el.style.display = isDev ? '' : 'none';
-      });
-      if(isDev){
-        const nav = document.querySelector('.sidebar nav');
-        if(nav && !nav.querySelector('a[data-dev-only][href="seller-admin.html"]')){
-          const link = document.createElement('a');
-          link.href = 'seller-admin.html';
-          link.dataset.devOnly = '';
-          link.textContent = 'Seller Admin';
-          nav.appendChild(link);
+      const applyForUser = (user)=>{
+        document.body.classList.remove('role-admin','role-employee','role-manager','role-none');
+        if(!user){
+          document.body.classList.add('role-none');
+          return;
         }
-      }
-      this.setupUserChip?.();
+        const role = (user.role || '').toLowerCase();
+        const tenant = (user.tenantId || user.tenantid || '').toLowerCase();
+        const isDev = role === 'dev' || tenant === 'dev';
+        if(role === 'admin'){
+          document.body.classList.add('role-admin');
+        }else if(role === 'manager'){
+          document.body.classList.add('role-manager');
+          document.body.classList.add('role-employee'); // Inherit employee visibility by default
+        }else{
+          document.body.classList.add('role-employee');
+        }
+        document.querySelectorAll('[data-dev-only]').forEach(el=>{
+          el.style.display = isDev ? '' : 'none';
+        });
+        if(isDev){
+          const nav = document.querySelector('.sidebar nav');
+          if(nav && !nav.querySelector('a[data-dev-only][href="seller-admin.html"]')){
+            const link = document.createElement('a');
+            link.href = 'seller-admin.html';
+            link.dataset.devOnly = '';
+            link.textContent = 'Seller Admin';
+            nav.appendChild(link);
+          }
+        }
+        this.setupUserChip?.();
+      };
+
+      const user = this.getSession();
+      applyForUser(user);
+      if(this._navRefreshInFlight) return;
+      this._navRefreshInFlight = true;
+      this.refreshSession?.().then(fresh=>{
+        this._navRefreshInFlight = false;
+        if(fresh && (!user || fresh.role !== user.role || fresh.id !== user.id)){
+          applyForUser(fresh);
+        }
+      }).catch(()=>{ this._navRefreshInFlight = false; });
     },
     buildMobileNav(){
       if(document.querySelector('.bottom-nav')) return;
