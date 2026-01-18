@@ -427,9 +427,11 @@
           trigger.addEventListener('click', ()=> openSearch());
         }
 
-        const topbarWrap = document.querySelector('.topbar');
-        if(topbarWrap && !document.getElementById('globalSearchRow')){
-          const row = document.createElement('div');
+        const main = document.querySelector('.main');
+        const topbarWrap = main ? main.querySelector('.topbar') : document.querySelector('.topbar');
+        let row = document.getElementById('globalSearchRow');
+        if(!row){
+          row = document.createElement('div');
           row.id = 'globalSearchRow';
           row.className = 'global-search-row';
           const trigger = document.createElement('button');
@@ -438,7 +440,11 @@
           trigger.textContent = 'Search items, projects, activity...';
           trigger.addEventListener('click', ()=> openSearch());
           row.appendChild(trigger);
+        }
+        if(topbarWrap && topbarWrap.parentElement){
           topbarWrap.insertAdjacentElement('afterend', row);
+        }else if(main){
+          main.insertAdjacentElement('afterbegin', row);
         }
 
         const input = overlay.querySelector('#globalSearchInput');
