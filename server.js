@@ -21,8 +21,8 @@ const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || (IS_PROD ? `https://${BAS
 const COOKIE_SECURE = process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : IS_PROD;
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || (IS_PROD ? BASE_DOMAIN : undefined);
 const SESSION_STORE = process.env.SESSION_STORE || (IS_PROD ? 'db' : 'memory');
-const EMAIL_FROM = process.env.EMAIL_FROM || process.env.SMTP_FROM || `Modulr <no-reply@${BASE_DOMAIN}>`;
-const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || '';
+const EMAIL_FROM = process.env.EMAIL_FROM || process.env.SMTP_FROM || 'support@modulr.pro';
+const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || EMAIL_FROM;
 const SMTP_HOST = process.env.SMTP_HOST || '';
 const SMTP_PORT = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
 const SMTP_USER = process.env.SMTP_USER || '';

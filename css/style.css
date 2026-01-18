@@ -370,7 +370,12 @@ tbody td{padding:10px;border-top:1px solid var(--line);font-size:var(--text-sm)}
 .mobile-nav{display:none}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:rgba(19,32,28,0.96);backdrop-filter:blur(10px);color:#fff;z-index:60;border-top:1px solid rgba(255,255,255,0.12);box-shadow:0 -10px 30px rgba(0,0,0,0.35);display:none;padding:6px 10px calc(6px + env(safe-area-inset-bottom));border-radius:18px 18px 0 0}
 .bottom-nav .nav-main{display:flex;gap:12px;align-items:center;justify-content:space-between}
-.bottom-nav .nav-main-btn{flex:1 1 0;text-align:center;background:rgba(255,255,255,0.08);color:#fff;font-weight:800;padding:14px 10px;border-radius:14px;border:1px solid rgba(255,255,255,0.2);text-transform:uppercase;letter-spacing:0.12em;font-size:0.75rem;cursor:pointer;transition:transform .15s ease, box-shadow .15s ease}
+.bottom-nav .nav-main-btn{flex:1 1 0;text-align:center;background:rgba(255,255,255,0.08);color:#fff;font-weight:800;padding:12px 10px;border-radius:14px;border:1px solid rgba(255,255,255,0.2);letter-spacing:0.12em;font-size:0.75rem;cursor:pointer;transition:transform .15s ease, box-shadow .15s ease;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:54px}
+.bottom-nav .nav-label{font-size:0.72rem;letter-spacing:0.12em;text-transform:uppercase}
+.bottom-nav .nav-icon{width:18px;height:18px;display:block;background-repeat:no-repeat;background-position:center;background-size:18px 18px;opacity:0.95}
+.bottom-nav .icon-dashboard{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f6fbf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='7' height='7'/><rect x='14' y='3' width='7' height='7'/><rect x='14' y='14' width='7' height='7'/><rect x='3' y='14' width='7' height='7'/></svg>")}
+.bottom-nav .icon-ops{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f6fbf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 7l9-4 9 4-9 4-9-4z'/><path d='M3 7v10l9 4 9-4V7'/></svg>")}
+.bottom-nav .icon-more{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f6fbf8'><circle cx='5' cy='12' r='2'/><circle cx='12' cy='12' r='2'/><circle cx='19' cy='12' r='2'/></svg>")}
 .bottom-nav .nav-main-btn:hover{transform:translateY(-1px);box-shadow:0 10px 22px rgba(0,0,0,0.25)}
 .bottom-nav .nav-main-btn.active{background:linear-gradient(135deg,#1f6f5c,#132a24);border-color:rgba(255,255,255,0.3)}
 .bottom-nav .nav-more{background:linear-gradient(135deg,#1f6f5c,#164d41);border:none}

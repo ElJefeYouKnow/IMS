@@ -265,16 +265,31 @@
       nav.className = 'bottom-nav collapsed';
       const main = document.createElement('div');
       main.className = 'nav-main';
+      const makeIcon = (cls)=>{
+        const span = document.createElement('span');
+        span.className = `nav-icon ${cls}`.trim();
+        span.setAttribute('aria-hidden', 'true');
+        return span;
+      };
+      const makeLabel = (text)=>{
+        const span = document.createElement('span');
+        span.className = 'nav-label';
+        span.textContent = text;
+        return span;
+      };
       const dashboardBtn = document.createElement('a');
       dashboardBtn.className = 'nav-main-btn';
-      dashboardBtn.textContent = 'Dashboard';
+      dashboardBtn.appendChild(makeIcon('icon-dashboard'));
+      dashboardBtn.appendChild(makeLabel('Dashboard'));
       const opsBtn = document.createElement('a');
       opsBtn.className = 'nav-main-btn';
-      opsBtn.textContent = 'Ops';
+      opsBtn.appendChild(makeIcon('icon-ops'));
+      opsBtn.appendChild(makeLabel('Ops'));
       const moreBtn = document.createElement('button');
       moreBtn.className = 'nav-main-btn nav-more';
       moreBtn.type = 'button';
-      moreBtn.textContent = 'More';
+      moreBtn.appendChild(makeIcon('icon-more'));
+      moreBtn.appendChild(makeLabel('More'));
       moreBtn.setAttribute('aria-expanded', 'false');
       moreBtn.setAttribute('aria-controls', 'mobileNavItems');
 
@@ -311,7 +326,8 @@
         nav.classList.toggle('expanded', expanded);
         nav.classList.toggle('collapsed', !expanded);
         moreBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-        moreBtn.textContent = expanded ? 'Close' : 'More';
+        const label = moreBtn.querySelector('.nav-label');
+        if(label) label.textContent = expanded ? 'Close' : 'More';
         backdrop.classList.toggle('active', expanded);
       };
       setExpanded(false);
