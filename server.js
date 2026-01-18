@@ -45,6 +45,19 @@ const REMEMBER_SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const VERIFY_TOKEN_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
 const RESET_TOKEN_TTL_MS = 1000 * 60 * 60 * 2; // 2 hours
 const INVITE_TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+const DEFAULT_TENANT_CAPS = {
+  ims_enabled: true,
+  oms_enabled: false,
+  bms_enabled: false,
+  fms_enabled: false,
+  automation_enabled: false,
+  insights_enabled: false,
+  audit_enabled: false,
+  integration_enabled: false,
+  end_to_end_ops: false,
+  financial_accuracy: false,
+  enterprise_governance: false
+};
 const SESSION_COOKIE = 'sid';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
 if (IS_PROD && SESSION_SECRET === 'dev-secret-change-me') {
@@ -564,6 +577,62 @@ function normalizeItemLowStockEnabled(input) {
   if (['true', '1', 'yes', 'on', 'enabled'].includes(value)) return true;
   return null;
 }
+
+async function ensureTenantCapabilities(tenantIdVal) {
+  if (!tenantIdVal) return;
+  const now = Date.now();
+  await runAsync(
+    `INSERT INTO tenant_capabilities(
+      tenant_id,
+      ims_enabled, oms_enabled, bms_enabled, fms_enabled,
+      automation_enabled, insights_enabled, audit_enabled, integration_enabled,
+      end_to_end_ops, financial_accuracy, enterprise_governance,
+      created_at, updated_at
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+    ON CONFLICT (tenant_id) DO NOTHING`,
+    [
+      tenantIdVal,
+      DEFAULT_TENANT_CAPS.ims_enabled,
+      DEFAULT_TENANT_CAPS.oms_enabled,
+      DEFAULT_TENANT_CAPS.bms_enabled,
+      DEFAULT_TENANT_CAPS.fms_enabled,
+      DEFAULT_TENANT_CAPS.automation_enabled,
+      DEFAULT_TENANT_CAPS.insights_enabled,
+      DEFAULT_TENANT_CAPS.audit_enabled,
+      DEFAULT_TENANT_CAPS.integration_enabled,
+      DEFAULT_TENANT_CAPS.end_to_end_ops,
+      DEFAULT_TENANT_CAPS.financial_accuracy,
+      DEFAULT_TENANT_CAPS.enterprise_governance,
+      now
+    ]
+  );
+}
+
+function mapTenantCapabilities(row) {
+  if (!row) return { tenantId: null, ...DEFAULT_TENANT_CAPS };
+  return {
+    tenantId: row.tenant_id || row.tenantId,
+    ims_enabled: row.ims_enabled ?? DEFAULT_TENANT_CAPS.ims_enabled,
+    oms_enabled: row.oms_enabled ?? DEFAULT_TENANT_CAPS.oms_enabled,
+    bms_enabled: row.bms_enabled ?? DEFAULT_TENANT_CAPS.bms_enabled,
+    fms_enabled: row.fms_enabled ?? DEFAULT_TENANT_CAPS.fms_enabled,
+    automation_enabled: row.automation_enabled ?? DEFAULT_TENANT_CAPS.automation_enabled,
+    insights_enabled: row.insights_enabled ?? DEFAULT_TENANT_CAPS.insights_enabled,
+    audit_enabled: row.audit_enabled ?? DEFAULT_TENANT_CAPS.audit_enabled,
+    integration_enabled: row.integration_enabled ?? DEFAULT_TENANT_CAPS.integration_enabled,
+    end_to_end_ops: row.end_to_end_ops ?? DEFAULT_TENANT_CAPS.end_to_end_ops,
+    financial_accuracy: row.financial_accuracy ?? DEFAULT_TENANT_CAPS.financial_accuracy,
+    enterprise_governance: row.enterprise_governance ?? DEFAULT_TENANT_CAPS.enterprise_governance,
+    created_at: row.created_at || row.createdAt || null,
+    updated_at: row.updated_at || row.updatedAt || null
+  };
+}
+
+async function getTenantCapabilities(tenantIdVal) {
+  await ensureTenantCapabilities(tenantIdVal);
+  const row = await getAsync('SELECT * FROM tenant_capabilities WHERE tenant_id=$1', [tenantIdVal]);
+  return mapTenantCapabilities(row);
+}
 function normalizeOptionalBool(input) {
   if (input === undefined || input === null || input === '') return null;
   if (typeof input === 'boolean') return input;
@@ -813,6 +882,7 @@ async function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'unauthorized' });
   }
   req.user = user;
+  req.tenantCaps = await getTenantCapabilities(user.tenantid || user.tenantId);
   next();
 }
 async function initDb() {
@@ -975,6 +1045,23 @@ async function initDb() {
     createdAt BIGINT,
     updatedAt BIGINT
   )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS tenant_capabilities(
+    tenant_id TEXT PRIMARY KEY REFERENCES tenants(id),
+    ims_enabled BOOLEAN DEFAULT true,
+    oms_enabled BOOLEAN DEFAULT false,
+    bms_enabled BOOLEAN DEFAULT false,
+    fms_enabled BOOLEAN DEFAULT false,
+    automation_enabled BOOLEAN DEFAULT false,
+    insights_enabled BOOLEAN DEFAULT false,
+    audit_enabled BOOLEAN DEFAULT false,
+    integration_enabled BOOLEAN DEFAULT false,
+    end_to_end_ops BOOLEAN DEFAULT false,
+    financial_accuracy BOOLEAN DEFAULT false,
+    enterprise_governance BOOLEAN DEFAULT false,
+    created_at BIGINT,
+    updated_at BIGINT
+  )`);
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_tenant_caps_updated ON tenant_capabilities(updated_at)');
   await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS body TEXT`);
   await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS userId TEXT`);
   await runAsync(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS userEmail TEXT`);
@@ -1017,6 +1104,7 @@ async function initDb() {
   const tenants = await allAsync('SELECT id FROM tenants', []);
   for (const tenant of tenants) {
     await ensureDefaultCategory(tenant.id);
+    await ensureTenantCapabilities(tenant.id);
   }
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory(code)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_job ON inventory(jobId)');
@@ -1363,6 +1451,7 @@ async function ensureDevAccount() {
     ON CONFLICT (id) DO UPDATE SET code=EXCLUDED.code, name=EXCLUDED.name`,
     [tenantId, code, 'Dev Tenant', Date.now()]);
   await ensureDefaultCategory(tenantId);
+  await ensureTenantCapabilities(tenantId);
   const { salt, hash } = await hashPassword(DEV_PASSWORD);
   await runAsync(`INSERT INTO users(id,email,name,role,salt,hash,createdAt,emailVerified,emailVerifiedAt,tenantId)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
@@ -1964,6 +2053,7 @@ app.delete('/api/categories/:id', requireRole('admin'), async (req, res) => {
   if (exists) return res.status(400).json({ error: 'tenant already exists' });
     const tenantId = newId();
     await runAsync('INSERT INTO tenants(id,code,name,createdAt) VALUES($1,$2,$3,$4)', [tenantId, normCode, name, Date.now()]);
+    await ensureTenantCapabilities(tenantId);
     const { salt, hash } = await hashPassword(adminPassword);
     const adminEmailNorm = normalizeEmail(adminEmail);
     const globalAdmin = await emailExistsGlobal(adminEmailNorm);
@@ -2531,6 +2621,7 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       await client.query('TRUNCATE audit_events');
       await client.query('TRUNCATE inventory_counts');
       await client.query('TRUNCATE support_tickets');
+      await client.query('TRUNCATE tenant_capabilities');
       await client.query('TRUNCATE items');
       await client.query('TRUNCATE jobs');
       await client.query('TRUNCATE users');
@@ -2544,6 +2635,29 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
         `INSERT INTO categories(id,name,rules,tenantId,createdAt,updatedAt)
          VALUES($1,$2,$3,$4,$5,$6)`,
         [newId(), DEFAULT_CATEGORY_NAME, DEFAULT_CATEGORY_RULES, 'default', Date.now(), Date.now()]
+      );
+      await client.query(
+        `INSERT INTO tenant_capabilities(
+          tenant_id, ims_enabled, oms_enabled, bms_enabled, fms_enabled,
+          automation_enabled, insights_enabled, audit_enabled, integration_enabled,
+          end_to_end_ops, financial_accuracy, enterprise_governance,
+          created_at, updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)`,
+        [
+          'default',
+          DEFAULT_TENANT_CAPS.ims_enabled,
+          DEFAULT_TENANT_CAPS.oms_enabled,
+          DEFAULT_TENANT_CAPS.bms_enabled,
+          DEFAULT_TENANT_CAPS.fms_enabled,
+          DEFAULT_TENANT_CAPS.automation_enabled,
+          DEFAULT_TENANT_CAPS.insights_enabled,
+          DEFAULT_TENANT_CAPS.audit_enabled,
+          DEFAULT_TENANT_CAPS.integration_enabled,
+          DEFAULT_TENANT_CAPS.end_to_end_ops,
+          DEFAULT_TENANT_CAPS.financial_accuracy,
+          DEFAULT_TENANT_CAPS.enterprise_governance,
+          Date.now()
+        ]
       );
       const adminPwd = 'ChangeMe123!';
       const adminHash = await hashPassword(adminPwd);
@@ -2598,6 +2712,7 @@ app.post('/api/dev/delete-tenant', requireDev, async (req, res) => {
       await client.query('DELETE FROM inventory_counts WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM auth_tokens WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM tenant_capabilities WHERE tenant_id=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);
@@ -2753,6 +2868,13 @@ app.get('/api/support/tickets', async (req, res) => {
       );
     }
     res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.get('/api/capabilities', requireRole('admin'), async (req, res) => {
+  try {
+    const caps = await getTenantCapabilities(tenantId(req));
+    res.json(caps);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
@@ -2947,6 +3069,7 @@ app.post('/api/seller/clients', requireDev, async (req, res) => {
       );
     });
     await ensureDefaultCategory(tenantId);
+    await ensureTenantCapabilities(tenantId);
     res.status(201).json({
       id: tenantId,
       code: tCode,
@@ -3019,6 +3142,7 @@ app.delete('/api/seller/clients/:id', requireDev, async (req, res) => {
       await client.query('DELETE FROM inventory_counts WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM auth_tokens WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM tenant_capabilities WHERE tenant_id=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);

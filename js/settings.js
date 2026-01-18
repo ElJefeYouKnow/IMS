@@ -196,7 +196,8 @@ function setupTabs(){
     profile: document.getElementById('panelProfile'),
     shortcuts: document.getElementById('panelShortcuts'),
     locale: document.getElementById('panelLocale'),
-    users: document.getElementById('panelUsers')
+    users: document.getElementById('panelUsers'),
+    capabilities: document.getElementById('panelCapabilities')
   };
   const show = (tab)=>{
     buttons.forEach(btn=> btn.classList.toggle('active', btn.dataset.tab === tab));
@@ -213,6 +214,87 @@ function setupTabs(){
 }
 
 const usersCache = [];
+const capabilityLabels = {
+  ims_enabled: 'Inventory Management System',
+  oms_enabled: 'Order Management System',
+  bms_enabled: 'Business Management System',
+  fms_enabled: 'Financial Management System',
+  automation_enabled: 'Automation Pack',
+  insights_enabled: 'Insights Pack',
+  audit_enabled: 'Audit & Compliance Pack',
+  integration_enabled: 'Integration Pack',
+  end_to_end_ops: 'End-to-End Operations Control',
+  financial_accuracy: 'Financial Accuracy Engine',
+  enterprise_governance: 'Enterprise Governance'
+};
+
+function renderCapabilities(caps){
+  const enabledList = document.getElementById('capEnabled');
+  const soonList = document.getElementById('capSoon');
+  const plannedList = document.getElementById('capPlanned');
+  if(!enabledList || !soonList || !plannedList) return;
+  enabledList.innerHTML = '';
+  soonList.innerHTML = '';
+  plannedList.innerHTML = '';
+
+  const addItem = (list, label, statusText, statusClass)=>{
+    const li = document.createElement('li');
+    li.className = 'cap-item';
+    const title = document.createElement('span');
+    title.textContent = label;
+    const status = document.createElement('span');
+    status.className = `cap-status ${statusClass || ''}`.trim();
+    status.textContent = statusText;
+    li.appendChild(title);
+    li.appendChild(status);
+    list.appendChild(li);
+  };
+
+  const imsEnabled = !!caps?.ims_enabled;
+  addItem(enabledList, capabilityLabels.ims_enabled, imsEnabled ? 'Enabled' : 'Locked', imsEnabled ? 'on' : 'off');
+
+  ['oms_enabled','bms_enabled','fms_enabled'].forEach(key=>{
+    const enabled = !!caps?.[key];
+    addItem(soonList, capabilityLabels[key], enabled ? 'Enabled' : 'Locked', enabled ? 'on' : 'off');
+  });
+
+  [
+    'automation_enabled',
+    'insights_enabled',
+    'audit_enabled',
+    'integration_enabled',
+    'end_to_end_ops',
+    'financial_accuracy',
+    'enterprise_governance'
+  ].forEach(key=>{
+    const enabled = !!caps?.[key];
+    addItem(plannedList, capabilityLabels[key], enabled ? 'Enabled' : 'Planned', enabled ? 'on' : 'planned');
+  });
+
+  const billIms = document.getElementById('billIms');
+  const billOms = document.getElementById('billOms');
+  const billBms = document.getElementById('billBms');
+  const billFms = document.getElementById('billFms');
+  const billTotal = document.getElementById('billTotal');
+  if(billIms) billIms.textContent = imsEnabled ? '$49' : 'Not enabled';
+  if(billOms) billOms.textContent = caps?.oms_enabled ? '$39' : 'Not enabled';
+  if(billBms) billBms.textContent = caps?.bms_enabled ? '$29' : 'Not enabled';
+  if(billFms) billFms.textContent = caps?.fms_enabled ? '$49' : 'Not enabled';
+  const total = (imsEnabled ? 49 : 0)
+    + (caps?.oms_enabled ? 39 : 0)
+    + (caps?.bms_enabled ? 29 : 0)
+    + (caps?.fms_enabled ? 49 : 0);
+  if(billTotal) billTotal.textContent = `$${total}`;
+}
+
+async function loadCapabilities(){
+  try{
+    const r = await fetch('/api/capabilities');
+    if(!r.ok) return;
+    const data = await r.json();
+    renderCapabilities(data);
+  }catch(e){}
+}
 
 async function loadUsers(role){
   try{
@@ -491,6 +573,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initAppearanceSettings();
   initInstallLink();
   refreshUsers();
+  loadCapabilities();
   const form=document.getElementById('userForm');
   const err=document.getElementById('userError');
   const inviteBtn = document.getElementById('userInviteBtn');

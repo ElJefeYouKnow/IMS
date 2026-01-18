@@ -205,6 +205,7 @@
       });
     },
     applyNavVisibility(){
+      this.ensureLockedModules?.();
       this.buildMobileNav?.();
       this.registerServiceWorker?.();
       const applyForUser = (user)=>{
@@ -237,6 +238,8 @@
             nav.appendChild(link);
           }
         }
+        this.ensureLockedModules?.();
+        this.setupLockedModuleModal?.();
         this.setupUserChip?.();
       };
 
@@ -250,6 +253,66 @@
           applyForUser(fresh);
         }
       }).catch(()=>{ this._navRefreshInFlight = false; });
+    },
+    ensureLockedModules(){
+      const nav = document.querySelector('.sidebar nav');
+      if(!nav || nav.dataset.modulesInjected === 'true') return;
+      nav.dataset.modulesInjected = 'true';
+      const anchor = nav.querySelector('a[href="inventory-list.html"]') || nav.lastElementChild;
+      const section = document.createElement('div');
+      section.className = 'nav-section-label';
+      section.textContent = 'Modules';
+      if(anchor && anchor.nextSibling){
+        nav.insertBefore(section, anchor.nextSibling);
+      }else{
+        nav.appendChild(section);
+      }
+      const fragment = document.createDocumentFragment();
+      [
+        { label: 'Orders', module: 'oms' },
+        { label: 'People', module: 'bms' },
+        { label: 'Finance', module: 'fms' }
+      ].forEach((item)=>{
+        const link = document.createElement('a');
+        link.href = '#';
+        link.textContent = item.label;
+        link.className = 'nav-locked';
+        link.dataset.locked = 'true';
+        link.dataset.module = item.module;
+        fragment.appendChild(link);
+      });
+      nav.insertBefore(fragment, section.nextSibling);
+    },
+    setupLockedModuleModal(){
+      if(this._lockedModalReady) return;
+      this._lockedModalReady = true;
+      const ensureModal = ()=>{
+        let modal = document.getElementById('lockedModuleModal');
+        if(modal) return modal;
+        modal = document.createElement('div');
+        modal.id = 'lockedModuleModal';
+        modal.className = 'locked-modal hidden';
+        modal.innerHTML = `
+          <div class="locked-modal-backdrop"></div>
+          <div class="locked-modal-card" role="dialog" aria-modal="true">
+            <h3>Coming soon</h3>
+            <p>This module will be available as part of Modulr's modular expansion.</p>
+            <button type="button" class="settings-action">Okay</button>
+          </div>
+        `;
+        document.body.appendChild(modal);
+        const close = ()=> modal.classList.add('hidden');
+        modal.querySelector('.locked-modal-backdrop')?.addEventListener('click', close);
+        modal.querySelector('button')?.addEventListener('click', close);
+        return modal;
+      };
+      document.addEventListener('click', (event)=>{
+        const link = event.target && event.target.closest && event.target.closest('[data-locked="true"]');
+        if(!link) return;
+        event.preventDefault();
+        const modal = ensureModal();
+        modal.classList.remove('hidden');
+      });
     },
     buildMobileNav(){
       if(document.querySelector('.bottom-nav')) return;
@@ -305,6 +368,9 @@
         a.href = href;
         a.textContent = l.textContent || href;
         if(l.dataset.role) a.dataset.role = l.dataset.role;
+        if(l.dataset.locked) a.dataset.locked = l.dataset.locked;
+        if(l.dataset.module) a.dataset.module = l.dataset.module;
+        if(l.classList.contains('nav-locked')) a.classList.add('nav-locked');
         if(window.location.pathname.endsWith(href)) a.classList.add('active');
         wrap.appendChild(a);
       });

@@ -53,6 +53,7 @@
           <button class="mode-btn settings-tab" data-tab="shortcuts" type="button">Shortcuts</button>
           <button class="mode-btn settings-tab" data-tab="locale" type="button">Language &amp; Time</button>
           <button class="mode-btn settings-tab" data-tab="users" type="button">User Management</button>
+          <button class="mode-btn settings-tab" data-tab="capabilities" type="button">Capabilities</button>
         </div>
         <div id="admin-guard" style="color:#b91c1c;display:none;">Admin only. Please login with an admin account.</div>
         <div id="settings-content">
@@ -233,6 +234,38 @@
             <section class="inventory-card">
               <h3>Edit User</h3>
               <p style="color:#6b7280;margin-top:0;">Select a user in the table above to edit details in a popup.</p>
+            </section>
+          </div>
+          <div id="panelCapabilities" class="settings-panel" style="display:none;">
+            <section class="inventory-card">
+              <h3>Capabilities</h3>
+              <p class="muted-text">This tenant is configured with the following modules and capability packs.</p>
+              <div class="cap-grid">
+                <div class="cap-section">
+                  <h4>Enabled</h4>
+                  <ul id="capEnabled" class="cap-list"></ul>
+                </div>
+                <div class="cap-section">
+                  <h4>Available Soon</h4>
+                  <ul id="capSoon" class="cap-list"></ul>
+                </div>
+                <div class="cap-section">
+                  <h4>Planned Capabilities</h4>
+                  <ul id="capPlanned" class="cap-list"></ul>
+                </div>
+              </div>
+            </section>
+
+            <section class="inventory-card">
+              <h3>Billing Summary</h3>
+              <p class="muted-text">Read-only until billing is enabled.</p>
+              <div class="summary-grid">
+                <div class="summary-item"><span>IMS</span><strong id="billIms">$49</strong></div>
+                <div class="summary-item"><span>OMS</span><strong id="billOms">Not enabled</strong></div>
+                <div class="summary-item"><span>BMS</span><strong id="billBms">Not enabled</strong></div>
+                <div class="summary-item"><span>FMS</span><strong id="billFms">Not enabled</strong></div>
+                <div class="summary-item"><span>Total</span><strong id="billTotal">$49</strong></div>
+              </div>
             </section>
           </div>
           <div id="adminSettingsMsg" class="settings-msg"></div>
