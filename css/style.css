@@ -205,7 +205,7 @@ body[data-page="employee-dashboard"] .employee-actions{
 body[data-page="employee-dashboard"] .employee-action{
   display:flex;
   align-items:center;
-  justify-content:center;
+  justify-content:space-between;
   min-height:84px;
   width:100%;
   border-radius:var(--radius-lg);
@@ -218,6 +218,24 @@ body[data-page="employee-dashboard"] .employee-action{
   text-transform:uppercase;
   box-shadow:0 16px 34px rgba(24,36,32,0.22);
   transition:transform .15s ease, box-shadow .15s ease;
+  padding:0 20px;
+}
+body[data-page="employee-dashboard"] .employee-action::before{
+  content:attr(data-icon);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:48px;
+  height:48px;
+  border-radius:16px;
+  background:rgba(255,255,255,0.14);
+  border:1px solid rgba(255,255,255,0.22);
+  font-size:1.15rem;
+}
+body[data-page="employee-dashboard"] .employee-action::after{
+  content:"→";
+  font-size:1.1rem;
+  opacity:0.7;
 }
 body[data-page="employee-dashboard"] .employee-action:nth-child(2){
   background:linear-gradient(135deg,#145a4c,#2b8a71);
