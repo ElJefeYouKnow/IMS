@@ -287,8 +287,22 @@ function verifyPassword(password, salt, hash) {
   return h === hash;
 }
 
+function normalizeUserRole(role) {
+  const r = (role || '').toString().trim().toLowerCase();
+  if (!r || r === 'user') return 'employee';
+  if (r === 'admin' || r === 'manager' || r === 'employee' || r === 'dev') return r;
+  return 'employee';
+}
+
 function safeUser(u) {
-  return { id: u.id, email: u.email, name: u.name || '', role: u.role || 'employee', tenantId: u.tenantid || u.tenantId, createdAt: u.createdat || u.createdAt };
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name || '',
+    role: normalizeUserRole(u.role),
+    tenantId: u.tenantid || u.tenantId,
+    createdAt: u.createdat || u.createdAt
+  };
 }
 function normalizeTenantCode(code) {
   return (code || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'default';
@@ -1763,7 +1777,7 @@ app.post('/api/auth/register', async (req, res) => {
       role = 'admin';
     }
     const { salt, hash } = await hashPassword(password);
-    const user = { id: newId(), email: emailNorm, name, role, salt, hash, createdAt: Date.now(), tenantId: tenant.id };
+    const user = { id: newId(), email: emailNorm, name, role: normalizeUserRole(role), salt, hash, createdAt: Date.now(), tenantId: tenant.id };
     await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
     const token = await createSession(user.id);
@@ -1852,7 +1866,7 @@ app.post('/api/users', requireRole('admin'), async (req, res) => {
     const exists = await getAsync('SELECT id FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [emailNorm, t]);
     if (exists) return res.status(400).json({ error: 'email already exists' });
     const { salt, hash } = await hashPassword(password);
-    const user = { id: newId(), email: emailNorm, name, role, salt, hash, createdAt: Date.now(), tenantId: t };
+    const user = { id: newId(), email: emailNorm, name, role: normalizeUserRole(role), salt, hash, createdAt: Date.now(), tenantId: t };
     await runAsync('INSERT INTO users(id,email,name,role,salt,hash,createdAt,tenantId) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.tenantId]);
     res.status(201).json(safeUser(user));
@@ -1879,8 +1893,9 @@ app.put('/api/users/:id', requireRole('admin'), async (req, res) => {
       salt = hashed.salt;
       hash = hashed.hash;
     }
+    const nextRole = normalizeUserRole(role || user.role);
     await runAsync('UPDATE users SET email=$1, name=$2, role=$3, salt=$4, hash=$5 WHERE id=$6 AND tenantId=$7',
-      [emailNorm, name ?? user.name, role || user.role, salt, hash, id, t]);
+      [emailNorm, name ?? user.name, nextRole, salt, hash, id, t]);
     const updated = await getAsync('SELECT * FROM users WHERE id=$1 AND tenantId=$2', [id, t]);
     res.json(safeUser(updated));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
