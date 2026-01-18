@@ -176,6 +176,7 @@ h1,h2,h3,.brand,.mode-btn,.tab-btn,.filter-btn{font-family:var(--font-display)}
 table{width:100%;border-collapse:collapse}
 thead th{text-align:left;padding:8px;color:var(--muted);font-size:0.85rem}
 tbody td{padding:10px;border-top:1px solid var(--line)}
+.mobile-quickbar{display:none}
 .role-select{
   padding:6px 8px;
   border-radius:8px;
@@ -248,11 +249,28 @@ tbody td{padding:10px;border-top:1px solid var(--line)}
   .density-compact .summary-item strong{font-size:1rem}
   .density-compact .summary-item span{font-size:0.7rem}
   .density-compact .table-card td,.density-compact .table-card th{padding:6px;font-size:0.8rem}
-  .mobile-quickbar{display:flex;gap:8px;position:fixed;left:12px;right:12px;bottom:88px;padding:10px;border-radius:16px;background:rgba(15,25,22,0.94);border:1px solid rgba(255,255,255,0.12);box-shadow:0 12px 30px rgba(0,0,0,0.35);z-index:75}
-  .mobile-quickbar button,
-  .mobile-quickbar a{flex:1;display:flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#f6fbf8;font-weight:700;text-decoration:none}
-  .mobile-quickbar button.active{background:linear-gradient(135deg,#1f6f5c,#132a24);border-color:rgba(255,255,255,0.3)}
-  .dark .mobile-quickbar{background:rgba(9,15,13,0.96)}
+  body[data-page="ops-dashboard"] .quick-actions.sticky{display:none}
+  body[data-page="ops-dashboard"] .shift-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body[data-page="ops-dashboard"] .shift-item{padding:8px 10px}
+  body[data-page="ops-dashboard"] .shift-item strong{font-size:1rem}
+  body[data-page="ops-dashboard"] .shift-sync{
+    width:100%;
+    align-items:flex-start;
+    border-top:1px dashed var(--line);
+    padding-top:8px;
+  }
+  body[data-page="ops-dashboard"] .exception-card{padding:10px 12px}
+  body[data-page="ops-dashboard"] .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  body[data-page="ops-dashboard"] .kpi-tabs{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
+  body[data-page="ops-dashboard"] .kpi-tabs::-webkit-scrollbar{display:none}
+  body[data-page="ops-dashboard"] .kpi-tab{flex:0 0 auto}
+  body[data-page="ops-dashboard"] .worklist-list li{flex-direction:column;align-items:flex-start}
+  body[data-page="ops-dashboard"] .worklist-right{width:100%;justify-content:space-between}
+  body[data-page="ops-dashboard"] .mobile-quickbar{display:flex;gap:8px;position:fixed;left:12px;right:12px;bottom:88px;padding:10px;border-radius:16px;background:rgba(15,25,22,0.94);border:1px solid rgba(255,255,255,0.12);box-shadow:0 12px 30px rgba(0,0,0,0.35);z-index:75}
+  body[data-page="ops-dashboard"] .mobile-quickbar button,
+  body[data-page="ops-dashboard"] .mobile-quickbar a{flex:1;display:flex;align-items:center;justify-content:center;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#f6fbf8;font-weight:700;text-decoration:none}
+  body[data-page="ops-dashboard"] .mobile-quickbar button.active{background:linear-gradient(135deg,#1f6f5c,#132a24);border-color:rgba(255,255,255,0.3)}
+  .dark body[data-page="ops-dashboard"] .mobile-quickbar{background:rgba(9,15,13,0.96)}
 }
 
 /* Inventory page tweaks */
