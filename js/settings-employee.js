@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     cb.checked = storedShortcuts.length === 0 ? true : storedShortcuts.includes(cb.value);
   });
 
-  profileName.value = utils.getProfileValue?.('name') || session?.name || '';
+  profileName.value = session?.name || '';
   const avatarFallback = session?.name ? session.name.slice(0,2).toUpperCase() : '';
   profileAvatar.value = utils.getProfileValue?.('avatar') || avatarFallback;
   // Load picture (we only keep the latest as data URL)
@@ -76,9 +76,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const saveProfile = ()=>{
     const nameVal = profileName.value.trim();
     const avatarVal = profileAvatar.value.trim().toUpperCase();
-    utils.setProfileValue?.('name', nameVal);
     utils.setProfileValue?.('avatar', avatarVal);
-    updateSessionName(nameVal);
     updateUserChip();
     msg.textContent = 'Profile saved';
   };

@@ -99,10 +99,9 @@
       const name = infoWrap ? (infoWrap.querySelector('.user-name') || infoWrap.querySelector('div:nth-child(1)')) : null;
       const roleText = infoWrap ? (infoWrap.querySelector('.user-role') || infoWrap.querySelector('div:nth-child(2)')) : null;
       const user = this.getSession();
-      const profileName = this.getProfileValue?.('name') || '';
       const profileAvatar = this.getProfileValue?.('avatar') || '';
       const profilePic = this.getProfileValue?.('pic') || '';
-      const displayName = profileName || user?.name || user?.email || 'User';
+      const displayName = user?.name || user?.email || 'User';
       const roleLabel = (role)=>{
         const r = (role || '').toLowerCase();
         if(r === 'admin' || r === 'dev') return 'Admin';

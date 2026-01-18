@@ -30,7 +30,7 @@ function loadProfileFields(){
   const nameInput = document.getElementById('adminProfileName');
   const avatarInput = document.getElementById('adminProfileAvatar');
   if(nameInput){
-    nameInput.value = utils.getProfileValue?.('name') || session?.name || '';
+    nameInput.value = session?.name || '';
   }
   if(avatarInput){
     const fallback = session?.name ? session.name.slice(0,2).toUpperCase() : '';
@@ -45,15 +45,9 @@ function saveProfileFields(){
   const msg = document.getElementById('adminProfileMsg');
   const nameVal = nameInput?.value.trim() || '';
   const avatarVal = avatarInput?.value.trim().toUpperCase() || '';
-  if(nameVal) utils.setProfileValue?.('name', nameVal);
-  else utils.setProfileValue?.('name', '');
   if(avatarVal) utils.setProfileValue?.('avatar', avatarVal);
   else utils.setProfileValue?.('avatar', '');
-  if(session){
-    const next = { ...session };
-    if(nameVal) next.name = nameVal;
-    setSession(next);
-  }
+  if(session) setSession(session);
   if(msg) msg.textContent = 'Profile saved';
   updateUserChip();
 }
