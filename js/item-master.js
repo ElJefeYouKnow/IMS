@@ -10,7 +10,7 @@ const DEFAULT_CATEGORY_RULES = {
   maxCheckoutQty: null,
   returnWindowDays: 5,
   lowStockThreshold: 5,
-  lowStockEnabled: true
+  lowStockEnabled: false
 };
 
 let currentEditId = null;
@@ -959,7 +959,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const shape = editEls.shape ? editEls.shape.value.trim() : '';
       const brand = editEls.brand ? editEls.brand.value.trim() : '';
       const tagsRaw = editEls.tags.value;
-      const lowStockEnabled = editEls.lowStockEnabled ? editEls.lowStockEnabled.checked : true;
+      const lowStockEnabled = editEls.lowStockEnabled ? editEls.lowStockEnabled.checked : false;
       const notes = editEls.notes ? editEls.notes.value.trim() : '';
       const description = editEls.description.value.trim();
       const uom = editEls.uom?.value.trim() || '';

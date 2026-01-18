@@ -108,11 +108,11 @@ function getUserRole(){
   return 'employee';
 }
 
-function computeStatus(item, threshold){
+function computeStatus(item, threshold, lowStockEnabled){
   if(!item) return { tone: 'info', label: 'Active' };
   if(Number.isFinite(item.available) && item.available <= 0) return { tone: 'danger', label: 'Out of stock' };
   if(item.overdue) return { tone: 'warn', label: 'Overdue returns' };
-  if(Number.isFinite(threshold) && Number(item.available) <= threshold) return { tone: 'warn', label: 'Low stock' };
+  if(lowStockEnabled !== false && Number.isFinite(threshold) && Number(item.available) <= threshold) return { tone: 'warn', label: 'Low stock' };
   if(item.recent) return { tone: 'info', label: 'Recently active' };
   return { tone: 'info', label: 'Active' };
 }
@@ -155,7 +155,7 @@ function renderDrawerHeader(item, meta, role, data){
   if(els.title) els.title.textContent = item.code || 'Item';
   if(els.name) els.name.textContent = item.name || 'Unnamed item';
   if(els.category) els.category.textContent = category;
-  const status = computeStatus(item, data?.threshold);
+  const status = computeStatus(item, data?.threshold, data?.lowStockEnabled);
   if(els.statusLabel) els.statusLabel.textContent = status.label || '-';
   if(els.status){
     els.status.classList.remove('warn','danger');
@@ -781,6 +781,7 @@ function openItemPanel(item){
   const staticTags = normalizeTags(meta.tags);
   const lowStockCfg = getLowStockConfigForCode(item.code);
   const threshold = Number.isFinite(lowStockCfg?.threshold) ? lowStockCfg.threshold : (Number.isFinite(item.lowStockThreshold) ? item.lowStockThreshold : DEFAULT_LOW_STOCK_THRESHOLD);
+  const lowStockEnabled = lowStockCfg?.enabled === true;
   const states = {
     onHand: Number.isFinite(item.onHand) ? item.onHand : (Number(item.available || 0) + Number(item.reserveQty || 0) + Number(item.checkedOut || 0)),
     available: item.available ?? 0,
@@ -805,7 +806,7 @@ function openItemPanel(item){
   drawerState.dirty = false;
   drawerState.activeTab = 'overview';
   drawerState.cache = {
-    overview: { item, states, summary, meta, tags: staticTags, threshold },
+    overview: { item, states, summary, meta, tags: staticTags, threshold, lowStockEnabled },
     activity: null,
     jobs: null,
     logistics: null,
@@ -866,7 +867,7 @@ function normalizeCategoryRules(raw){
     maxCheckoutQty: null,
     returnWindowDays: 5,
     lowStockThreshold: DEFAULT_LOW_STOCK_THRESHOLD,
-    lowStockEnabled: true
+    lowStockEnabled: false
   };
   if(Object.prototype.hasOwnProperty.call(input, 'maxCheckoutQty')){
     const max = Number(input.maxCheckoutQty);
@@ -984,7 +985,7 @@ function getLowStockConfigForCode(code){
   const rules = categoryRulesByName.get(name.toLowerCase());
   const threshold = rules?.lowStockThreshold ?? DEFAULT_LOW_STOCK_THRESHOLD;
   const itemEnabled = parseBool(item?.lowStockEnabled ?? item?.lowstockenabled);
-  const enabled = itemEnabled === null ? (rules?.lowStockEnabled ?? true) : itemEnabled;
+  const enabled = itemEnabled === null ? (rules?.lowStockEnabled ?? false) : itemEnabled;
   return { threshold, enabled };
 }
 
