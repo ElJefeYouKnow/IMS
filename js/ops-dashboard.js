@@ -58,6 +58,43 @@ function parseDetails(details){
   }
 }
 
+function normalizeJobId(value){
+  const val = (value || '').toString().trim();
+  if(!val) return '';
+  const lowered = val.toLowerCase();
+  if(['general','general inventory','none','unassigned'].includes(lowered)) return '';
+  return val;
+}
+
+function startOfDayTs(){
+  const d = new Date();
+  d.setHours(0,0,0,0);
+  return d.getTime();
+}
+
+function setChip(id, tone, label){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.classList.remove('ok','warn','critical');
+  if(tone) el.classList.add(tone);
+  const text = label || (tone === 'critical' ? 'Critical' : tone === 'warn' ? 'Warn' : 'OK');
+  el.textContent = text;
+}
+
+function toneByCount(count, { warnAt = 1, criticalAt = 5 } = {}){
+  if(!Number.isFinite(count) || count <= 0) return 'ok';
+  if(count >= criticalAt) return 'critical';
+  if(count >= warnAt) return 'warn';
+  return 'ok';
+}
+
+function fmtDateShort(ts){
+  if(!ts) return 'N/A';
+  const date = new Date(ts);
+  if(Number.isNaN(date.getTime())) return 'N/A';
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
 function aggregateInventory(entries){
   const map = new Map();
   entries.forEach(entry=>{
@@ -102,6 +139,34 @@ function getItemCost(item){
   return Number.isFinite(num) ? num : 0;
 }
 
+function buildOutstandingReturns(entries){
+  const map = new Map();
+  entries.forEach(entry=>{
+    const type = (entry.type || '').toLowerCase();
+    if(type !== 'out' && type !== 'return') return;
+    const code = (entry.code || '').trim();
+    if(!code) return;
+    const jobId = normalizeJobId(entry.jobId || entry.jobid || '');
+    const key = `${code}|${jobId}`;
+    const rec = map.get(key) || { code, jobId, out: 0, ret: 0, lastOutTs: 0, minDue: null };
+    const qty = Number(entry.qty || 0) || 0;
+    const ts = parseTs(entry.ts) || 0;
+    if(type === 'out'){
+      rec.out += qty;
+      rec.lastOutTs = Math.max(rec.lastOutTs, ts);
+      const due = parseTs(entry.returnDate || entry.returndate);
+      if(due) rec.minDue = rec.minDue ? Math.min(rec.minDue, due) : due;
+    }else if(type === 'return'){
+      rec.ret += qty;
+    }
+    map.set(key, rec);
+  });
+  return Array.from(map.values()).map(rec=>({
+    ...rec,
+    outstanding: Math.max(0, rec.out - rec.ret)
+  }));
+}
+
 function computeAccuracy(statsMap, countsMap){
   let sumSystem = 0;
   let sumDiff = 0;
@@ -144,9 +209,21 @@ function computeMetrics(data){
   const now = Date.now();
   const windowStart = now - WINDOW_DAYS * DAY_MS;
   const recentStart = now - RECENT_DAYS * DAY_MS;
+  const todayStart = startOfDayTs();
   const inventory = data.inventory;
   const itemMap = new Map(data.items.map(item=>[(item.code || '').trim(), item]));
   const statsMap = aggregateInventory(inventory);
+
+  let pickedToday = 0;
+  let receivedToday = 0;
+  inventory.forEach(entry=>{
+    const type = (entry.type || '').toLowerCase();
+    const ts = parseTs(entry.ts);
+    if(!ts || ts < todayStart) return;
+    const qty = Math.abs(Number(entry.qty || 0) || 0);
+    if(type === 'out') pickedToday += qty;
+    if(type === 'in') receivedToday += qty;
+  });
 
   const countsMap = new Map();
   data.counts.forEach(row=>{
@@ -160,6 +237,53 @@ function computeMetrics(data){
       countedAt,
       cost: getItemCost(itemMap.get(code))
     });
+  });
+
+  const countDueList = [];
+  statsMap.forEach((rec, code)=>{
+    const count = countsMap.get(code);
+    const lastCounted = count?.countedAt || 0;
+    if(lastCounted && lastCounted >= (now - WINDOW_DAYS * DAY_MS)) return;
+    countDueList.push({
+      code,
+      name: itemMap.get(code)?.name || '',
+      lastCounted,
+      available: rec.available
+    });
+  });
+  countDueList.sort((a, b)=>{
+    const aTs = a.lastCounted || 0;
+    const bTs = b.lastCounted || 0;
+    if(aTs === bTs) return (a.code || '').localeCompare(b.code || '');
+    if(!aTs) return -1;
+    if(!bTs) return 1;
+    return aTs - bTs;
+  });
+
+  const outstandingReturns = buildOutstandingReturns(inventory).filter(rec=> rec.outstanding > 0);
+  const overdueReturns = outstandingReturns.filter(rec=>{
+    if(rec.minDue && rec.minDue < now) return true;
+    if(!rec.minDue && rec.lastOutTs && rec.lastOutTs < (now - WINDOW_DAYS * DAY_MS)) return true;
+    return false;
+  });
+  const pendingReturnsQty = outstandingReturns.reduce((sum, rec)=> sum + rec.outstanding, 0);
+  const overdueReturnsQty = overdueReturns.reduce((sum, rec)=> sum + rec.outstanding, 0);
+  const overdueReturnsCount = overdueReturns.length;
+
+  const lateReturnsList = overdueReturns.map(rec=>{
+    const item = itemMap.get(rec.code);
+    return {
+      code: rec.code,
+      name: item?.name || '',
+      jobId: rec.jobId,
+      outstanding: rec.outstanding,
+      due: rec.minDue || rec.lastOutTs || 0
+    };
+  }).sort((a, b)=>{
+    const aTs = a.due || 0;
+    const bTs = b.due || 0;
+    if(aTs === bTs) return (a.code || '').localeCompare(b.code || '');
+    return aTs - bTs;
   });
 
   const { accuracy, discrepancyValue } = computeAccuracy(statsMap, countsMap);
@@ -366,8 +490,17 @@ function computeMetrics(data){
   const shrinkage = totalIssued ? lostQty / totalIssued : null;
   const damaged = totalIssued ? damagedQty / totalIssued : null;
   const lostValue = lostQty * (inventoryValue / Math.max(totalItems, 1));
+  const alertsCount = negativeAvailability + stockouts + overdueReturnsCount;
 
   return {
+    pickedToday,
+    receivedToday,
+    pendingReturnsQty,
+    overdueReturnsQty,
+    overdueReturnsCount,
+    alertsCount,
+    countDueList: countDueList.slice(0, 5),
+    lateReturnsList: lateReturnsList.slice(0, 5),
     accuracy,
     adjustmentRate,
     discrepancyValue,
@@ -437,11 +570,114 @@ function renderTables(metrics, data){
   }
 }
 
+function renderWorklists(metrics){
+  const countList = document.getElementById('countWorklist');
+  if(countList){
+    countList.innerHTML = '';
+    if(!metrics.countDueList.length){
+      countList.innerHTML = '<li class="muted">No counts due.</li>';
+    }else{
+      metrics.countDueList.forEach(row=>{
+        const li = document.createElement('li');
+        const left = document.createElement('div');
+        left.className = 'worklist-main';
+        left.innerHTML = `<strong>${row.code}</strong><span class="worklist-sub">${row.name || 'Unnamed item'}</span>`;
+        const right = document.createElement('span');
+        right.textContent = row.lastCounted ? `Last: ${fmtDateShort(row.lastCounted)}` : 'Never counted';
+        li.appendChild(left);
+        li.appendChild(right);
+        countList.appendChild(li);
+      });
+    }
+  }
+
+  const returnList = document.getElementById('lateReturnWorklist');
+  if(returnList){
+    returnList.innerHTML = '';
+    if(!metrics.lateReturnsList.length){
+      returnList.innerHTML = '<li class="muted">No late returns.</li>';
+    }else{
+      metrics.lateReturnsList.forEach(row=>{
+        const li = document.createElement('li');
+        const left = document.createElement('div');
+        left.className = 'worklist-main';
+        const jobLabel = row.jobId ? `Job ${row.jobId}` : 'Unassigned';
+        left.innerHTML = `<strong>${row.code}</strong><span class="worklist-sub">${row.name || 'Item'} · ${jobLabel}</span>`;
+        const right = document.createElement('div');
+        right.className = 'worklist-right';
+        const qty = document.createElement('span');
+        qty.textContent = `${fmtNum(row.outstanding)} out`;
+        const due = document.createElement('span');
+        due.textContent = `Due ${fmtDateShort(row.due)}`;
+        const link = document.createElement('a');
+        link.className = 'kpi-link';
+        link.href = 'inventory-operations.html?mode=return';
+        link.textContent = 'Open';
+        right.appendChild(qty);
+        right.appendChild(due);
+        right.appendChild(link);
+        li.appendChild(left);
+        li.appendChild(right);
+        returnList.appendChild(li);
+      });
+    }
+  }
+}
+
+function initTabs(){
+  const tabs = Array.from(document.querySelectorAll('.kpi-tab'));
+  if(!tabs.length) return;
+  const panels = Array.from(document.querySelectorAll('.kpi-panel'));
+  tabs.forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      const target = tab.dataset.tab;
+      tabs.forEach(btn=> btn.classList.toggle('active', btn === tab));
+      panels.forEach(panel=> panel.classList.toggle('active', panel.id === `${target}-panel`));
+    });
+  });
+}
+
+function initCollapsibles(){
+  document.querySelectorAll('.card.collapsible').forEach(card=>{
+    const toggle = card.querySelector('.collapse-toggle');
+    if(!toggle) return;
+    if(card.dataset.collapseDefault === 'collapsed'){
+      card.classList.add('collapsed');
+      toggle.setAttribute('aria-expanded', 'false');
+      toggle.textContent = 'Expand';
+    }
+    toggle.addEventListener('click', ()=>{
+      const collapsed = card.classList.toggle('collapsed');
+      toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      toggle.textContent = collapsed ? 'Expand' : 'Collapse';
+    });
+  });
+}
+
+function applyDensityMode(){
+  const compact = window.innerWidth <= 900;
+  document.body.classList.toggle('density-compact', compact);
+}
+
 async function renderOpsDashboard(){
   const data = await loadData();
   const metrics = computeMetrics(data);
   const avgPick = avgDuration(data.pickEvents);
   const avgCheckin = avgDuration(data.checkinEvents);
+
+  setText('shift-picked', fmtNum(metrics.pickedToday));
+  setText('shift-received', fmtNum(metrics.receivedToday));
+  setText('shift-pending', fmtNum(metrics.pendingReturnsQty));
+  setText('shift-alerts', fmtNum(metrics.alertsCount));
+  setText('shift-sync', new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }));
+
+  setText('ex-negative', fmtNum(metrics.negativeAvailability));
+  setText('ex-stockouts', fmtNum(metrics.stockouts));
+  setText('ex-overdue', fmtNum(metrics.overdueReturnsCount));
+
+  setChip('chip-ex-negative', toneByCount(metrics.negativeAvailability, { warnAt: 1, criticalAt: 1 }));
+  setChip('chip-ex-stockout', toneByCount(metrics.stockouts, { warnAt: 1, criticalAt: 1 }));
+  setChip('chip-ex-overdue', toneByCount(metrics.overdueReturnsCount, { warnAt: 1, criticalAt: 3 }));
 
   setText('kpi-accuracy', fmtPct(metrics.accuracy));
   setText('kpi-adjustment', fmtPct(metrics.adjustmentRate));
@@ -473,10 +709,19 @@ async function renderOpsDashboard(){
   setText('kpi-usage-trend', fmtNum(metrics.topUsage.length ? metrics.topUsage[0].qty : null));
   setText('kpi-8020', metrics.eightyTwenty !== null ? `${Math.round(metrics.eightyTwenty * 100)}%` : 'N/A');
 
+  setChip('chip-below-reorder', toneByCount(metrics.belowReorder, { warnAt: 1, criticalAt: 6 }));
+  setChip('chip-negative', toneByCount(metrics.negativeAvailability, { warnAt: 1, criticalAt: 1 }));
+  setChip('chip-not-counted', toneByCount(metrics.notCounted, { warnAt: 1, criticalAt: 10 }));
+
   renderTables(metrics, data);
+  renderWorklists(metrics);
 }
 
 document.addEventListener('DOMContentLoaded', async ()=>{
+  initTabs();
+  initCollapsibles();
+  applyDensityMode();
+  window.addEventListener('resize', applyDensityMode);
   renderOpsDashboard();
   const tick = ()=> setText('clockOps', new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }));
   tick();

@@ -49,7 +49,59 @@
         </div>
       </header>
 
-      <section class="card quick-actions compact">
+      <section class="shift-strip">
+        <div class="shift-grid">
+          <div class="shift-item">
+            <span>Picked Today</span>
+            <strong id="shift-picked">-</strong>
+          </div>
+          <div class="shift-item">
+            <span>Received Today</span>
+            <strong id="shift-received">-</strong>
+          </div>
+          <div class="shift-item">
+            <span>Pending Returns</span>
+            <strong id="shift-pending">-</strong>
+          </div>
+          <div class="shift-item">
+            <span>Alerts</span>
+            <strong id="shift-alerts">-</strong>
+          </div>
+        </div>
+        <div class="shift-sync">
+          <span>Last Sync</span>
+          <strong id="shift-sync">-</strong>
+        </div>
+      </section>
+
+      <section class="exception-strip">
+        <div class="exception-card">
+          <div class="exception-head">
+            <span>Negative Availability</span>
+            <span class="kpi-chip ok" id="chip-ex-negative">OK</span>
+          </div>
+          <strong id="ex-negative">-</strong>
+          <a class="kpi-link" href="inventory-list.html#negative">Review</a>
+        </div>
+        <div class="exception-card">
+          <div class="exception-head">
+            <span>Stockouts</span>
+            <span class="kpi-chip ok" id="chip-ex-stockout">OK</span>
+          </div>
+          <strong id="ex-stockouts">-</strong>
+          <a class="kpi-link" href="inventory-list.html#stockouts">Open list</a>
+        </div>
+        <div class="exception-card">
+          <div class="exception-head">
+            <span>Overdue Returns</span>
+            <span class="kpi-chip ok" id="chip-ex-overdue">OK</span>
+          </div>
+          <strong id="ex-overdue">-</strong>
+          <a class="kpi-link" href="inventory-operations.html?mode=return">Resolve</a>
+        </div>
+      </section>
+
+      <section class="card quick-actions compact sticky">
         <div class="card-header">
           <h3>Floor Shortcuts</h3>
         </div>
@@ -73,17 +125,50 @@
         </div>
       </section>
 
+      <section class="dashboard-grid worklist-grid">
+        <div class="card worklist-card">
+          <div class="card-header">
+            <h3>Priority Counts</h3>
+            <a class="kpi-link" href="inventory-list.html#counts">Open counts due</a>
+          </div>
+          <ul id="countWorklist" class="worklist-list">
+            <li class="muted">Loading...</li>
+          </ul>
+        </div>
+        <div class="card worklist-card">
+          <div class="card-header">
+            <h3>Late Returns</h3>
+            <a class="kpi-link" href="inventory-operations.html?mode=return">Review returns</a>
+          </div>
+          <ul id="lateReturnWorklist" class="worklist-list">
+            <li class="muted">Loading...</li>
+          </ul>
+        </div>
+      </section>
+
+      <div class="kpi-tabs">
+        <button class="kpi-tab active" type="button" data-tab="ops">Operations KPIs</button>
+        <button class="kpi-tab" type="button" data-tab="stock">Stock Performance</button>
+      </div>
+
+      <div id="ops-panel" class="kpi-panel active">
       <section class="dashboard-grid">
-        <div class="card">
-          <h3>Accuracy &amp; Control</h3>
+        <div class="card collapsible">
+          <div class="card-head">
+            <h3>Accuracy &amp; Control</h3>
+            <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+          </div>
           <div class="summary-grid">
             <div class="summary-item"><span>Inventory Accuracy</span><strong id="kpi-accuracy">-</strong></div>
             <div class="summary-item"><span>Adjustment Rate</span><strong id="kpi-adjustment">-</strong></div>
             <div class="summary-item"><span>Discrepancy Value</span><strong id="kpi-discrepancy">-</strong></div>
           </div>
         </div>
-        <div class="card">
-          <h3>Speed &amp; Efficiency</h3>
+        <div class="card collapsible">
+          <div class="card-head">
+            <h3>Speed &amp; Efficiency</h3>
+            <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+          </div>
           <div class="summary-grid">
             <div class="summary-item"><span>Avg Pick Time</span><strong id="kpi-pick-time">-</strong></div>
             <div class="summary-item"><span>Avg Check-In Time</span><strong id="kpi-checkin-time">-</strong></div>
@@ -91,36 +176,57 @@
             <div class="summary-item"><span>Items / Employee</span><strong id="kpi-items-employee">-</strong></div>
           </div>
         </div>
-        <div class="card">
-          <h3>Health Signals</h3>
+        <div class="card collapsible">
+          <div class="card-head">
+            <h3>Health Signals</h3>
+            <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+          </div>
           <div class="summary-grid">
-            <div class="summary-item"><span>Below Reorder</span><strong id="kpi-below-reorder">-</strong></div>
-            <div class="summary-item"><span>Negative Availability</span><strong id="kpi-negative">-</strong></div>
-            <div class="summary-item"><span>Not Counted (30d)</span><strong id="kpi-not-counted">-</strong></div>
+            <div class="summary-item has-chip">
+              <span>Below Reorder</span>
+              <strong id="kpi-below-reorder">-</strong>
+              <div class="summary-meta">
+                <span class="kpi-chip ok" id="chip-below-reorder">OK</span>
+                <a class="kpi-link" href="inventory-list.html#low-stock">Open list</a>
+              </div>
+            </div>
+            <div class="summary-item has-chip">
+              <span>Negative Availability</span>
+              <strong id="kpi-negative">-</strong>
+              <div class="summary-meta">
+                <span class="kpi-chip ok" id="chip-negative">OK</span>
+                <a class="kpi-link" href="inventory-list.html#negative">Resolve</a>
+              </div>
+            </div>
+            <div class="summary-item has-chip">
+              <span>Not Counted (30d)</span>
+              <strong id="kpi-not-counted">-</strong>
+              <div class="summary-meta">
+                <span class="kpi-chip ok" id="chip-not-counted">OK</span>
+                <a class="kpi-link" href="inventory-list.html#counts">Open counts due</a>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       <section class="dashboard-grid">
-        <div class="card">
-          <h3>Stock Performance</h3>
-          <div class="summary-grid">
-            <div class="summary-item"><span>Stock Turnover</span><strong id="kpi-turnover">-</strong></div>
-            <div class="summary-item"><span>Days On Hand</span><strong id="kpi-doh">-</strong></div>
-            <div class="summary-item"><span>Dead Stock %</span><strong id="kpi-dead-stock">-</strong></div>
-            <div class="summary-item"><span>Slow Moving</span><strong id="kpi-slow-moving">-</strong></div>
+        <div class="card collapsible">
+          <div class="card-head">
+            <h3>Availability &amp; Risk</h3>
+            <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
           </div>
-        </div>
-        <div class="card">
-          <h3>Availability &amp; Risk</h3>
           <div class="summary-grid">
             <div class="summary-item"><span>Stockout Rate</span><strong id="kpi-stockout">-</strong></div>
             <div class="summary-item"><span>Fill Rate</span><strong id="kpi-fill-rate">-</strong></div>
             <div class="summary-item"><span>Service Level</span><strong id="kpi-service-level">-</strong></div>
           </div>
         </div>
-        <div class="card">
-          <h3>Supplier Performance</h3>
+        <div class="card collapsible" data-collapse-default="collapsed">
+          <div class="card-head">
+            <h3>Supplier Performance</h3>
+            <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+          </div>
           <div class="summary-grid">
             <div class="summary-item"><span>Avg Lead Time</span><strong id="kpi-lead-time">-</strong></div>
             <div class="summary-item"><span>Lead Time Variability</span><strong id="kpi-lead-var">-</strong></div>
@@ -131,17 +237,11 @@
       </section>
 
       <section class="dashboard-grid">
-        <div class="card">
-          <h3>Capital Efficiency</h3>
-          <div class="summary-grid">
-            <div class="summary-item"><span>Inventory Value</span><strong id="kpi-inv-value">-</strong></div>
-            <div class="summary-item"><span>Inventory Trend</span><strong id="kpi-inv-trend">-</strong></div>
-            <div class="summary-item"><span>Carrying Cost</span><strong id="kpi-carrying">Not configured</strong></div>
-            <div class="summary-item"><span>Inventory % Revenue</span><strong id="kpi-inv-rev">Not configured</strong></div>
+        <div class="card collapsible" data-collapse-default="collapsed">
+          <div class="card-head">
+            <h3>Waste &amp; Leakage</h3>
+            <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
           </div>
-        </div>
-        <div class="card">
-          <h3>Waste &amp; Leakage</h3>
           <div class="summary-grid">
             <div class="summary-item"><span>Shrinkage %</span><strong id="kpi-shrinkage">-</strong></div>
             <div class="summary-item"><span>Damaged %</span><strong id="kpi-damaged">-</strong></div>
@@ -149,33 +249,54 @@
             <div class="summary-item"><span>Lost Value</span><strong id="kpi-lost-value">-</strong></div>
           </div>
         </div>
-        <div class="card">
-          <h3>Demand Intelligence</h3>
-          <div class="summary-grid">
-            <div class="summary-item"><span>Usage Trend</span><strong id="kpi-usage-trend">-</strong></div>
-            <div class="summary-item"><span>Forecast vs Actual</span><strong id="kpi-forecast">Not configured</strong></div>
-            <div class="summary-item"><span>Seasonal Patterns</span><strong id="kpi-seasonal">Not configured</strong></div>
-            <div class="summary-item"><span>80/20 SKUs</span><strong id="kpi-8020">-</strong></div>
-          </div>
-        </div>
       </section>
+      </div>
 
-      <section class="dashboard-grid">
-        <div class="table-card">
-          <h3>Slow Moving Inventory (30d)</h3>
-          <table id="slowMovingTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>Available</th></tr></thead>
-            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-          </table>
-        </div>
-        <div class="table-card">
-          <h3>Top Usage Items (30d)</h3>
-          <table id="topUsageTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Issued Qty</th><th>Share</th></tr></thead>
-            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-          </table>
-        </div>
-      </section>
+      <div id="stock-panel" class="kpi-panel">
+        <section class="dashboard-grid">
+          <div class="card collapsible">
+            <div class="card-head">
+              <h3>Stock Performance</h3>
+              <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="summary-grid">
+              <div class="summary-item"><span>Stock Turnover</span><strong id="kpi-turnover">-</strong></div>
+              <div class="summary-item"><span>Days On Hand</span><strong id="kpi-doh">-</strong></div>
+              <div class="summary-item"><span>Dead Stock %</span><strong id="kpi-dead-stock">-</strong></div>
+              <div class="summary-item"><span>Slow Moving</span><strong id="kpi-slow-moving">-</strong></div>
+            </div>
+          </div>
+          <div class="card collapsible">
+            <div class="card-head">
+              <h3>Demand Intelligence</h3>
+              <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="summary-grid">
+              <div class="summary-item"><span>Usage Trend</span><strong id="kpi-usage-trend">-</strong></div>
+              <div class="summary-item"><span>Forecast vs Actual</span><strong id="kpi-forecast">Not configured</strong></div>
+              <div class="summary-item"><span>Seasonal Patterns</span><strong id="kpi-seasonal">Not configured</strong></div>
+              <div class="summary-item"><span>80/20 SKUs</span><strong id="kpi-8020">-</strong></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="dashboard-grid">
+          <div class="table-card">
+            <h3>Slow Moving Inventory (30d)</h3>
+            <table id="slowMovingTable">
+              <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>Available</th></tr></thead>
+              <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="table-card">
+            <h3>Top Usage Items (30d)</h3>
+            <table id="topUsageTable">
+              <thead><tr><th>Code</th><th>Name</th><th>Issued Qty</th><th>Share</th></tr></thead>
+              <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </main>
   </div>
 
