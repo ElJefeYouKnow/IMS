@@ -1045,6 +1045,49 @@ async function initDb() {
     createdAt BIGINT,
     updatedAt BIGINT
   )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS equipment_assets(
+    id TEXT PRIMARY KEY,
+    code TEXT,
+    name TEXT,
+    category TEXT,
+    location TEXT,
+    status TEXT,
+    serial TEXT,
+    model TEXT,
+    manufacturer TEXT,
+    purchaseDate TEXT,
+    warrantyEnd TEXT,
+    usageHours INTEGER,
+    lastServiceAt BIGINT,
+    nextServiceAt BIGINT,
+    lastActivityAt BIGINT,
+    assignedProject TEXT,
+    notes TEXT,
+    tags JSONB,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
+  )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS vehicle_assets(
+    id TEXT PRIMARY KEY,
+    code TEXT,
+    name TEXT,
+    make TEXT,
+    model TEXT,
+    year INTEGER,
+    vin TEXT,
+    plate TEXT,
+    location TEXT,
+    status TEXT,
+    mileage INTEGER,
+    lastServiceAt BIGINT,
+    nextServiceAt BIGINT,
+    lastActivityAt BIGINT,
+    assignedProject TEXT,
+    notes TEXT,
+    tags JSONB,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
+  )`);
+  await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_equipment_code_tenant ON equipment_assets(code, tenantId)');
+  await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_vehicle_code_tenant ON vehicle_assets(code, tenantId)');
   await runAsync(`CREATE TABLE IF NOT EXISTS tenant_capabilities(
     tenant_id TEXT PRIMARY KEY REFERENCES tenants(id),
     ims_enabled BOOLEAN DEFAULT true,
@@ -2623,6 +2666,8 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       await client.query('TRUNCATE support_tickets');
       await client.query('TRUNCATE tenant_capabilities');
       await client.query('TRUNCATE items');
+      await client.query('TRUNCATE equipment_assets');
+      await client.query('TRUNCATE vehicle_assets');
       await client.query('TRUNCATE jobs');
       await client.query('TRUNCATE users');
       await client.query('TRUNCATE sessions');
@@ -2713,6 +2758,8 @@ app.post('/api/dev/delete-tenant', requireDev, async (req, res) => {
       await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM auth_tokens WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM tenant_capabilities WHERE tenant_id=$1', [tenant.id]);
+      await client.query('DELETE FROM equipment_assets WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM vehicle_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);
@@ -2875,6 +2922,26 @@ app.get('/api/capabilities', requireRole('admin'), async (req, res) => {
   try {
     const caps = await getTenantCapabilities(tenantId(req));
     res.json(caps);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.get('/api/fleet/equipment', async (req, res) => {
+  try {
+    const rows = await allAsync(
+      'SELECT * FROM equipment_assets WHERE tenantId=$1 ORDER BY name ASC NULLS LAST, code ASC',
+      [tenantId(req)]
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.get('/api/fleet/vehicles', async (req, res) => {
+  try {
+    const rows = await allAsync(
+      'SELECT * FROM vehicle_assets WHERE tenantId=$1 ORDER BY name ASC NULLS LAST, code ASC',
+      [tenantId(req)]
+    );
+    res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
@@ -3143,6 +3210,8 @@ app.delete('/api/seller/clients/:id', requireDev, async (req, res) => {
       await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM auth_tokens WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM tenant_capabilities WHERE tenant_id=$1', [tenant.id]);
+      await client.query('DELETE FROM equipment_assets WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM vehicle_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Fleet &amp; Equipment</title>
+  <meta name="theme-color" content="#132a24" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body data-page="fleet" data-ds="pro">
+  <div class="app">
+    <aside class="sidebar">
+      <div>
+        <div class="brand">Inventory Management System</div>
+        <div class="subtitle">by Modulr</div>
+        <div class="user-chip">
+          <div class="avatar">US</div>
+          <div>
+            <div style="font-weight:700;"><div class="user-name">User</div>
+            <div class="user-role"></div>
+            <div style="font-size:12px;opacity:0.8;"></div>
+          </div>
+        </div>
+      </div>
+      <nav>
+        <a href="dashboard.html" data-role="admin">Dashboard</a>
+        <a href="ops-dashboard.html" data-role="manager">Dashboard</a>
+        <a href="employee-dashboard.html" data-role="employee">Dashboard</a>
+        <a href="inventory-operations.html">Operations</a>
+        <a href="field-purchase.html">Field Purchases</a>
+        <a href="inventory-list.html">Inventory</a>
+        <a class="active" href="fleet.html">Fleet &amp; Equipment</a>
+        <a href="job-creator.html" data-role="admin">Project Manager</a>
+        <a href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
+        <a href="analytics.html" data-role="admin">Analytics</a>
+        <a href="item-master.html" data-role="admin">Catalog</a>
+        <a href="settings.html" data-role="admin">Settings</a>
+        <a href="settings-employee.html" data-role="employee">Settings</a>
+        <a href="support.html">Support</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1>Fleet &amp; Equipment</h1>
+        <div class="topbar-right">
+          <button id="logoutBtn" class="muted">Logout</button>
+        </div>
+      </header>
+
+      <section class="card">
+        <div class="mode-tabs">
+          <button class="mode-btn active" data-tab="equipment" type="button">Equipment</button>
+          <button class="mode-btn" data-tab="vehicles" type="button">Vehicles</button>
+        </div>
+        <div class="inventory-toolbar">
+          <input id="fleetSearch" type="text" placeholder="Search by name, code, location, or project...">
+        </div>
+      </section>
+
+      <section class="card table-card" id="equipmentSection">
+        <div class="panel-table-wrap">
+          <table class="fleet-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th>Hours</th>
+                <th>Last Service</th>
+                <th>Recent Activity</th>
+              </tr>
+            </thead>
+            <tbody id="equipmentTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card table-card" id="vehicleSection" style="display:none;">
+        <div class="panel-table-wrap">
+          <table class="fleet-table">
+            <thead>
+              <tr>
+                <th>Unit</th>
+                <th>Make / Model</th>
+                <th>Plate</th>
+                <th>Location</th>
+                <th>Status</th>
+                <th>Mileage</th>
+                <th>Last Service</th>
+                <th>Recent Activity</th>
+              </tr>
+            </thead>
+            <tbody id="vehicleTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="side-panel-backdrop" id="fleetPanelBackdrop"></div>
+  <aside class="side-panel" id="fleetPanel" aria-hidden="true">
+    <div class="side-panel-header">
+      <div class="drawer-head">
+        <div class="panel-kicker" id="fleetPanelKicker">Equipment</div>
+        <div class="drawer-title-row">
+          <h2 id="fleetPanelTitle">Item</h2>
+          <div class="drawer-tags" id="fleetPanelTags"></div>
+        </div>
+        <div class="panel-sub" id="fleetPanelSub"></div>
+      </div>
+      <div class="drawer-actions">
+        <button id="fleetPanelClose" class="action-btn">Close</button>
+      </div>
+    </div>
+    <div class="side-panel-body">
+      <div class="drawer-body" id="fleetPanelBody"></div>
+    </div>
+  </aside>
+
+  <script src="js/utils.js"></script>
+  <script src="js/fleet.js"></script>
+</body>
+</html>

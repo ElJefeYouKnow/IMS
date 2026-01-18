@@ -205,6 +205,7 @@
       });
     },
     applyNavVisibility(){
+      this.ensureFleetNav?.();
       this.ensureLockedModules?.();
       this.buildMobileNav?.();
       this.registerServiceWorker?.();
@@ -253,6 +254,20 @@
           applyForUser(fresh);
         }
       }).catch(()=>{ this._navRefreshInFlight = false; });
+    },
+    ensureFleetNav(){
+      const nav = document.querySelector('.sidebar nav');
+      if(!nav || nav.querySelector('a[href="fleet.html"]')) return;
+      const link = document.createElement('a');
+      link.href = 'fleet.html';
+      link.textContent = 'Fleet & Equipment';
+      if(window.location.pathname.endsWith('fleet.html')) link.classList.add('active');
+      const anchor = nav.querySelector('a[href="inventory-list.html"]') || nav.lastElementChild;
+      if(anchor && anchor.nextSibling){
+        nav.insertBefore(link, anchor.nextSibling);
+      }else{
+        nav.appendChild(link);
+      }
     },
     ensureLockedModules(){
       const nav = document.querySelector('.sidebar nav');

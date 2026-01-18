@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ims-cache-v7';
+const CACHE_NAME = 'ims-cache-v8';
 const ASSETS = [
   '/',
   '/index.html',
@@ -16,6 +16,7 @@ const ASSETS = [
   '/order-register.html',
   '/field-purchase.html',
   '/job-creator.html',
+  '/fleet.html',
   '/item-master.html',
   '/analytics.html',
   '/settings.html',
@@ -36,6 +37,7 @@ const ASSETS = [
   '/js/order-register.js',
   '/js/field-purchase.js',
   '/js/job-creator.js',
+  '/js/fleet.js',
   '/js/item-master.js',
   '/js/analytics.js',
   '/js/settings.js',

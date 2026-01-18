@@ -584,6 +584,8 @@ body.panel-open{overflow:hidden}
 .panel-row strong{font-weight:700;text-align:right}
 .panel-section h3{margin:0 0 8px 0;font-size:0.95rem}
 .panel-note{margin:0;color:var(--muted);font-size:0.9rem;line-height:1.5}
+.fleet-table tbody tr{cursor:pointer}
+.fleet-table tbody tr:hover{background:rgba(31,111,92,0.08)}
 .mobile-quickbar{display:none}
 .mobile-sheet-backdrop{position:fixed;inset:0;background:rgba(6,18,29,0.42);opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:85}
 .mobile-sheet-backdrop.active{opacity:1;pointer-events:auto}
