@@ -427,6 +427,20 @@
           trigger.addEventListener('click', ()=> openSearch());
         }
 
+        const topbarWrap = document.querySelector('.topbar');
+        if(topbarWrap && !document.getElementById('globalSearchRow')){
+          const row = document.createElement('div');
+          row.id = 'globalSearchRow';
+          row.className = 'global-search-row';
+          const trigger = document.createElement('button');
+          trigger.type = 'button';
+          trigger.className = 'search-trigger search-trigger-wide muted';
+          trigger.textContent = 'Search items, projects, activity...';
+          trigger.addEventListener('click', ()=> openSearch());
+          row.appendChild(trigger);
+          topbarWrap.insertAdjacentElement('afterend', row);
+        }
+
         const input = overlay.querySelector('#globalSearchInput');
         const results = overlay.querySelector('#globalSearchResults');
         const closeBtn = overlay.querySelector('.search-close');

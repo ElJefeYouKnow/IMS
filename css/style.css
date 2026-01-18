@@ -392,6 +392,10 @@ tbody td{padding:10px;border-top:1px solid var(--line);font-size:var(--text-sm)}
   .app{flex-direction:column}
   .sidebar{display:none}
   .main{padding:12px;padding-bottom:100px}
+  .topbar{flex-direction:column;align-items:flex-start;gap:10px}
+  .topbar-right{width:100%;justify-content:space-between;flex-wrap:wrap}
+  .topbar-right .search-trigger{display:none}
+  .global-search-row{display:flex}
   .bottom-nav{display:block!important}
   .widgets{grid-template-columns:1fr}
   .mobile-hide{display:none}
@@ -1300,6 +1304,17 @@ body.role-manager .admin-only{display:none}
 }
 .search-trigger{
   margin-right:10px;
+}
+.global-search-row{display:none;margin:0 0 12px;}
+.search-trigger-wide{
+  width:100%;
+  text-align:left;
+  padding:10px 14px;
+  border-radius:12px;
+  background:var(--surface-2);
+  color:var(--ink);
+  border:1px solid var(--line);
+  font-weight:700;
 }
 
 .install-prompt{
