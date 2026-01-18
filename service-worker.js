@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ims-cache-v4';
+const CACHE_NAME = 'ims-cache-v5';
 const ASSETS = [
   '/',
   '/index.html',
@@ -44,11 +44,13 @@ self.addEventListener('install', (event) => {
       .then((cache) => Promise.all(ASSETS.map((asset) => cache.add(asset).catch(() => {}))))
       .catch(() => Promise.resolve())
   );
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
@@ -58,6 +60,16 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(fetch(request));
+    return;
+  }
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).then((resp) => {
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+        return resp;
+      }).catch(() => caches.match(request))
+    );
     return;
   }
   event.respondWith(
