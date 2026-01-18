@@ -23,6 +23,7 @@ const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN || (IS_PROD ? BASE_DOMAIN : unde
 const SESSION_STORE = process.env.SESSION_STORE || (IS_PROD ? 'db' : 'memory');
 const EMAIL_FROM = process.env.EMAIL_FROM || process.env.SMTP_FROM || 'support@modulr.pro';
 const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || EMAIL_FROM;
+const SUPPORT_INBOX = process.env.SUPPORT_INBOX || 'support@modulr.pro';
 const SMTP_HOST = process.env.SMTP_HOST || '';
 const SMTP_PORT = process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : 587;
 const SMTP_USER = process.env.SMTP_USER || '';
@@ -68,7 +69,7 @@ const AUDIT_ACTIONS = [
   'ops.checkin.finish'
 ];
 const CHECKOUT_RETURN_WINDOW_MS = 5 * 24 * 60 * 60 * 1000; // 5 days
-const DEV_EMAIL = normalizeEmail(process.env.DEV_DEFAULT_EMAIL || 'Dev@ManageX.com');
+const DEV_EMAIL = normalizeEmail(process.env.DEV_DEFAULT_EMAIL || 'support@modulr.pro');
 const DEV_PASSWORD = process.env.DEV_DEFAULT_PASSWORD || 'Dev123!';
 const DEV_TENANT_CODE = process.env.DEV_TENANT_CODE || 'dev';
 const DEV_TENANT_ID = process.env.DEV_TENANT_ID || DEV_TENANT_CODE;
@@ -2790,6 +2791,33 @@ app.post('/api/support/tickets', async (req, res) => {
         ticket.updatedAt
       ]
     );
+    try {
+      const tenant = await getAsync('SELECT code,name FROM tenants WHERE id=$1', [t]);
+      const tenantCode = tenant?.code || t || 'unknown';
+      const tenantName = tenant?.name || '';
+      const subjectLine = `[Support] ${tenantCode}: ${ticket.subject}`;
+      const text = [
+        `Tenant: ${tenantName} (${tenantCode})`,
+        `Priority: ${ticket.priority}`,
+        `From: ${ticket.userName || ticket.userEmail || 'Unknown'} (${ticket.userEmail || 'n/a'})`,
+        `User ID: ${ticket.userId || 'n/a'}`,
+        `Ticket ID: ${ticket.id}`,
+        '',
+        ticket.body || '(no message)'
+      ].join('\n');
+      const html = `
+        <p><strong>Tenant:</strong> ${tenantName ? `${tenantName} (${tenantCode})` : tenantCode}</p>
+        <p><strong>Priority:</strong> ${ticket.priority}</p>
+        <p><strong>From:</strong> ${ticket.userName || ticket.userEmail || 'Unknown'} (${ticket.userEmail || 'n/a'})</p>
+        <p><strong>User ID:</strong> ${ticket.userId || 'n/a'}</p>
+        <p><strong>Ticket ID:</strong> ${ticket.id}</p>
+        <hr />
+        <pre style="white-space:pre-wrap;font-family:inherit">${ticket.body || '(no message)'}</pre>
+      `;
+      await sendEmail({ to: SUPPORT_INBOX, subject: subjectLine, text, html });
+    } catch (e) {
+      console.warn('Support email failed:', e.message);
+    }
     res.status(201).json(ticket);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
