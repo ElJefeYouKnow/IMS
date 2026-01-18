@@ -342,15 +342,46 @@ function renderUsersTable(allUsers){
     const dt = formatDateTimeSafe(u.createdAt);
     const rawRole = (u.role || '').toLowerCase();
     const normalizedRole = rawRole === 'user' || !rawRole ? 'employee' : rawRole;
-    const roleLabel = formatRoleLabel(normalizedRole);
-    const roleToggle = normalizedRole === 'admin' ? 'Demote to Employee' : 'Make Admin';
+    const roleSelect = `
+      <select class="role-select" data-id="${u.id}">
+        <option value="employee"${normalizedRole === 'employee' ? ' selected' : ''}>Employee</option>
+        <option value="manager"${normalizedRole === 'manager' ? ' selected' : ''}>Manager</option>
+        <option value="admin"${normalizedRole === 'admin' ? ' selected' : ''}>Admin</option>
+      </select>
+    `;
     const btn = `
       <button type="button" class="action-btn edit-user" data-id="${u.id}" data-email="${u.email}" data-name="${u.name||''}" data-role="${normalizedRole}">Edit</button>
-      <button type="button" class="action-btn role-user" data-id="${u.id}">${roleToggle}</button>
       <button type="button" class="action-btn delete-user" data-id="${u.id}">Delete</button>
     `;
-    tr.innerHTML=`<td>${u.email}</td><td>${u.name||''}</td><td>${roleLabel}</td><td>${dt}</td><td>${btn}</td>`;
+    tr.innerHTML=`<td>${u.email}</td><td>${u.name||''}</td><td>${roleSelect}</td><td>${dt}</td><td>${btn}</td>`;
     tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll('.role-select').forEach(select=>{
+    select.addEventListener('change', async ()=>{
+      const id = select.dataset.id;
+      const user = allUsers.find(u=> u.id === id);
+      if(!user) return;
+      const session = getSession();
+      const previousRole = (user.role || '').toLowerCase() === 'user' || !user.role ? 'employee' : (user.role || '').toLowerCase();
+      const nextRole = select.value;
+      if(session?.id === user.id && nextRole !== previousRole){
+        const ok = confirm('You are changing your own role. You may lose access to admin settings. Continue?');
+        if(!ok){
+          select.value = previousRole;
+          return;
+        }
+      }
+      select.disabled = true;
+      const ok = await updateUserRole(user, nextRole);
+      select.disabled = false;
+      if(!ok){
+        alert('Failed to update role');
+        select.value = previousRole;
+        return;
+      }
+      user.role = nextRole;
+      renderUsersTable(usersCache);
+    });
   });
   tbody.querySelectorAll('.edit-user').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -364,20 +395,6 @@ function renderUsersTable(allUsers){
       const meta = document.getElementById('edit-userMeta');
       if(meta) meta.textContent = `Editing user: ${btn.dataset.email || ''}`;
       openEditUserModal();
-    });
-  });
-  tbody.querySelectorAll('.role-user').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const id = btn.dataset.id;
-      const user = allUsers.find(u=> u.id === id);
-      if(!user) return;
-      const currentRole = (user.role || '').toLowerCase();
-      const normalizedRole = currentRole === 'user' || !currentRole ? 'employee' : currentRole;
-      const nextRole = normalizedRole === 'admin' ? 'employee' : 'admin';
-      if(!confirm(`Change role for ${user.email} to ${nextRole}?`)) return;
-      const ok = await updateUserRole(user, nextRole);
-      if(!ok) alert('Failed to update role');
-      await refreshUsers();
     });
   });
   tbody.querySelectorAll('.delete-user').forEach(btn=>{

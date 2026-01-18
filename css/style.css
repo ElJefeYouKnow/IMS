@@ -176,6 +176,19 @@ h1,h2,h3,.brand,.mode-btn,.tab-btn,.filter-btn{font-family:var(--font-display)}
 table{width:100%;border-collapse:collapse}
 thead th{text-align:left;padding:8px;color:var(--muted);font-size:0.85rem}
 tbody td{padding:10px;border-top:1px solid var(--line)}
+.role-select{
+  padding:6px 8px;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:var(--surface-2);
+  font-weight:600;
+  color:var(--ink);
+}
+.dark .role-select{
+  background:#16221f;
+  border-color:#22312d;
+  color:var(--ink);
+}
 .clock{font-size:0.9rem;color:var(--muted)}
 .clock-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(31,111,92,0.14);border:1px solid rgba(31,111,92,0.35);padding:6px 10px;border-radius:10px;box-shadow:0 6px 16px rgba(0,0,0,0.12)}
 .clock-label{color:#e4f4ed;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase}
