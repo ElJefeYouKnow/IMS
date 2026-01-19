@@ -40,15 +40,17 @@
       });
     },
     setupLogout(){
-      const btn = document.getElementById('logoutBtn');
-      if(btn){
-        btn.addEventListener('click', ()=>{
-          localStorage.removeItem('sessionUser');
-          fetch('/api/auth/logout',{method:'POST'}).finally(()=>{
-            window.location.href='login.html';
-          });
+      if(this._logoutBound) return;
+      this._logoutBound = true;
+      document.addEventListener('click', (event)=>{
+        const target = event.target && event.target.closest && event.target.closest('#logoutBtn,[data-logout]');
+        if(!target) return;
+        event.preventDefault();
+        localStorage.removeItem('sessionUser');
+        fetch('/api/auth/logout',{method:'POST'}).finally(()=>{
+          window.location.href='login.html';
         });
-      }
+      });
     },
     profileKey(suffix, userOverride){
       const user = userOverride || this.getSession?.();
@@ -95,9 +97,31 @@
         });
       }
       const avatar = chip.querySelector('.avatar');
-      const infoWrap = chip.querySelector('.user-info') || chip.querySelector('div:nth-child(2)');
-      const name = infoWrap ? (infoWrap.querySelector('.user-name') || infoWrap.querySelector('div:nth-child(1)')) : null;
-      const roleText = infoWrap ? (infoWrap.querySelector('.user-role') || infoWrap.querySelector('div:nth-child(2)')) : null;
+      let infoWrap = chip.querySelector('.user-info');
+      if(!infoWrap){
+        const directDivs = chip.querySelectorAll(':scope > div');
+        infoWrap = directDivs.length > 1 ? directDivs[1] : null;
+      }
+      if(!infoWrap){
+        infoWrap = document.createElement('div');
+        chip.appendChild(infoWrap);
+      }
+      const childDivs = Array.from(infoWrap.children).filter(el=> el.tagName === 'DIV');
+      let name = infoWrap.querySelector('.user-name') || childDivs[0] || null;
+      let roleText = infoWrap.querySelector('.user-role') || childDivs[1] || null;
+      if(!name){
+        name = document.createElement('div');
+        name.className = 'user-name';
+        name.style.fontWeight = '700';
+        infoWrap.appendChild(name);
+      }
+      if(!roleText){
+        roleText = document.createElement('div');
+        roleText.className = 'user-role';
+        roleText.style.fontSize = '12px';
+        roleText.style.opacity = '0.8';
+        infoWrap.appendChild(roleText);
+      }
       const user = this.getSession();
       const profileAvatar = this.getProfileValue?.('avatar') || '';
       const profilePic = this.getProfileValue?.('pic') || '';
@@ -108,24 +132,22 @@
         if(r === 'manager') return 'Manager';
         return 'Employee';
       };
-      if(user){
-        if(avatar){
-          if(profilePic){
-            avatar.textContent = '';
-            avatar.style.backgroundImage = `url(${profilePic})`;
-            avatar.style.backgroundSize = 'cover';
-            avatar.style.backgroundPosition = 'center';
-            avatar.classList.add('has-photo');
-          }else{
-            avatar.classList.remove('has-photo');
-            avatar.style.backgroundImage = '';
-            const initials = profileAvatar || displayName.slice(0,2);
-            avatar.textContent = initials.toUpperCase();
-          }
+      if(avatar){
+        if(profilePic){
+          avatar.textContent = '';
+          avatar.style.backgroundImage = `url(${profilePic})`;
+          avatar.style.backgroundSize = 'cover';
+          avatar.style.backgroundPosition = 'center';
+          avatar.classList.add('has-photo');
+        }else{
+          avatar.classList.remove('has-photo');
+          avatar.style.backgroundImage = '';
+          const initials = profileAvatar || displayName.slice(0,2);
+          avatar.textContent = initials.toUpperCase();
         }
-        if(name) name.textContent = displayName;
-        if(roleText) roleText.textContent = roleLabel(user.role);
       }
+      if(name) name.textContent = displayName;
+      if(roleText) roleText.textContent = roleLabel(user?.role);
     },
     requireSession(){
       const user = this.getSession();
@@ -255,9 +277,7 @@
       this._navRefreshInFlight = true;
       this.refreshSession?.().then(fresh=>{
         this._navRefreshInFlight = false;
-        if(fresh && (!user || fresh.role !== user.role || fresh.id !== user.id)){
-          applyForUser(fresh);
-        }
+        if(fresh) applyForUser(fresh);
       }).catch(()=>{ this._navRefreshInFlight = false; });
     },
     updateBrand(){
