@@ -319,7 +319,7 @@
       const invToggle = document.createElement('button');
       invToggle.type = 'button';
       invToggle.className = 'nav-module-toggle open';
-      invToggle.textContent = 'Inventory';
+      invToggle.textContent = 'Inventory System';
       nav.appendChild(invToggle);
       const invWrap = document.createElement('div');
       invWrap.className = 'nav-module-items open';
