@@ -68,6 +68,8 @@ function setStatus(message, tone){
   else dom.status.style.color = '';
 }
 
+setStatus('Catalog script loaded...', 'muted');
+
 function qs(id){
   return document.getElementById(id);
 }
