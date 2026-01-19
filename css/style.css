@@ -56,6 +56,20 @@ body::after{
   pointer-events:none;
   z-index:0;
 }
+body.page-transition .app,
+body.page-transition .auth-wrapper{
+  animation:pageFade 0.18s ease both;
+}
+@keyframes pageFade{
+  from{opacity:0;transform:translateY(4px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@media (prefers-reduced-motion: reduce){
+  body.page-transition .app,
+  body.page-transition .auth-wrapper{
+    animation:none;
+  }
+}
 
 /* Auth pages */
 body.auth-page{

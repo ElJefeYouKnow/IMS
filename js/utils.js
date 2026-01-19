@@ -827,6 +827,11 @@
         this._installPromptEvent = null;
       });
     },
+    initPageTransitions(){
+      if(this._pageTransitionsInit) return;
+      this._pageTransitionsInit = true;
+      document.body.classList.add('page-transition');
+    },
     canPromptInstall(){
       return !!this._installPromptEvent;
     },
@@ -873,6 +878,7 @@
   utils.ensurePwaMeta?.();
   utils.initGlobalSearch?.();
   utils.initInstallPrompt?.();
+  utils.initPageTransitions?.();
   const domReady = ()=>{
     try{ utils.setupUserChip?.(); }catch(e){}
     try{ utils.setupLogout?.(); }catch(e){}
