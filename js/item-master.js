@@ -429,8 +429,8 @@ async function renderTable(){
   const items = await loadItems();
   const search = (document.getElementById('searchBox')?.value || '').toLowerCase();
   let filtered = items;
-  if(search) filtered = items.filter(i=> i.code.toLowerCase().includes(search) || i.name.toLowerCase().includes(search));
-  filtered.sort((a,b)=> a.code.localeCompare(b.code));
+  if(search) filtered = items.filter(i=> (i.code || '').toLowerCase().includes(search) || (i.name || '').toLowerCase().includes(search));
+  filtered.sort((a,b)=> (a.code || '').localeCompare((b.code || '')));
   if(!filtered.length){
     const tr=document.createElement('tr');
     tr.innerHTML=`<td colspan="10" style="text-align:center;color:#6b7280;">No items in catalog</td>`;
@@ -446,7 +446,9 @@ async function renderTable(){
     const brand = item.brand || FALLBACK;
     const notes = item.notes || FALLBACK;
     const reorder = Number.isFinite(Number(item.reorderPoint)) ? item.reorderPoint : FALLBACK;
-    tr.innerHTML=`<td>${item.code}</td><td>${item.name}</td><td>${item.category||FALLBACK}</td><td>${price}</td><td>${material}</td><td>${shape}</td><td>${brand}</td><td>${notes}</td><td>${reorder}</td><td><button class="edit-btn" data-code="${item.code}">Edit</button> <button class="delete-btn" data-code="${item.code}" class="muted">Delete</button></td>`;
+    const code = item.code || '';
+    const name = item.name || FALLBACK;
+    tr.innerHTML=`<td>${code}</td><td>${name}</td><td>${item.category||FALLBACK}</td><td>${price}</td><td>${material}</td><td>${shape}</td><td>${brand}</td><td>${notes}</td><td>${reorder}</td><td><button class="edit-btn" data-code="${code}">Edit</button> <button class="delete-btn" data-code="${code}" class="muted">Delete</button></td>`;
     tbody.appendChild(tr);
   });
   document.querySelectorAll('.edit-btn').forEach(btn=> btn.addEventListener('click',editItem));
@@ -710,6 +712,18 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     utils.applyNavVisibility?.();
     utils.setupLogout?.();
   }
+  const hash = (window.location.hash || '').replace('#','').toLowerCase();
+  const initial = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
+  setMode(initial);
+  document.querySelectorAll('.mode-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const mode = btn.dataset.mode || btn.dataset.tab || 'items';
+      setMode(mode);
+      if(mode === 'categories') window.location.hash = 'categories';
+      else if(mode === 'suppliers') window.location.hash = 'suppliers';
+      else history.replaceState(null, '', window.location.pathname);
+    });
+  });
   // Verify server session is still valid
   fetch('/api/auth/me',{credentials:'include'})
     .then(r=>{ if(r.status===401) window.location.href='login.html'; return r; })
@@ -740,19 +754,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     searchBox.value = searchParam;
     renderTable();
   }
-  const hash = (window.location.hash || '').replace('#','').toLowerCase();
-  const initial = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
-  setMode(initial);
-  document.querySelectorAll('.mode-btn').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const mode = btn.dataset.mode || btn.dataset.tab || 'items';
-      setMode(mode);
-      if(mode === 'categories') window.location.hash = 'categories';
-      else if(mode === 'suppliers') window.location.hash = 'suppliers';
-      else history.replaceState(null, '', window.location.pathname);
-    });
-  });
-
   const importBtn = document.getElementById('importBtn');
   const importFile = document.getElementById('importFile');
   const importMsg = document.getElementById('importMsg');
