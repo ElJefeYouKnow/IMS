@@ -849,7 +849,15 @@ function bindEvents(){
 
 async function init(){
   if(window.utils){
-    if(!utils.requireSession?.()) return;
+    let session = utils.getSession?.();
+    if(!session){
+      await utils.refreshSession?.();
+      session = utils.getSession?.();
+    }
+    if(!session){
+      window.location.href = 'login.html';
+      return;
+    }
     utils.requireRole?.('admin');
     utils.wrapFetchWithRole?.();
     utils.applyStoredTheme?.();
