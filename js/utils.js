@@ -106,21 +106,13 @@
         infoWrap = document.createElement('div');
         chip.appendChild(infoWrap);
       }
-      const childDivs = Array.from(infoWrap.children).filter(el=> el.tagName === 'DIV');
-      let name = infoWrap.querySelector('.user-name') || childDivs[0] || null;
-      let roleText = infoWrap.querySelector('.user-role') || childDivs[1] || null;
-      if(!name){
-        name = document.createElement('div');
-        name.className = 'user-name';
-        name.style.fontWeight = '700';
-        infoWrap.appendChild(name);
-      }
-      if(!roleText){
-        roleText = document.createElement('div');
-        roleText.className = 'user-role';
-        roleText.style.fontSize = '12px';
-        roleText.style.opacity = '0.8';
-        infoWrap.appendChild(roleText);
+      infoWrap.classList.add('user-info');
+      let name = infoWrap.querySelector('.user-name');
+      let roleText = infoWrap.querySelector('.user-role');
+      if(!name || !roleText){
+        infoWrap.innerHTML = '<div class="user-name"></div><div class="user-role"></div>';
+        name = infoWrap.querySelector('.user-name');
+        roleText = infoWrap.querySelector('.user-role');
       }
       const user = this.getSession();
       const profileAvatar = this.getProfileValue?.('avatar') || '';
@@ -159,6 +151,8 @@
       this.ensureFleetNav?.();
       this.ensureModuleNav?.();
       this.buildMobileNav?.();
+      this.setupUserChip?.();
+      this.setupLogout?.();
       return true;
     },
     getSession(){
@@ -877,4 +871,10 @@
   utils.ensurePwaMeta?.();
   utils.initGlobalSearch?.();
   utils.initInstallPrompt?.();
+  const domReady = ()=>{
+    utils.setupUserChip?.();
+    utils.setupLogout?.();
+  };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', domReady);
+  else domReady();
 })(window);
