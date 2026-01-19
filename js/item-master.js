@@ -724,6 +724,20 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       else history.replaceState(null, '', window.location.pathname);
     });
   });
+  document.addEventListener('click', (event)=>{
+    const btn = event.target && event.target.closest && event.target.closest('.mode-btn');
+    if(!btn) return;
+    const mode = btn.dataset.mode || btn.dataset.tab || 'items';
+    setMode(mode);
+    if(mode === 'categories') window.location.hash = 'categories';
+    else if(mode === 'suppliers') window.location.hash = 'suppliers';
+    else history.replaceState(null, '', window.location.pathname);
+  });
+  window.addEventListener('hashchange', ()=>{
+    const hash = (window.location.hash || '').replace('#','').toLowerCase();
+    const mode = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
+    setMode(mode);
+  });
   // Verify server session is still valid
   fetch('/api/auth/me',{credentials:'include'})
     .then(r=>{ if(r.status===401) window.location.href='login.html'; return r; })
