@@ -133,6 +133,10 @@
         window.location.href = 'login.html';
         return false;
       }
+      this.updateBrand?.();
+      this.ensureFleetNav?.();
+      this.ensureModuleNav?.();
+      this.buildMobileNav?.();
       return true;
     },
     getSession(){
