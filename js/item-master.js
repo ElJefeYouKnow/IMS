@@ -1071,4 +1071,24 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     }
   });
   document.getElementById('categoryClearBtn')?.addEventListener('click', clearCategoryForm);
+
+  const refreshBtn = document.getElementById('catalogRefreshBtn');
+  if(refreshBtn){
+    refreshBtn.addEventListener('click', async ()=>{
+      refreshBtn.disabled = true;
+      const label = refreshBtn.textContent;
+      refreshBtn.textContent = 'Refreshing...';
+      try{
+        if('serviceWorker' in navigator){
+          const reg = await navigator.serviceWorker.getRegistration();
+          await reg?.update();
+        }
+        if('caches' in window){
+          const keys = await caches.keys();
+          await Promise.all(keys.map(key => caches.delete(key)));
+        }
+      }catch(e){}
+      window.location.reload();
+    });
+  }
 });
