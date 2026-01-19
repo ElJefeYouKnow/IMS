@@ -68,8 +68,6 @@ function setStatus(message, tone){
   else dom.status.style.color = '';
 }
 
-setStatus('Catalog script loaded...', 'muted');
-
 function qs(id){
   return document.getElementById(id);
 }
@@ -850,6 +848,7 @@ function bindEvents(){
 }
 
 async function init(){
+  setStatus('Initializing catalog...', 'muted');
   if(window.utils){
     let session = utils.getSession?.();
     if(!session){
@@ -866,11 +865,19 @@ async function init(){
     utils.applyNavVisibility?.();
     utils.setupLogout?.();
   }
-  bindEvents();
-  const hash = (window.location.hash || '').replace('#','').toLowerCase();
-  const initial = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
-  setMode(initial);
-  await refreshAll();
+  try{
+    bindEvents();
+    const hash = (window.location.hash || '').replace('#','').toLowerCase();
+    const initial = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
+    setMode(initial);
+    await refreshAll();
+  }catch(e){
+    setStatus(`Catalog error: ${e?.message || 'Initialization failed'}`, 'error');
+  }
 }
 
-document.addEventListener('DOMContentLoaded', init);
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', init);
+}else{
+  init();
+}
