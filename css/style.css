@@ -146,6 +146,7 @@ label{font-size:var(--text-sm);font-weight:600;color:var(--muted)}
 .user-chip:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(0,0,0,0.2)}
 .user-chip .avatar{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#1f6f5c,#164d41);display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff;letter-spacing:0.5px}
 .user-chip .avatar.has-photo{color:transparent}
+.user-chip .user-role{font-size:12px;opacity:0.8}
 .sidebar nav{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .sidebar a{position:relative;overflow:hidden;color:rgba(255,255,255,0.9);text-decoration:none;padding:10px 12px;border-radius:10px;display:flex;align-items:center;gap:10px;font-weight:600;font-size:var(--text-sm);border:1px solid transparent;transition:all .2s}
 .sidebar a[data-role]{display:none}
@@ -767,6 +768,11 @@ select:disabled{
 }
 .dark :is(button,.mode-btn,.tab-btn,.filter-btn,.action-btn,.settings-action,.nav-toggle,.bottom-nav a,.sidebar a,.user-chip):focus-visible{
   outline-color:rgba(124,225,196,0.6);
+}
+:is(button,.btn,.mode-btn,.tab-btn,.filter-btn,.action-btn,.settings-action,.nav-toggle,.nav-module-toggle,.nav-main-btn,.bottom-nav a,.sidebar a,.user-chip,.action-tile):active{
+  transform: translateY(1px);
+  filter: brightness(1.05);
+  box-shadow: 0 0 0 2px rgba(46, 139, 87, 0.25);
 }
 @media(max-width:720px){
   .mode-tabs{flex-wrap:wrap}

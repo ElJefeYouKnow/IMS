@@ -86,60 +86,62 @@
       });
     },
     setupUserChip(){
-      const chip = document.querySelector('.user-chip');
-      if(!chip) return;
-      if(!chip.dataset.bound){
-        chip.dataset.bound = 'true';
-        chip.addEventListener('click', ()=>{
-          const user = this.getSession();
-          if(user?.role === 'admin') window.location.href='settings.html';
-          else window.location.href='settings-employee.html';
-        });
-      }
-      const avatar = chip.querySelector('.avatar');
-      let infoWrap = chip.querySelector('.user-info');
-      if(!infoWrap){
-        const directDivs = chip.querySelectorAll(':scope > div');
-        infoWrap = directDivs.length > 1 ? directDivs[1] : null;
-      }
-      if(!infoWrap){
-        infoWrap = document.createElement('div');
-        chip.appendChild(infoWrap);
-      }
-      infoWrap.classList.add('user-info');
-      let name = infoWrap.querySelector('.user-name');
-      let roleText = infoWrap.querySelector('.user-role');
-      if(!name || !roleText){
-        infoWrap.innerHTML = '<div class="user-name"></div><div class="user-role"></div>';
-        name = infoWrap.querySelector('.user-name');
-        roleText = infoWrap.querySelector('.user-role');
-      }
-      const user = this.getSession();
-      const profileAvatar = this.getProfileValue?.('avatar') || '';
-      const profilePic = this.getProfileValue?.('pic') || '';
-      const displayName = user?.name || user?.email || 'User';
-      const roleLabel = (role)=>{
-        const r = (role || '').toLowerCase();
-        if(r === 'admin' || r === 'dev') return 'Admin';
-        if(r === 'manager') return 'Manager';
-        return 'Employee';
-      };
-      if(avatar){
-        if(profilePic){
-          avatar.textContent = '';
-          avatar.style.backgroundImage = `url(${profilePic})`;
-          avatar.style.backgroundSize = 'cover';
-          avatar.style.backgroundPosition = 'center';
-          avatar.classList.add('has-photo');
-        }else{
-          avatar.classList.remove('has-photo');
-          avatar.style.backgroundImage = '';
-          const initials = profileAvatar || displayName.slice(0,2);
-          avatar.textContent = initials.toUpperCase();
+      try{
+        const chip = document.querySelector('.user-chip');
+        if(!chip) return;
+        if(!chip.dataset.bound){
+          chip.dataset.bound = 'true';
+          chip.addEventListener('click', ()=>{
+            const user = this.getSession();
+            if(user?.role === 'admin') window.location.href='settings.html';
+            else window.location.href='settings-employee.html';
+          });
         }
-      }
-      if(name) name.textContent = displayName;
-      if(roleText) roleText.textContent = roleLabel(user?.role);
+        const avatar = chip.querySelector('.avatar');
+        let infoWrap = chip.querySelector('.user-info');
+        if(!infoWrap){
+          const directDivs = Array.from(chip.children).filter(el=> el.tagName === 'DIV');
+          infoWrap = directDivs.find(el=> el !== avatar) || null;
+        }
+        if(!infoWrap){
+          infoWrap = document.createElement('div');
+          chip.appendChild(infoWrap);
+        }
+        infoWrap.classList.add('user-info');
+        let name = infoWrap.querySelector('.user-name');
+        let roleText = infoWrap.querySelector('.user-role');
+        if(!name || !roleText){
+          infoWrap.innerHTML = '<div class="user-name"></div><div class="user-role"></div>';
+          name = infoWrap.querySelector('.user-name');
+          roleText = infoWrap.querySelector('.user-role');
+        }
+        const user = this.getSession();
+        const profileAvatar = this.getProfileValue?.('avatar') || '';
+        const profilePic = this.getProfileValue?.('pic') || '';
+        const displayName = user?.name || user?.email || 'User';
+        const roleLabel = (role)=>{
+          const r = (role || '').toLowerCase();
+          if(r === 'admin' || r === 'dev') return 'Admin';
+          if(r === 'manager') return 'Manager';
+          return 'Employee';
+        };
+        if(avatar){
+          if(profilePic){
+            avatar.textContent = '';
+            avatar.style.backgroundImage = `url(${profilePic})`;
+            avatar.style.backgroundSize = 'cover';
+            avatar.style.backgroundPosition = 'center';
+            avatar.classList.add('has-photo');
+          }else{
+            avatar.classList.remove('has-photo');
+            avatar.style.backgroundImage = '';
+            const initials = profileAvatar || displayName.slice(0,2);
+            avatar.textContent = initials.toUpperCase();
+          }
+        }
+        if(name) name.textContent = displayName;
+        if(roleText) roleText.textContent = roleLabel(user?.role);
+      }catch(e){}
     },
     requireSession(){
       const user = this.getSession();
@@ -872,8 +874,8 @@
   utils.initGlobalSearch?.();
   utils.initInstallPrompt?.();
   const domReady = ()=>{
-    utils.setupUserChip?.();
-    utils.setupLogout?.();
+    try{ utils.setupUserChip?.(); }catch(e){}
+    try{ utils.setupLogout?.(); }catch(e){}
   };
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', domReady);
   else domReady();
