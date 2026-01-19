@@ -21,6 +21,16 @@ let suppliersCache = [];
 let currentSupplierId = null;
 let itemsCache = [];
 let pendingImport = null;
+let catalogStatus = null;
+
+function setCatalogStatus(message, tone = 'muted'){
+  if(!catalogStatus){
+    catalogStatus = document.getElementById('catalogStatus');
+  }
+  if(!catalogStatus) return;
+  catalogStatus.textContent = message;
+  catalogStatus.style.color = tone === 'error' ? '#b91c1c' : tone === 'ok' ? '#15803d' : '';
+}
 
 function unitPriceValue(item){
   const raw = item?.unitPrice ?? item?.unitprice;
@@ -354,6 +364,7 @@ async function loadCategories(){
       categoriesCache.sort((a,b)=> (a.name || '').localeCompare(b.name || ''));
       return categoriesCache;
     }
+    setCatalogStatus('Catalog error: unable to load categories', 'error');
   }catch(e){}
   categoriesCache = [];
   return categoriesCache;
@@ -408,6 +419,7 @@ async function loadItems(){
       itemsCache = Array.isArray(rows) ? rows : [];
       return itemsCache;
     }
+    setCatalogStatus('Catalog error: unable to load items', 'error');
   }catch(e){}
   itemsCache = [];
   return itemsCache;
@@ -418,6 +430,7 @@ async function loadSuppliers(){
     const r = await fetch('/api/suppliers',{credentials:'include'});
     if(r.status === 401){ window.location.href='login.html'; return []; }
     if(r.ok) return await r.json();
+    setCatalogStatus('Catalog error: unable to load suppliers', 'error');
   }catch(e){}
   return [];
 }
@@ -715,6 +728,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const hash = (window.location.hash || '').replace('#','').toLowerCase();
   const initial = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
   setMode(initial);
+  setCatalogStatus('Loading catalog...', 'muted');
   document.querySelectorAll('.mode-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const mode = btn.dataset.mode || btn.dataset.tab || 'items';
@@ -738,6 +752,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const mode = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
     setMode(mode);
   });
+  window.addEventListener('error', (event)=>{
+    if(event?.error){
+      setCatalogStatus(`Catalog error: ${event.error.message || 'Script error'}`, 'error');
+    }
+  });
+  window.addEventListener('unhandledrejection', (event)=>{
+    const message = event?.reason?.message || 'Unexpected error';
+    setCatalogStatus(`Catalog error: ${message}`, 'error');
+  });
   // Verify server session is still valid
   fetch('/api/auth/me',{credentials:'include'})
     .then(r=>{ if(r.status===401) window.location.href='login.html'; return r; })
@@ -748,6 +771,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   await renderTable();
   suppliersCache = await loadSuppliers();
   renderSupplierTable();
+  setCatalogStatus(`Loaded ${itemsCache.length} items, ${categoriesCache.length} categories, ${suppliersCache.length} suppliers.`, 'ok');
   const categorySelect = document.getElementById('category');
   const lowStockCheckbox = document.getElementById('itemLowStockEnabled');
   if(categorySelect && lowStockCheckbox){
