@@ -205,8 +205,9 @@
       });
     },
     applyNavVisibility(){
+      this.updateBrand?.();
       this.ensureFleetNav?.();
-      this.ensureLockedModules?.();
+      this.ensureModuleNav?.();
       this.buildMobileNav?.();
       this.registerServiceWorker?.();
       const applyForUser = (user)=>{
@@ -255,6 +256,12 @@
         }
       }).catch(()=>{ this._navRefreshInFlight = false; });
     },
+    updateBrand(){
+      const brand = document.querySelector('.sidebar .brand');
+      if(brand) brand.textContent = 'Modulr';
+      const subtitle = document.querySelector('.sidebar .subtitle');
+      if(subtitle) subtitle.textContent = 'Inventory Management System';
+    },
     ensureFleetNav(){
       const nav = document.querySelector('.sidebar nav');
       if(!nav || nav.querySelector('a[href="fleet.html"]')) return;
@@ -268,6 +275,64 @@
       }else{
         nav.appendChild(link);
       }
+    },
+    ensureModuleNav(){
+      const nav = document.querySelector('.sidebar nav');
+      if(!nav || nav.dataset.moduleNavBuilt === 'true') return;
+      nav.dataset.moduleNavBuilt = 'true';
+      const allLinks = Array.from(nav.querySelectorAll('a')).filter(link=> !link.classList.contains('nav-locked'));
+      const inventoryHrefs = new Set([
+        'dashboard.html',
+        'ops-dashboard.html',
+        'employee-dashboard.html',
+        'inventory-operations.html',
+        'field-purchase.html',
+        'inventory-list.html',
+        'fleet.html',
+        'job-creator.html',
+        'order-register.html',
+        'analytics.html',
+        'item-master.html'
+      ]);
+      const inventoryLinks = [];
+      const otherLinks = [];
+      allLinks.forEach(link=>{
+        const href = link.getAttribute('href');
+        if(inventoryHrefs.has(href)) inventoryLinks.push(link);
+        else otherLinks.push(link);
+      });
+      if(!inventoryLinks.find(link=> link.getAttribute('href') === 'fleet.html')){
+        const link = document.createElement('a');
+        link.href = 'fleet.html';
+        link.textContent = 'Fleet & Equipment';
+        inventoryLinks.push(link);
+      }
+      nav.innerHTML = '';
+      const modulesLabel = document.createElement('div');
+      modulesLabel.className = 'nav-section-label';
+      modulesLabel.textContent = 'Modules';
+      nav.appendChild(modulesLabel);
+      const invToggle = document.createElement('button');
+      invToggle.type = 'button';
+      invToggle.className = 'nav-module-toggle open';
+      invToggle.textContent = 'Inventory';
+      nav.appendChild(invToggle);
+      const invWrap = document.createElement('div');
+      invWrap.className = 'nav-module-items open';
+      invWrap.dataset.module = 'inventory';
+      inventoryLinks.forEach(link=> invWrap.appendChild(link));
+      nav.appendChild(invWrap);
+      if(otherLinks.length){
+        const otherLabel = document.createElement('div');
+        otherLabel.className = 'nav-section-label';
+        otherLabel.textContent = 'Account';
+        nav.appendChild(otherLabel);
+        otherLinks.forEach(link=> nav.appendChild(link));
+      }
+      invToggle.addEventListener('click', ()=>{
+        const open = invWrap.classList.toggle('open');
+        invToggle.classList.toggle('open', open);
+      });
     },
     ensureLockedModules(){
       const nav = document.querySelector('.sidebar nav');
