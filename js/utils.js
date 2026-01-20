@@ -289,8 +289,13 @@
       link.href = 'fleet.html';
       link.textContent = 'Fleet & Equipment';
       if(window.location.pathname.endsWith('fleet.html')) link.classList.add('active');
+      const moduleWrap = nav.querySelector('.nav-module-items[data-module="inventory"]');
+      if(moduleWrap){
+        moduleWrap.appendChild(link);
+        return;
+      }
       const anchor = nav.querySelector('a[href="inventory-list.html"]') || nav.lastElementChild;
-      if(anchor && anchor.nextSibling){
+      if(anchor && anchor.parentElement === nav && anchor.nextSibling){
         nav.insertBefore(link, anchor.nextSibling);
       }else{
         nav.appendChild(link);
@@ -358,14 +363,24 @@
       const nav = document.querySelector('.sidebar nav');
       if(!nav || nav.dataset.modulesInjected === 'true') return;
       nav.dataset.modulesInjected = 'true';
-      const anchor = nav.querySelector('a[href="inventory-list.html"]') || nav.lastElementChild;
+      if(nav.querySelector('.nav-locked')) return;
+      const moduleWrap = nav.querySelector('.nav-module-items[data-module="inventory"]');
       const section = document.createElement('div');
       section.className = 'nav-section-label';
-      section.textContent = 'Modules';
-      if(anchor && anchor.nextSibling){
-        nav.insertBefore(section, anchor.nextSibling);
+      section.textContent = moduleWrap ? 'Available Soon' : 'Modules';
+      if(moduleWrap && moduleWrap.parentElement === nav){
+        if(moduleWrap.nextSibling){
+          nav.insertBefore(section, moduleWrap.nextSibling);
+        }else{
+          nav.appendChild(section);
+        }
       }else{
-        nav.appendChild(section);
+        const anchor = nav.querySelector('a[href="inventory-list.html"]') || nav.lastElementChild;
+        if(anchor && anchor.parentElement === nav && anchor.nextSibling){
+          nav.insertBefore(section, anchor.nextSibling);
+        }else{
+          nav.appendChild(section);
+        }
       }
       const fragment = document.createDocumentFragment();
       [
@@ -381,7 +396,11 @@
         link.dataset.module = item.module;
         fragment.appendChild(link);
       });
-      nav.insertBefore(fragment, section.nextSibling);
+      if(section.parentElement === nav && section.nextSibling){
+        nav.insertBefore(fragment, section.nextSibling);
+      }else{
+        nav.appendChild(fragment);
+      }
     },
     setupLockedModuleModal(){
       if(this._lockedModalReady) return;
