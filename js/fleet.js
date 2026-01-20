@@ -246,7 +246,6 @@ async function loadData(){
 document.addEventListener('DOMContentLoaded', async ()=>{
   if(window.utils){
     if(!utils.requireSession?.()) return;
-    utils.requireRole?.('employee');
     utils.applyStoredTheme?.();
     utils.applyNavVisibility?.();
     utils.setupLogout?.();
