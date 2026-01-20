@@ -71,8 +71,8 @@
             </div>
             <div class="form-row">
               <label>Material<input id="itemMaterial" placeholder="e.g., Steel, PVC"></label>
-              <label>Shape<input id="itemShape" placeholder="e.g., Round, Flat"></label>
-              <label>Brand<input id="itemBrand" placeholder="Manufacturer or brand"></label>
+              <label>Vendor<input id="itemShape" placeholder="Supplier or vendor"></label>
+              <label>Manufacturer<input id="itemBrand" placeholder="Manufacturer name"></label>
             </div>
             <div class="form-row">
               <label>Tags<input id="itemTags" placeholder="Fragile, Hazmat, Bulk, Internal alert"></label>
@@ -110,7 +110,7 @@
 
         <section class="card inventory-card">
           <h3>Import Catalog (CSV)</h3>
-          <p class="muted-text">Columns: code,name,category,unitPrice,material,shape,brand,notes,description,tags,lowStockEnabled. Header row optional.</p>
+          <p class="muted-text">Columns: code,name,category,unitPrice,material,vendor,manufacturer,notes,description,tags,lowStockEnabled. Header row optional.</p>
           <div class="form-row">
             <input id="importFile" type="file" accept=".csv,text/csv">
             <button id="downloadTemplateBtn" type="button" class="muted">Download Template</button>
@@ -134,8 +134,8 @@
                 <th>Category</th>
                 <th>Unit Price</th>
                 <th>Material</th>
-                <th>Shape</th>
-                <th>Brand</th>
+                <th>Vendor</th>
+                <th>Manufacturer</th>
                 <th>Notes</th>
                 <th>Reorder</th>
                 <th>Actions</th>
@@ -265,8 +265,8 @@
         </div>
         <div class="form-row">
           <label>Material<input id="itemEditMaterial" placeholder="e.g., Steel, PVC"></label>
-          <label>Shape<input id="itemEditShape" placeholder="e.g., Round, Flat"></label>
-          <label>Brand<input id="itemEditBrand" placeholder="Manufacturer or brand"></label>
+          <label>Vendor<input id="itemEditShape" placeholder="Supplier or vendor"></label>
+          <label>Manufacturer<input id="itemEditBrand" placeholder="Manufacturer name"></label>
         </div>
         <div class="form-row">
           <label>Tags<input id="itemEditTags" placeholder="Fragile, Hazmat, Bulk, Internal alert"></label>
@@ -304,7 +304,7 @@
   </div>
 
   <script src="js/utils.js"></script>
-  <script src="js/item-master.js?v=24" onerror="document.getElementById('catalogStatus').textContent='Catalog script failed to load';document.getElementById('catalogStatus').style.color='#b91c1c';"></script>
+  <script src="js/item-master.js?v=25" onerror="document.getElementById('catalogStatus').textContent='Catalog script failed to load';document.getElementById('catalogStatus').style.color='#b91c1c';"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
 </body>
 </html>

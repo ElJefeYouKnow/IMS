@@ -570,9 +570,9 @@ function parseCsv(text){
       if(['name','itemname'].includes(h)) map.set('name', idx);
       if(['category','cat'].includes(h)) map.set('category', idx);
       if(['unitprice','price','unitcost','cost'].includes(h)) map.set('unitPrice', idx);
-      if(['material'].includes(h)) map.set('material', idx);
-      if(['shape'].includes(h)) map.set('shape', idx);
-      if(['brand'].includes(h)) map.set('brand', idx);
+        if(['material'].includes(h)) map.set('material', idx);
+        if(['shape','vendor','supplier'].includes(h)) map.set('shape', idx);
+        if(['brand','manufacturer','mfr'].includes(h)) map.set('brand', idx);
       if(['notes','note'].includes(h)) map.set('notes', idx);
       if(['description','desc'].includes(h)) map.set('description', idx);
       if(['tags','tag','flags'].includes(h)) map.set('tags', idx);
