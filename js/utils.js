@@ -383,11 +383,11 @@
         }
       }
       const fragment = document.createDocumentFragment();
-      [
-        { label: 'Orders', module: 'oms' },
-        { label: 'People', module: 'bms' },
-        { label: 'Finance', module: 'fms' }
-      ].forEach((item)=>{
+        [
+          { label: 'Operations System', module: 'oms' },
+          { label: 'Management System', module: 'bms' },
+          { label: 'Finance System', module: 'fms' }
+        ].forEach((item)=>{
         const link = document.createElement('a');
         link.href = '#';
         link.textContent = item.label;
