@@ -880,23 +880,25 @@ function bindEvents(){
 
 async function init(){
   setStatus('Initializing catalog...', 'muted');
-  if(window.utils){
-    let session = utils.getSession?.();
-    if(!session){
-      await utils.refreshSession?.();
-      session = utils.getSession?.();
-    }
-    if(!session){
-      window.location.href = 'login.html';
-      return;
-    }
-    utils.requireRole?.('admin');
-    utils.wrapFetchWithRole?.();
-    utils.applyStoredTheme?.();
-    utils.applyNavVisibility?.();
-    utils.setupLogout?.();
-  }
   try{
+    if(window.utils){
+      let session = utils.getSession?.();
+      if(!session){
+        setStatus('Checking session...', 'muted');
+        await runWithTimeout(utils.refreshSession?.() ?? Promise.resolve(null), 'Session');
+        session = utils.getSession?.();
+      }
+      if(!session){
+        setStatus('Session expired. Redirecting to login...', 'error');
+        setTimeout(()=>{ window.location.href = 'login.html'; }, 500);
+        return;
+      }
+      utils.requireRole?.('admin');
+      utils.wrapFetchWithRole?.();
+      utils.applyStoredTheme?.();
+      utils.applyNavVisibility?.();
+      utils.setupLogout?.();
+    }
     bindEvents();
     const hash = (window.location.hash || '').replace('#','').toLowerCase();
     const initial = hash === 'categories' ? 'categories' : hash === 'suppliers' ? 'suppliers' : 'items';
