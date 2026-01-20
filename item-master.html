@@ -64,9 +64,9 @@
             </div>
             <div class="form-row">
               <label>Category
-                <select id="category"></select>
+                <select id="itemCategory"></select>
               </label>
-              <label>Unit Price<input id="unitPrice" type="number" step="0.01" placeholder="Optional"></label>
+              <label>Unit Price<input id="itemUnitPrice" type="number" step="0.01" placeholder="Optional"></label>
               <label>UOM<input id="itemUom" placeholder="ea, box, pack"></label>
             </div>
             <div class="form-row">
@@ -99,7 +99,7 @@
               <label style="flex:1">Notes<textarea id="itemNotes" rows="2" placeholder="Internal notes"></textarea></label>
             </div>
             <div class="form-row">
-              <label style="flex:1">Description<textarea id="description" rows="2" placeholder="Additional details"></textarea></label>
+              <label style="flex:1">Description<textarea id="itemDescription" rows="2" placeholder="Additional details"></textarea></label>
             </div>
             <div class="form-row">
               <button id="addBtn" type="submit">Add Item</button>
@@ -304,7 +304,7 @@
   </div>
 
   <script src="js/utils.js"></script>
-  <script src="js/item-master.js?v=23" onerror="document.getElementById('catalogStatus').textContent='Catalog script failed to load';document.getElementById('catalogStatus').style.color='#b91c1c';"></script>
+  <script src="js/item-master.js?v=24" onerror="document.getElementById('catalogStatus').textContent='Catalog script failed to load';document.getElementById('catalogStatus').style.color='#b91c1c';"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
 </body>
 </html>

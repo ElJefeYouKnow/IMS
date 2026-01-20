@@ -784,7 +784,7 @@ function bindEvents(){
   dom.itemsTable = qs('itemTable');
   dom.itemForm = qs('itemForm');
   dom.searchBox = qs('searchBox');
-  dom.categorySelect = qs('category');
+  dom.categorySelect = qs('itemCategory');
   dom.lowStockEnabled = qs('itemLowStockEnabled');
   dom.importFile = qs('importFile');
   dom.importBtn = qs('importBtn');
