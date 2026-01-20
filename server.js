@@ -1914,6 +1914,7 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
     const exists = await itemExists(code, t);
     const categoryInfo = await resolveCategoryInput(t, category);
     const normalizedTags = normalizeItemTags(tags);
+    const tagsJson = JSON.stringify(normalizedTags);
     const normalizedLowStockEnabled = normalizeItemLowStockEnabled(lowStockEnabled);
     const price = unitPrice === undefined || unitPrice === null || Number.isNaN(Number(unitPrice)) ? null : Number(unitPrice);
     const materialValue = (material || '').trim() || null;
@@ -1935,7 +1936,7 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
     await runAsync(`INSERT INTO items(code,name,category,unitPrice,material,shape,brand,notes,uom,serialized,lot,expires,warehouse,zone,bin,reorderPoint,minStock,description,tags,lowStockEnabled,tenantId)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
       ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, material=EXCLUDED.material, shape=EXCLUDED.shape, brand=EXCLUDED.brand, notes=EXCLUDED.notes, uom=EXCLUDED.uom, serialized=EXCLUDED.serialized, lot=EXCLUDED.lot, expires=EXCLUDED.expires, warehouse=EXCLUDED.warehouse, zone=EXCLUDED.zone, bin=EXCLUDED.bin, reorderPoint=EXCLUDED.reorderPoint, minStock=EXCLUDED.minStock, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
-      [code, name, categoryInfo.name, price, materialValue, shapeValue, brandValue, notesValue, uomValue, serializedValue, lotValue, expiresValue, warehouseValue, zoneValue, binValue, normalizedReorderPoint, normalizedMinStock, description, normalizedTags, normalizedLowStockEnabled, t]);
+      [code, name, categoryInfo.name, price, materialValue, shapeValue, brandValue, notesValue, uomValue, serializedValue, lotValue, expiresValue, warehouseValue, zoneValue, binValue, normalizedReorderPoint, normalizedMinStock, description, tagsJson, normalizedLowStockEnabled, t]);
     await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: { code } });
     res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, material: materialValue, shape: shapeValue, brand: brandValue, notes: notesValue, uom: uomValue, serialized: serializedValue, lot: lotValue, expires: expiresValue, warehouse: warehouseValue, zone: zoneValue, bin: binValue, reorderPoint: normalizedReorderPoint, minStock: normalizedMinStock, description, tags: normalizedTags, lowStockEnabled: normalizedLowStockEnabled, tenantId: t });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
@@ -1981,11 +1982,12 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
           ? null
           : Number(raw.unitPrice);
         const tags = normalizeItemTags(raw?.tags);
+        const tagsJson = JSON.stringify(tags);
         const lowStockEnabled = normalizeItemLowStockEnabled(raw?.lowStockEnabled);
         await client.query(`INSERT INTO items(code,name,category,unitPrice,material,shape,brand,notes,uom,serialized,lot,expires,warehouse,zone,bin,reorderPoint,minStock,description,tags,lowStockEnabled,tenantId)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
           ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, material=EXCLUDED.material, shape=EXCLUDED.shape, brand=EXCLUDED.brand, notes=EXCLUDED.notes, uom=EXCLUDED.uom, serialized=EXCLUDED.serialized, lot=EXCLUDED.lot, expires=EXCLUDED.expires, warehouse=EXCLUDED.warehouse, zone=EXCLUDED.zone, bin=EXCLUDED.bin, reorderPoint=EXCLUDED.reorderPoint, minStock=EXCLUDED.minStock, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
-          [code, name, categoryInfo.name, unitPrice, material, shape, brand, notes, uom, serialized, lot, expires, warehouse, zone, bin, reorderPoint, minStock, description, tags, lowStockEnabled, t]);
+          [code, name, categoryInfo.name, unitPrice, material, shape, brand, notes, uom, serialized, lot, expires, warehouse, zone, bin, reorderPoint, minStock, description, tagsJson, lowStockEnabled, t]);
         results.push(code);
       }
     });
