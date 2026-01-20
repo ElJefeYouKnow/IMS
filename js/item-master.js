@@ -1,5 +1,6 @@
 const FALLBACK = 'N/A';
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
+const REQUEST_TIMEOUT_MS = 12000;
 
 const state = {
   items: [],
@@ -250,22 +251,24 @@ function closeEditModal(){
 
 async function loadItems(){
   const res = await fetchJson('/api/items');
-  if(!res){
+  if(!res || !res.ok){
     setStatus('Catalog error: unable to load items', 'error');
     state.items = [];
-    return;
+    return false;
   }
   state.items = Array.isArray(res.data) ? res.data : [];
+  return true;
 }
 
 async function loadCategories(){
   const res = await fetchJson('/api/categories');
-  if(!res){
+  if(!res || !res.ok){
     setStatus('Catalog error: unable to load categories', 'error');
     state.categories = [];
-    return;
+    return false;
   }
   state.categories = Array.isArray(res.data) ? res.data : [];
+  return true;
 }
 
 async function loadSuppliers(){
@@ -273,15 +276,21 @@ async function loadSuppliers(){
   if(!res){
     state.suppliers = [];
     state.supplierApiAvailable = false;
-    return;
+    return false;
   }
   if(res.status === 404){
     state.suppliers = [];
     state.supplierApiAvailable = false;
-    return;
+    return true;
+  }
+  if(!res.ok){
+    state.suppliers = [];
+    state.supplierApiAvailable = false;
+    return false;
   }
   state.suppliers = Array.isArray(res.data) ? res.data : [];
   state.supplierApiAvailable = true;
+  return true;
 }
 
 function renderItemsTable(){
@@ -739,14 +748,36 @@ async function handleSaveSupplier(){
   clearSupplierForm();
 }
 
+async function runWithTimeout(promise, label){
+  let timeoutId;
+  const timeout = new Promise((_, reject)=>{
+    timeoutId = setTimeout(()=> reject(new Error(`${label} request timed out`)), REQUEST_TIMEOUT_MS);
+  });
+  try{
+    await Promise.race([promise, timeout]);
+    return true;
+  }catch(e){
+    setStatus(`Catalog error: ${e?.message || `${label} failed`}`, 'error');
+    return false;
+  }finally{
+    clearTimeout(timeoutId);
+  }
+}
+
 async function refreshAll(){
   setStatus('Loading catalog...', 'muted');
-  await Promise.all([loadCategories(), loadItems(), loadSuppliers()]);
+  const [catsOk, itemsOk, suppliersOk] = await Promise.all([
+    runWithTimeout(loadCategories(), 'Categories'),
+    runWithTimeout(loadItems(), 'Items'),
+    runWithTimeout(loadSuppliers(), 'Suppliers')
+  ]);
   renderCategoryOptions();
   renderCategoriesTable();
   renderItemsTable();
   renderSuppliersTable();
-  setStatus(`Loaded ${state.items.length} items, ${state.categories.length} categories, ${state.suppliers.length} suppliers.`, 'ok');
+  if(catsOk && itemsOk && (suppliersOk || !state.supplierApiAvailable)){
+    setStatus(`Loaded ${state.items.length} items, ${state.categories.length} categories, ${state.suppliers.length} suppliers.`, 'ok');
+  }
 }
 
 function bindEvents(){

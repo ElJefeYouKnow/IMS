@@ -51,7 +51,7 @@
           <button class="mode-btn" data-mode="categories" type="button">Categories</button>
           <button class="mode-btn" data-mode="suppliers" type="button">Suppliers</button>
         </div>
-        <div id="catalogStatus" class="muted-text" style="margin:8px 2px 0;">Loading catalog...</div>
+        <div id="catalogStatus" class="muted-text" style="margin:8px 2px 0;">Catalog pending...</div>
       </section>
 
       <div id="items-mode" class="mode-content active">
@@ -304,7 +304,7 @@
   </div>
 
   <script src="js/utils.js"></script>
-  <script src="js/item-master.js?v=21" onerror="document.getElementById('catalogStatus').textContent='Catalog script failed to load';document.getElementById('catalogStatus').style.color='#b91c1c';"></script>
+  <script src="js/item-master.js?v=22" onerror="document.getElementById('catalogStatus').textContent='Catalog script failed to load';document.getElementById('catalogStatus').style.color='#b91c1c';"></script>
   <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
 </body>
 </html>
