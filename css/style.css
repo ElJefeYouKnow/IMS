@@ -168,7 +168,12 @@ label{font-size:var(--text-sm);font-weight:600;color:var(--muted)}
 .dark .admin-note{background:#2a1b1b;color:#fcdede;border-color:#7f1d1d}
 .dark .suggestions{background:#16221f;border-color:#22312d;box-shadow:0 10px 24px rgba(0,0,0,0.35)}
 .app{display:flex;min-height:100vh;flex-direction:row;position:relative;z-index:1}
-.main{max-width:100%;overflow-x:hidden;}
+.main{max-width:100%;overflow-x:hidden;display:flex;flex-direction:column;gap:16px;}
+.main > .topbar{margin-bottom:0;}
+.main > .card,
+.main > .chart-card,
+.main > .table-card,
+.main > .inventory-card{margin-bottom:0;}
 .sidebar{
   width:250px;
   background:linear-gradient(180deg,#0f2e2a 0%,#1b3c33 100%);
