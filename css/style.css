@@ -152,10 +152,21 @@ label{font-size:var(--text-sm);font-weight:600;color:var(--muted)}
   background-image:linear-gradient(180deg, rgba(12,22,19,0.92), rgba(8,15,13,0.97));
   --ink:#f6fbf8;
   --muted:#cbd8d2;
+  --card:#16221f;
+  --line:#22312d;
+  --surface-2:#101b18;
+  --accent:#4bb39a;
+  --accent-strong:#0b2b26;
+  --bg:#0f1916;
   --topo-line: rgba(97, 197, 171, 0.12);
   --topo-line-2: rgba(97, 197, 171, 0.08);
   --topo-glow: rgba(79, 178, 151, 0.08);
 }
+.dark ::placeholder{color:var(--muted)}
+.dark .sidebar .subtitle{color:var(--muted)}
+.dark .user-chip{background:#101b18;border-color:#22312d}
+.dark .admin-note{background:#2a1b1b;color:#fcdede;border-color:#7f1d1d}
+.dark .suggestions{background:#16221f;border-color:#22312d;box-shadow:0 10px 24px rgba(0,0,0,0.35)}
 .app{display:flex;min-height:100vh;flex-direction:row;position:relative;z-index:1}
 .main{max-width:100%;overflow-x:hidden;}
 .sidebar{
@@ -1014,6 +1025,16 @@ body.role-manager .admin-only{display:none}
   border:1px solid var(--pro-border);
 }
 [data-ds="pro"] .summary-item strong{color:var(--pro-accent)}
+.dark [data-ds="pro"] .summary-item{
+  background:var(--pro-surface);
+  border-color:var(--pro-border);
+}
+.dark [data-ds="pro"] .action-tile{
+  background:linear-gradient(140deg,rgba(79,178,151,0.18),rgba(9,20,17,0.35));
+  border-color:rgba(79,178,151,0.35);
+}
+.dark [data-ds="pro"] .action-tile .tile-title{color:var(--pro-text)}
+.dark [data-ds="pro"] .action-tile .tile-sub{color:var(--pro-muted)}
 [data-ds="pro"] :is(button,input,select,textarea):focus-visible{
   outline:3px solid rgba(31,111,92,0.35);
   outline-offset:2px;
@@ -1141,6 +1162,18 @@ body.role-manager .admin-only{display:none}
   background-image:
     radial-gradient(1200px 500px at -10% -10%, rgba(31,111,92,0.06), transparent 60%),
     radial-gradient(900px 400px at 110% 0%, rgba(19,42,36,0.05), transparent 55%);
+}
+.dark [data-ds="v1"]{
+  --ds-bg:#0f1916;
+  --ds-surface:#16221f;
+  --ds-surface-2:#101b18;
+  --ds-text:#f6fbf8;
+  --ds-muted:#cbd8d2;
+  --ds-border:#22312d;
+  --ds-accent:#4bb39a;
+  --ds-accent-strong:#0b2b26;
+  background:var(--ds-bg);
+  color:var(--ds-text);
 }
 [data-ds="v1"] .main{padding:var(--ds-space-6)}
 [data-ds="v1"] .topbar{
