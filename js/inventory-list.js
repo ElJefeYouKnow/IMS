@@ -1296,6 +1296,7 @@ function applyOnhandFilters(items){
   const project = document.getElementById('filter-project')?.checked;
   const recent = document.getElementById('filter-recent')?.checked;
   const needsCount = document.getElementById('filter-count')?.checked;
+  const inStock = document.getElementById('filter-instock')?.checked;
 
   return items.filter(item=>{
     if(search && !(item.code.toLowerCase().includes(search) || (item.name||'').toLowerCase().includes(search))) return false;
@@ -1308,6 +1309,7 @@ function applyOnhandFilters(items){
       const stale = !item.countedAt || (item.countAge !== null && item.countAge > COUNT_STALE_DAYS);
       if(!stale) return false;
     }
+    if(inStock && item.available <= 0) return false;
     return true;
   });
 }
@@ -1529,7 +1531,7 @@ function setupTabs(){
 }
 
 function setupFilters(){
-  const inputs = ['searchBox','filter-low','filter-overdue','filter-project','filter-recent','filter-count'];
+  const inputs = ['searchBox','filter-low','filter-overdue','filter-project','filter-recent','filter-count','filter-instock'];
   inputs.forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
@@ -1544,6 +1546,8 @@ function setupFilters(){
         const el = document.getElementById(id);
         if(el) el.checked = false;
       });
+      const inStock = document.getElementById('filter-instock');
+      if(inStock) inStock.checked = true;
       const searchBox = document.getElementById('searchBox');
       if(searchBox) searchBox.value = '';
       renderOnhand();
@@ -1602,6 +1606,7 @@ function getFilterSheetEls(){
     project: document.getElementById('sheet-filter-project'),
     recent: document.getElementById('sheet-filter-recent'),
     count: document.getElementById('sheet-filter-count'),
+    instock: document.getElementById('sheet-filter-instock'),
     scan: document.getElementById('sheet-scan-mode')
   };
 }
@@ -1612,12 +1617,14 @@ function syncFilterSheetFromMain(els){
   const project = document.getElementById('filter-project');
   const recent = document.getElementById('filter-recent');
   const count = document.getElementById('filter-count');
+  const instock = document.getElementById('filter-instock');
   const scan = document.getElementById('scanMode');
   if(els.low) els.low.checked = !!low?.checked;
   if(els.overdue) els.overdue.checked = !!overdue?.checked;
   if(els.project) els.project.checked = !!project?.checked;
   if(els.recent) els.recent.checked = !!recent?.checked;
   if(els.count) els.count.checked = !!count?.checked;
+  if(els.instock) els.instock.checked = !!instock?.checked;
   if(els.scan) els.scan.checked = !!scan?.checked;
 }
 
@@ -1627,12 +1634,14 @@ function applyFilterSheetToMain(els){
   const project = document.getElementById('filter-project');
   const recent = document.getElementById('filter-recent');
   const count = document.getElementById('filter-count');
+  const instock = document.getElementById('filter-instock');
   const scan = document.getElementById('scanMode');
   if(low && els.low) low.checked = els.low.checked;
   if(overdue && els.overdue) overdue.checked = els.overdue.checked;
   if(project && els.project) project.checked = els.project.checked;
   if(recent && els.recent) recent.checked = els.recent.checked;
   if(count && els.count) count.checked = els.count.checked;
+  if(instock && els.instock) instock.checked = els.instock.checked;
   if(scan && els.scan) scan.checked = els.scan.checked;
   const scanToggle = document.getElementById('quickScanToggle');
   if(scanToggle && scan) scanToggle.classList.toggle('active', scan.checked);
@@ -1669,6 +1678,7 @@ function setupFilterSheet(){
     if(els.project) els.project.checked = false;
     if(els.recent) els.recent.checked = false;
     if(els.count) els.count.checked = false;
+    if(els.instock) els.instock.checked = true;
     if(els.scan) els.scan.checked = false;
     applyFilterSheetToMain(els);
     haptic('light');
