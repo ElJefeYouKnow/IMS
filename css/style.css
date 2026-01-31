@@ -220,6 +220,17 @@ label{font-size:var(--text-sm);font-weight:600;color:var(--muted)}
   background-image:none;
 }
 .dark .main{background:#0f1916;color:var(--ink);background-image:none}
+.dark .topbar{
+  background:linear-gradient(120deg,#0f1f1b,#1c3a32);
+  border-color:rgba(79,178,151,0.35);
+  box-shadow:0 12px 30px rgba(0,0,0,0.45);
+}
+.dark .topbar h1{color:#f6fbf8}
+.dark .topbar .muted{
+  background:rgba(79,178,151,0.18)!important;
+  color:#e8f6f1;
+  border:1px solid rgba(79,178,151,0.4)!important;
+}
 .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding:14px 16px;border-radius:14px;background:linear-gradient(120deg,#102922,#1f6f5c);color:#fff;box-shadow:0 12px 30px rgba(18,34,30,0.35);border:1px solid rgba(31,111,92,0.3)}
 .topbar h1{margin:0;font-size:1.3rem;letter-spacing:0.16em;text-transform:uppercase}
 .topbar-right{display:flex;align-items:center;gap:12px}
