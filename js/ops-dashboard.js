@@ -58,6 +58,44 @@ function parseDetails(details){
   }
 }
 
+function parseBool(value){
+  if(value === undefined || value === null || value === '') return null;
+  if(typeof value === 'boolean') return value;
+  const cleaned = value.toString().trim().toLowerCase();
+  if(!cleaned) return null;
+  if(['false','0','no','off','disabled'].includes(cleaned)) return false;
+  if(['true','1','yes','on','enabled'].includes(cleaned)) return true;
+  return null;
+}
+
+function normalizeCategoryRules(input){
+  const out = { lowStockEnabled: false, lowStockThreshold: 5 };
+  if(!input || typeof input !== 'object') return out;
+  if(Object.prototype.hasOwnProperty.call(input, 'lowStockEnabled')) out.lowStockEnabled = !!input.lowStockEnabled;
+  if(Object.prototype.hasOwnProperty.call(input, 'lowStockThreshold')){
+    const low = Number(input.lowStockThreshold);
+    out.lowStockThreshold = Number.isFinite(low) && low >= 0 ? Math.floor(low) : out.lowStockThreshold;
+  }
+  return out;
+}
+
+function buildCategoryRules(categories){
+  const map = new Map();
+  (categories || []).forEach(cat=>{
+    if(!cat?.name) return;
+    map.set(cat.name.toLowerCase(), normalizeCategoryRules(cat.rules));
+  });
+  return map;
+}
+
+function isLowStockEnabled(item, categoryRules){
+  const itemEnabled = parseBool(item?.lowStockEnabled ?? item?.lowstockenabled);
+  if(itemEnabled !== null) return itemEnabled;
+  const name = (item?.category || 'Uncategorized').toString().trim().toLowerCase();
+  const rules = categoryRules.get(name);
+  return rules ? !!rules.lowStockEnabled : false;
+}
+
 function normalizeJobId(value){
   const val = (value || '').toString().trim();
   if(!val) return '';
@@ -189,10 +227,11 @@ function computeAccuracy(statsMap, countsMap){
 }
 
 async function loadData(){
-  const [inventory, counts, items, pickEvents, checkinEvents] = await Promise.all([
+  const [inventory, counts, items, categories, pickEvents, checkinEvents] = await Promise.all([
     utils.fetchJsonSafe('/api/inventory', {}, []),
     utils.fetchJsonSafe('/api/inventory-counts', {}, []),
     utils.fetchJsonSafe('/api/items', {}, []),
+    utils.fetchJsonSafe('/api/categories', {}, []),
     utils.fetchJsonSafe(`/api/ops-events?type=pick&days=${WINDOW_DAYS}`, {}, []),
     utils.fetchJsonSafe(`/api/ops-events?type=checkin&days=${WINDOW_DAYS}`, {}, [])
   ]);
@@ -200,6 +239,7 @@ async function loadData(){
     inventory: Array.isArray(inventory) ? inventory : [],
     counts: Array.isArray(counts) ? counts : [],
     items: Array.isArray(items) ? items : [],
+    categories: Array.isArray(categories) ? categories : [],
     pickEvents: Array.isArray(pickEvents) ? pickEvents : [],
     checkinEvents: Array.isArray(checkinEvents) ? checkinEvents : []
   };
@@ -212,6 +252,7 @@ function computeMetrics(data){
   const todayStart = startOfDayTs();
   const inventory = data.inventory;
   const itemMap = new Map(data.items.map(item=>[(item.code || '').trim(), item]));
+  const categoryRules = buildCategoryRules(data.categories || []);
   const statsMap = aggregateInventory(inventory);
 
   let pickedToday = 0;
@@ -307,13 +348,14 @@ function computeMetrics(data){
 
   statsMap.forEach((rec, code)=>{
     const item = itemMap.get(code);
+    const lowStockEnabled = isLowStockEnabled(item, categoryRules);
     const cost = getItemCost(item);
     const available = Number(rec.available || 0);
     const onHand = Number(rec.onHand || 0);
     const reorderPoint = Number(item?.reorderPoint);
-    if(Number.isFinite(reorderPoint) && available <= reorderPoint) belowReorder += 1;
+    if(lowStockEnabled && Number.isFinite(reorderPoint) && available <= reorderPoint) belowReorder += 1;
     if(available < 0) negativeAvailability += 1;
-    if(available <= 0) stockouts += 1;
+    if(lowStockEnabled && available <= 0) stockouts += 1;
     totalItems += 1;
     inventoryValue += Math.max(0, onHand) * cost;
     totalAvailableValue += Math.max(0, onHand) * cost;
