@@ -613,25 +613,52 @@ async function handleImport(){
     return;
   }
   const text = await dom.importFile.files[0].text();
-  const { items, skipped } = parseCsv(text);
-  if(!items.length){
+  const { items: rawItems, skipped } = parseCsv(text);
+  if(!rawItems.length){
     dom.importMsg.textContent = 'No valid rows found.';
     dom.importMsg.style.color = '#b91c1c';
     return;
   }
-  const proceed = confirm(`Import ${items.length} items?${skipped ? ` Skipped ${skipped} rows.` : ''}`);
+  const existingCodes = new Set((state.items || []).map(i=> (i.code || '').toLowerCase()).filter(Boolean));
+  const seen = new Set();
+  let dupInFile = 0;
+  const items = [];
+  rawItems.forEach(item=>{
+    const key = (item.code || '').toLowerCase();
+    if(!key) return;
+    if(seen.has(key)){
+      dupInFile++;
+      return;
+    }
+    seen.add(key);
+    items.push(item);
+  });
+  const dupExisting = items.filter(item=> existingCodes.has((item.code || '').toLowerCase())).length;
+  let finalItems = items;
+  if(dupExisting > 0){
+    const updateDupes = confirm(`Found ${dupExisting} items already in your catalog.\n\nOK = Update existing items\nCancel = Skip duplicates`);
+    if(!updateDupes){
+      finalItems = items.filter(item=> !existingCodes.has((item.code || '').toLowerCase()));
+    }
+  }
+  if(!finalItems.length){
+    dom.importMsg.textContent = 'No new items to import after removing duplicates.';
+    dom.importMsg.style.color = '#b91c1c';
+    return;
+  }
+  const proceed = confirm(`Import ${finalItems.length} items?${skipped ? ` Skipped ${skipped} rows.` : ''}${dupInFile ? ` ${dupInFile} duplicate rows removed.` : ''}`);
   if(!proceed) return;
   const res = await fetchJson('/api/items/bulk', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ items })
+    body: JSON.stringify({ items: finalItems })
   });
   if(!res || !res.ok){
     dom.importMsg.textContent = res?.data?.error || 'Import failed';
     dom.importMsg.style.color = '#b91c1c';
     return;
   }
-  dom.importMsg.textContent = `Imported ${res.data.count || items.length} items.`;
+  dom.importMsg.textContent = `Imported ${res.data.count || finalItems.length} items.`;
   dom.importMsg.style.color = '#15803d';
   dom.importFile.value = '';
   await refreshItems();
