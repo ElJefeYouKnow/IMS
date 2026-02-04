@@ -176,6 +176,9 @@ function renderDrawerHeader(item, meta, role, data){
       btn.addEventListener('click', handler);
       return btn;
     };
+    if(role === 'admin'){
+      els.actions.appendChild(makeBtn('Edit Info', 'outline', ()=> setActiveTab('settings')));
+    }
     els.actions.appendChild(makeBtn('Check Out', 'primary', ()=> window.location.href='inventory-operations.html?mode=checkout'));
     els.actions.appendChild(makeBtn('Reserve', 'outline', ()=> window.location.href='order-register.html#reserve'));
     if(role === 'manager' || role === 'admin'){
@@ -284,6 +287,7 @@ function renderTabActivity(data){
   const filters = cache.filters || {};
   const records = cache.records || [];
   const loading = cache.loading;
+  const projectOptions = getActivityProjectOptions();
   const rows = records.map(r=>{
     const when = fmtDT(r.ts || r.timestamp);
     const qty = r.qty ?? '—';
@@ -313,7 +317,11 @@ function renderTabActivity(data){
         </select>
         <select id="activity-type">
           <option value="">All Types</option>
-          ${['IN','OUT','RESERVE','RETURN','ADJUST','TRANSFER'].map(t=>`<option value="${t}" ${filters.type===t?'selected':''}>${t}</option>`).join('')}
+          ${['IN','OUT','RESERVE','RETURN','ADJUST','TRANSFER','COUNT'].map(t=>`<option value="${t}" ${filters.type===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+        <select id="activity-project">
+          <option value="">All Projects</option>
+          ${projectOptions.map(p=>`<option value="${p}" ${filters.project===p?'selected':''}>${p}</option>`).join('')}
         </select>
         <input id="activity-search" type="search" placeholder="Search job, PO, user, reason" value="${filters.search || ''}">
       </div>
@@ -329,6 +337,17 @@ function renderTabActivity(data){
       </div>
     </div>
   `;
+}
+
+function getActivityProjectOptions(){
+  const list = new Set();
+  const overview = drawerState.cache?.overview;
+  const jobsList = (overview?.summary?.jobsList || overview?.item?.jobsList || '').toString();
+  jobsList.split(',').map(s=>s.trim()).filter(Boolean).forEach(j=>list.add(j));
+  const jobsCache = drawerState.cache?.jobs;
+  (jobsCache?.active || []).forEach(j=> j.jobId && list.add(j.jobId));
+  (jobsCache?.history || []).forEach(j=> j.jobId && list.add(j.jobId));
+  return Array.from(list).sort((a,b)=>a.localeCompare(b));
 }
 
 function renderTabJobs(data){
@@ -431,6 +450,7 @@ function renderTabInsights(data){
   const velocity = data?.velocity || {};
   const perf = data?.performance || {};
   const risk = data?.risk || {};
+  const reorder = data?.reorder || {};
   const doh = (Number.isFinite(perf.available) && Number.isFinite(velocity.avg30) && velocity.avg30 > 0)
     ? Math.round(perf.available / velocity.avg30)
     : '—';
@@ -441,6 +461,15 @@ function renderTabInsights(data){
         <div class="panel-row"><span>Avg Daily (7)</span><strong>${velocity.avg7 ?? '—'}</strong></div>
         <div class="panel-row"><span>Avg Daily (30)</span><strong>${velocity.avg30 ?? '—'}</strong></div>
         <div class="panel-row"><span>Avg Daily (90)</span><strong>${velocity.avg90 ?? '—'}</strong></div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <h3>Reorder Suggestions</h3>
+      <div class="panel-list">
+        <div class="panel-row"><span>Low Stock Alerts</span><strong>${reorder.lowStockEnabled ? 'Enabled' : 'Disabled'}</strong></div>
+        <div class="panel-row"><span>Lead Time (assumed)</span><strong>${reorder.leadTimeDays ?? '—'} days</strong></div>
+        <div class="panel-row"><span>Target Stock</span><strong>${reorder.targetStock ?? '—'}</strong></div>
+        <div class="panel-row"><span>Suggested Reorder</span><strong>${reorder.suggestedQty ?? '—'}</strong></div>
       </div>
     </div>
     <div class="panel-section">
@@ -536,8 +565,9 @@ function bindTabEvents(tab){
     const getFilters=()=>{
       const range = els.body.querySelector('#activity-range')?.value || '30';
       const type = els.body.querySelector('#activity-type')?.value || '';
+      const project = els.body.querySelector('#activity-project')?.value || '';
       const search = els.body.querySelector('#activity-search')?.value || '';
-      return { range, type, search, page:1 };
+      return { range, type, project, search, page:1 };
     };
     ['change','input'].forEach(ev=>{
       els.body.querySelector('#activity-range')?.addEventListener(ev, async ()=>{
@@ -545,6 +575,10 @@ function bindTabEvents(tab){
         await setActiveTab('activity');
       });
       els.body.querySelector('#activity-type')?.addEventListener(ev, async ()=>{
+        drawerState.cache.activity = { ...drawerState.cache.activity, filters: getFilters(), refresh:true };
+        await setActiveTab('activity');
+      });
+      els.body.querySelector('#activity-project')?.addEventListener(ev, async ()=>{
         drawerState.cache.activity = { ...drawerState.cache.activity, filters: getFilters(), refresh:true };
         await setActiveTab('activity');
       });

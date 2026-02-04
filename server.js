@@ -577,6 +577,13 @@ function normalizeItemLowStockEnabled(input) {
   if (['true', '1', 'yes', 'on', 'enabled'].includes(value)) return true;
   return null;
 }
+function resolveLowStockEnabled(item, categoryRulesMap) {
+  const itemEnabled = normalizeItemLowStockEnabled(item?.lowStockEnabled ?? item?.lowstockenabled);
+  if (itemEnabled !== null) return itemEnabled;
+  const catName = (item?.category || DEFAULT_CATEGORY_NAME || '').toString().trim().toLowerCase();
+  const rules = categoryRulesMap.get(catName);
+  return rules ? !!rules.lowStockEnabled : false;
+}
 
 async function ensureTenantCapabilities(tenantIdVal) {
   if (!tenantIdVal) return;
@@ -1995,6 +2002,204 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
     res.status(201).json({ count: results.length });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.patch('/api/items/:code', requireRole('admin'), async (req, res) => {
+  try {
+    const code = req.params.code;
+    const t = tenantId(req);
+    const item = await getAsync('SELECT * FROM items WHERE code=$1 AND tenantId=$2', [code, t]);
+    if (!item) return res.status(404).json({ error: 'item not found' });
+    const payload = req.body || {};
+    const categoryInfo = await resolveCategoryInput(t, payload.category ?? item.category);
+    const updates = {
+      name: (payload.name ?? item.name)?.toString().trim(),
+      category: categoryInfo.name,
+      description: payload.description ?? item.description,
+      uom: payload.uom ?? item.uom,
+      serialized: Object.prototype.hasOwnProperty.call(payload, 'serialized') ? !!payload.serialized : item.serialized,
+      lot: Object.prototype.hasOwnProperty.call(payload, 'lot') ? !!payload.lot : item.lot,
+      expires: Object.prototype.hasOwnProperty.call(payload, 'expires') ? !!payload.expires : item.expires,
+      warehouse: payload.warehouse ?? item.warehouse,
+      zone: payload.zone ?? item.zone,
+      bin: payload.bin ?? item.bin,
+      reorderPoint: Object.prototype.hasOwnProperty.call(payload, 'reorderPoint') ? Number(payload.reorderPoint) : item.reorderpoint ?? item.reorderPoint,
+      minStock: Object.prototype.hasOwnProperty.call(payload, 'minStock') ? Number(payload.minStock) : item.minstock ?? item.minStock
+    };
+    await runAsync(
+      `UPDATE items SET name=$1, category=$2, description=$3, uom=$4, serialized=$5, lot=$6, expires=$7, warehouse=$8, zone=$9, bin=$10, reorderPoint=$11, minStock=$12 WHERE code=$13 AND tenantId=$14`,
+      [
+        updates.name,
+        updates.category,
+        updates.description,
+        updates.uom,
+        updates.serialized,
+        updates.lot,
+        updates.expires,
+        updates.warehouse,
+        updates.zone,
+        updates.bin,
+        Number.isFinite(updates.reorderPoint) ? Math.floor(updates.reorderPoint) : null,
+        Number.isFinite(updates.minStock) ? Math.floor(updates.minStock) : null,
+        code,
+        t
+      ]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+app.get('/api/items/:code/activity', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const code = req.params.code;
+    const rangeDays = Math.min(365, Math.max(1, Number(req.query.range || 30)));
+    const type = (req.query.type || '').toString().trim().toLowerCase();
+    const search = (req.query.search || '').toString().trim().toLowerCase();
+    const project = (req.query.project || '').toString().trim();
+    const page = Math.max(1, Number(req.query.page || 1));
+    const limit = Math.min(200, Math.max(20, Number(req.query.limit || 50)));
+    const startTs = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
+    const params = [t, code, startTs];
+    let where = 'tenantId=$1 AND code=$2 AND ts >= $3';
+    if (project) {
+      params.push(project);
+      where += ` AND jobId=$${params.length}`;
+    }
+    if (type) {
+      const tParam = type.toLowerCase();
+      if (tParam === 'adjust') {
+        where += ` AND (type='consume' OR LOWER(status) IN ('damaged','lost','adjusted'))`;
+      } else if (tParam === 'count') {
+        // handled in counts section
+      } else {
+        params.push(tParam);
+        where += ` AND LOWER(type)=$${params.length}`;
+      }
+    }
+    if (search) {
+      params.push(`%${search}%`);
+      where += ` AND (LOWER(jobId) LIKE $${params.length} OR LOWER(reason) LIKE $${params.length} OR LOWER(notes) LIKE $${params.length} OR LOWER(userEmail) LIKE $${params.length} OR LOWER(userName) LIKE $${params.length} OR LOWER(sourceId) LIKE $${params.length})`;
+    }
+    const offset = (page - 1) * limit;
+    const invRows = await allAsync(
+      `SELECT id, qty, location, jobId, notes, ts, type, status, reason, returnDate, eta, userEmail, userName, sourceType, sourceId
+       FROM inventory
+       WHERE ${where}
+       ORDER BY ts DESC
+       LIMIT ${limit + 1} OFFSET ${offset}`,
+      params
+    );
+    let records = invRows.map(row => ({
+      id: row.id,
+      ts: row.ts,
+      type: row.type || '',
+      qty: row.qty,
+      from: row.sourcetype || row.sourceType || '',
+      to: row.location || '',
+      jobId: row.jobid || row.jobId || '',
+      reason: row.reason || row.status || '',
+      userEmail: row.useremail || row.userEmail || row.username || row.userName || '',
+      sourceId: row.sourceid || row.sourceId || ''
+    }));
+    if (!type || type === 'count') {
+      const countRows = await allAsync(
+        `SELECT id, qty, countedAt, countedBy FROM inventory_counts WHERE tenantId=$1 AND code=$2 AND countedAt >= $3 ORDER BY countedAt DESC`,
+        [t, code, startTs]
+      );
+      const countRecords = countRows.map(r => ({
+        id: r.id,
+        ts: r.countedat || r.countedAt,
+        type: 'count',
+        qty: r.qty,
+        reason: 'Count',
+        userEmail: r.countedby || r.countedBy || ''
+      }));
+      records = records.concat(countRecords);
+      records.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    }
+    const hasMore = records.length > limit;
+    if (hasMore) records = records.slice(0, limit);
+    res.json({ records, hasMore });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+app.get('/api/items/:code/insights', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const code = req.params.code;
+    const item = await getAsync('SELECT * FROM items WHERE code=$1 AND tenantId=$2', [code, t]);
+    if (!item) return res.status(404).json({ error: 'item not found' });
+    const categories = await allAsync('SELECT name, rules FROM categories WHERE tenantId=$1', [t]);
+    const rulesMap = new Map((categories || []).map(c => [(c.name || '').toLowerCase(), normalizeCategoryRules(c.rules)]));
+    const lowStockEnabled = resolveLowStockEnabled(item, rulesMap);
+    const entries = await allAsync('SELECT type, qty, ts, status FROM inventory WHERE tenantId=$1 AND code=$2', [t, code]);
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const windows = { d7: now - 7 * dayMs, d30: now - 30 * dayMs, d90: now - 90 * dayMs };
+    let inQty = 0;
+    let outQty = 0;
+    let returnQty = 0;
+    let reserveQty = 0;
+    let reserveRelease = 0;
+    let consumeQty = 0;
+    let lastMove = 0;
+    let usage7 = 0;
+    let usage30 = 0;
+    let usage90 = 0;
+    let adjustments30 = 0;
+    entries.forEach(e => {
+      const type = (e.type || '').toLowerCase();
+      const qty = Number(e.qty || 0) || 0;
+      const ts = Number(e.ts || 0) || 0;
+      if (type === 'in') inQty += qty;
+      if (type === 'out') outQty += qty;
+      if (type === 'return') returnQty += qty;
+      if (type === 'reserve') reserveQty += qty;
+      if (type === 'reserve_release') reserveRelease += qty;
+      if (type === 'consume') consumeQty += qty;
+      if (['in','out','return','reserve','reserve_release','consume'].includes(type)) {
+        lastMove = Math.max(lastMove, ts || 0);
+      }
+      if (type === 'out' || type === 'consume') {
+        if (ts >= windows.d7) usage7 += qty;
+        if (ts >= windows.d30) usage30 += qty;
+        if (ts >= windows.d90) usage90 += qty;
+      }
+      if (ts >= windows.d30 && (type === 'consume' || ['damaged','lost','adjusted'].includes((e.status || '').toLowerCase()))) {
+        adjustments30 += 1;
+      }
+    });
+    const available = Math.max(0, inQty + returnQty + reserveRelease - outQty - reserveQty - consumeQty);
+    const avg7 = Number((usage7 / 7).toFixed(2));
+    const avg30 = Number((usage30 / 30).toFixed(2));
+    const avg90 = Number((usage90 / 90).toFixed(2));
+    const deadStock = !lastMove || lastMove < windows.d90;
+    const slowMover = usage90 <= 1;
+    const reorderPoint = Number(item.reorderpoint ?? item.reorderPoint);
+    const minStock = Number(item.minstock ?? item.minStock);
+    const safety = Number.isFinite(minStock) ? minStock : (Number.isFinite(reorderPoint) ? reorderPoint : 0);
+    const leadTimeDays = 7;
+    const targetStock = Math.max(0, Math.ceil((avg30 * leadTimeDays) + safety));
+    const suggestedQty = Math.max(0, targetStock - available);
+    res.json({
+      velocity: { avg7, avg30, avg90 },
+      performance: { available, deadStock, slowMover },
+      risk: { stockouts: available <= 0 ? 1 : 0, adjustments: adjustments30 },
+      reorder: {
+        lowStockEnabled,
+        leadTimeDays,
+        targetStock,
+        suggestedQty
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
   }
 });
 
