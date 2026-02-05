@@ -186,7 +186,10 @@ label{font-size:var(--text-sm);font-weight:600;color:var(--muted)}
   border-right:1px solid rgba(31,111,92,0.3);
   box-shadow:6px 0 24px rgba(18,34,30,0.4);
 }
-.sidebar{position:sticky;top:0;align-self:flex-start;min-height:100vh}
+.sidebar{position:sticky;top:0;align-self:flex-start;min-height:100vh;max-height:100vh;overflow-y:auto;overscroll-behavior:contain}
+.sidebar::-webkit-scrollbar{width:8px}
+.sidebar::-webkit-scrollbar-thumb{background:rgba(31,111,92,0.35);border-radius:999px}
+.dark .sidebar::-webkit-scrollbar-thumb{background:rgba(79,178,151,0.35)}
 .dark .sidebar{background:linear-gradient(180deg,#0a1916 0%,#10231f 100%);color:var(--ink)}
 .brand{font-weight:800;font-size:1.2rem;margin-bottom:4px;letter-spacing:0.14em;text-transform:uppercase}
 .sidebar .subtitle{font-size:0.8rem;color:rgba(247,239,227,0.6);margin-top:-6px;margin-bottom:12px;text-transform:uppercase;letter-spacing:0.18em}
