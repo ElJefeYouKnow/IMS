@@ -135,6 +135,48 @@ async function loadItems(){
   }catch(e){}
 }
 
+function shouldAddProcurementItemsToCatalog(){
+  return !!document.getElementById('order-add-catalog')?.checked;
+}
+
+async function ensureCatalogItems(lines){
+  if(!shouldAddProcurementItemsToCatalog()) return { ok: true, created: 0 };
+  const session = getSession();
+  if(!session || session.role !== 'admin'){
+    return { ok: false, error: 'Admin only' };
+  }
+
+  const existingCodes = new Set((itemsCache || []).map(item => (item.code || '').trim().toLowerCase()).filter(Boolean));
+  const missingByCode = new Map();
+  for(const line of lines || []){
+    const code = (line?.code || '').trim();
+    if(!code) continue;
+    const normalizedCode = code.toLowerCase();
+    if(existingCodes.has(normalizedCode) || missingByCode.has(normalizedCode)) continue;
+    const name = (line?.name || '').trim();
+    if(!name){
+      return { ok: false, error: `Name required to add new catalog item: ${code}` };
+    }
+    missingByCode.set(normalizedCode, { code, name });
+  }
+
+  if(!missingByCode.size) return { ok: true, created: 0 };
+
+  const response = await fetch('/api/items/bulk', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: Array.from(missingByCode.values()) })
+  });
+  const data = await response.json().catch(()=>({}));
+  if(!response.ok){
+    return { ok: false, error: data.error || 'Failed to add new items to catalog' };
+  }
+
+  await loadItems();
+  refreshReserveSkuDatalist();
+  return { ok: true, created: Number(data.count || missingByCode.size) || missingByCode.size };
+}
+
 function refreshSkuDatalist(){
   const list = document.getElementById('order-sku-options');
   if(!list) return;
@@ -397,6 +439,11 @@ async function submitOrders(lines, clearAll){
   }));
 
   try{
+    const catalogResult = await ensureCatalogItems(lines);
+    if(!catalogResult.ok){
+      if(msg){ msg.style.color = '#b91c1c'; msg.textContent = catalogResult.error; }
+      return false;
+    }
     const r = await fetch('/api/inventory-order/bulk',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -634,14 +681,20 @@ function initOrders(){
   bulkApplyBtn?.addEventListener('click', async ()=>{
     msg.textContent = '';
     if(!bulkArea?.value.trim()) return;
-    const parsed = parseBulkOrders(bulkArea.value.trim());
-    if(!parsed.length){
-      msg.style.color = '#b91c1c'; msg.textContent = 'No valid lines found';
-      return;
-    }
-    const defaultEta = document.getElementById('orderEta')?.value || '';
-    const defaultJobValue = document.getElementById('orderJob')?.value || '';
-    const autoReserve = document.getElementById('order-auto-reserve')?.checked;
+      const parsed = parseBulkOrders(bulkArea.value.trim());
+      if(!parsed.length){
+        msg.style.color = '#b91c1c'; msg.textContent = 'No valid lines found';
+        return;
+      }
+      const catalogResult = await ensureCatalogItems(parsed);
+      if(!catalogResult.ok){
+        msg.style.color = '#b91c1c';
+        msg.textContent = catalogResult.error;
+        return;
+      }
+      const defaultEta = document.getElementById('orderEta')?.value || '';
+      const defaultJobValue = document.getElementById('orderJob')?.value || '';
+      const autoReserve = document.getElementById('order-auto-reserve')?.checked;
     const notes = document.getElementById('orderNotes')?.value.trim() || '';
 
     const payload = parsed.map(line=>({
