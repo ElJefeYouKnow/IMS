@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', ()=>{
-  localStorage.removeItem('sessionUser');
+  if(window.utils?.clearSession) utils.clearSession();
+  else localStorage.removeItem('sessionUser');
   const form = document.getElementById('loginForm');
   const err = document.getElementById('login-error');
   const staySignedIn = document.getElementById('login-remember-session');
@@ -68,7 +69,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
         return;
       }
       const user = await r.json();
-      localStorage.setItem('sessionUser', JSON.stringify(user));
+      if(window.utils?.setSession) utils.setSession(user);
+      else localStorage.setItem('sessionUser', JSON.stringify(user));
       const role = (user.role || '').toLowerCase();
       let target = 'employee-dashboard.html';
       if(role === 'admin' || role === 'dev') target = 'dashboard.html';

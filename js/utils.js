@@ -2,12 +2,44 @@
   const utils = {
     async fetchJsonSafe(url, options = {}, fallback = null){
       try{
-        const res = await fetch(url, options);
+        const method = (options.method || 'GET').toUpperCase();
+        const cacheTtlMs = Number(options.cacheTtlMs || 0);
+        const forceRefresh = !!options.forceRefresh;
+        const cacheKey = options.cacheKey || `${method}:${url}`;
+        const fetchOptions = { ...options };
+        delete fetchOptions.cacheTtlMs;
+        delete fetchOptions.forceRefresh;
+        delete fetchOptions.cacheKey;
+        if(method === 'GET' && cacheTtlMs > 0 && !forceRefresh){
+          const cached = this._apiCache?.get(cacheKey);
+          if(cached && cached.expires > Date.now()){
+            return cached.value;
+          }
+        }
+        const res = await fetch(url, fetchOptions);
         if(!res.ok) throw new Error(res.statusText);
-        return await res.json();
+        const data = await res.json();
+        if(method === 'GET' && cacheTtlMs > 0){
+          if(!this._apiCache) this._apiCache = new Map();
+          this._apiCache.set(cacheKey, { value: data, expires: Date.now() + cacheTtlMs });
+        }
+        return data;
       }catch(e){
         return fallback;
       }
+    },
+    invalidateApiCache(match){
+      if(!this._apiCache) return;
+      if(!match){
+        this._apiCache.clear();
+        return;
+      }
+      const matcher = typeof match === 'function'
+        ? match
+        : (key)=> key.includes(String(match));
+      Array.from(this._apiCache.keys()).forEach((key)=>{
+        if(matcher(key)) this._apiCache.delete(key);
+      });
     },
     attachItemLookup({ getItems, codeInputId, nameInputId, categoryInputId, priceInputId, suggestionsId }){
       const codeInput = document.getElementById(codeInputId);
@@ -46,7 +78,8 @@
         const target = event.target && event.target.closest && event.target.closest('#logoutBtn,[data-logout]');
         if(!target) return;
         event.preventDefault();
-        localStorage.removeItem('sessionUser');
+        this.clearSession?.();
+        this.invalidateApiCache?.();
         fetch('/api/auth/logout',{method:'POST'}).finally(()=>{
           window.location.href='login.html';
         });
@@ -155,13 +188,43 @@
       this.buildMobileNav?.();
       this.setupUserChip?.();
       this.setupLogout?.();
+      this.refreshSession?.().then(fresh=>{
+        if(!fresh){
+          window.location.href = 'login.html';
+          return;
+        }
+        this.applyNavVisibility?.();
+        this.setupUserChip?.();
+      }).catch(()=>{});
       return true;
     },
-    getSession(){
-      try{return JSON.parse(localStorage.getItem('sessionUser')||'null');}catch(e){return null;}
+    setSession(user){
+      this._session = user || null;
+      if(user) localStorage.setItem('sessionUser', JSON.stringify(user));
+      else localStorage.removeItem('sessionUser');
+      return this._session;
     },
-    async initSession(){
-      return this.getSession();
+    clearSession(){
+      this._session = null;
+      localStorage.removeItem('sessionUser');
+    },
+    getSession(){
+      if(this._session) return this._session;
+      try{
+        this._session = JSON.parse(localStorage.getItem('sessionUser')||'null');
+        return this._session;
+      }catch(e){
+        this._session = null;
+        return null;
+      }
+    },
+    async initSession(force=false){
+      if(this._sessionPromise && !force) return this._sessionPromise;
+      this._sessionPromise = this.refreshSession(force).finally(()=>{
+        this._sessionPromise = null;
+      });
+      const fresh = await this._sessionPromise;
+      return fresh || this.getSession();
     },
     addAuthHeaders(options={}){
       const headers = options.headers ? {...options.headers} : {};
@@ -190,9 +253,12 @@
     async refreshSession(){
       try{
         const res = await fetch('/api/auth/me');
-        if(!res.ok) return null;
+        if(!res.ok){
+          if(res.status === 401) this.clearSession?.();
+          return null;
+        }
         const user = await res.json();
-        if(user && user.id) localStorage.setItem('sessionUser', JSON.stringify(user));
+        if(user && user.id) this.setSession?.(user);
         return user;
       }catch(e){
         return null;
@@ -673,9 +739,9 @@
           if(input) input.focus();
           if(Date.now() - cache.ts > 60000 || !cache.ts){
             const [items, jobs, activity] = await Promise.all([
-              this.fetchJsonSafe('/api/items', {}, []),
-              this.fetchJsonSafe('/api/jobs', {}, []),
-              this.fetchJsonSafe('/api/recent-activity', {}, [])
+              this.fetchJsonSafe('/api/items', { cacheTtlMs: 60000 }, []),
+              this.fetchJsonSafe('/api/jobs', { cacheTtlMs: 60000 }, []),
+              this.fetchJsonSafe('/api/recent-activity', { cacheTtlMs: 30000 }, [])
             ]);
             cache = {
               items: Array.isArray(items) ? items : [],
@@ -899,6 +965,14 @@
   utils.initInstallPrompt?.();
   utils.initPageTransitions?.();
   const domReady = ()=>{
+    try{
+      if(document.body?.classList.contains('app') || document.querySelector('.sidebar') || document.querySelector('.user-chip')){
+        utils.initSession?.().then(()=>{
+          utils.applyNavVisibility?.();
+          utils.setupUserChip?.();
+        }).catch(()=>{});
+      }
+    }catch(e){}
     try{ utils.setupUserChip?.(); }catch(e){}
     try{ utils.setupLogout?.(); }catch(e){}
   };

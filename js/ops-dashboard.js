@@ -582,7 +582,7 @@ function avgDuration(events){
   return durations.reduce((sum, v)=> sum + v, 0) / durations.length;
 }
 
-function renderTables(metrics, data){
+function renderTables(metrics){
   const slowBody = document.querySelector('#slowMovingTable tbody');
   if(slowBody){
     slowBody.innerHTML = '';
@@ -590,9 +590,8 @@ function renderTables(metrics, data){
       slowBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#6b7280;">No slow movers found.</td></tr>';
     }else{
       metrics.slowMovingList.forEach(row=>{
-        const item = data.items.find(i=> i.code === row.code);
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${row.code}</td><td>${item?.name || ''}</td><td>${row.moves}</td><td>${fmtNum(row.available)}</td>`;
+        tr.innerHTML = `<td>${row.code}</td><td>${row.name || ''}</td><td>${row.moves}</td><td>${fmtNum(row.available)}</td>`;
         slowBody.appendChild(tr);
       });
     }
@@ -702,10 +701,13 @@ function applyDensityMode(){
 }
 
 async function renderOpsDashboard(){
-  const data = await loadData();
-  const metrics = computeMetrics(data);
-  const avgPick = avgDuration(data.pickEvents);
-  const avgCheckin = avgDuration(data.checkinEvents);
+  const metrics = await utils.fetchJsonSafe('/api/dashboard/manager', { cacheTtlMs: 10000 }, {}) || {};
+  metrics.slowMovingList = Array.isArray(metrics.slowMovingList) ? metrics.slowMovingList : [];
+  metrics.topUsage = Array.isArray(metrics.topUsage) ? metrics.topUsage : [];
+  metrics.countDueList = Array.isArray(metrics.countDueList) ? metrics.countDueList : [];
+  metrics.lateReturnsList = Array.isArray(metrics.lateReturnsList) ? metrics.lateReturnsList : [];
+  const avgPick = metrics.avgPickTime;
+  const avgCheckin = metrics.avgCheckinTime;
 
   setText('shift-picked', fmtNum(metrics.pickedToday));
   setText('shift-received', fmtNum(metrics.receivedToday));
@@ -755,7 +757,7 @@ async function renderOpsDashboard(){
   setChip('chip-negative', toneByCount(metrics.negativeAvailability, { warnAt: 1, criticalAt: 1 }));
   setChip('chip-not-counted', toneByCount(metrics.notCounted, { warnAt: 1, criticalAt: 10 }));
 
-  renderTables(metrics, data);
+  renderTables(metrics);
   renderWorklists(metrics);
 }
 

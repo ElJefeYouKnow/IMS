@@ -3,6 +3,7 @@ const SESSION_KEY = 'sessionUser';
 const FALLBACK = 'N/A';
 
 function getSession(){
+  if(window.utils?.getSession) return utils.getSession();
   try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; }
 }
 

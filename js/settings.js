@@ -1,12 +1,17 @@
 const SESSION_KEY = 'sessionUser';
 
 function getSession(){
+  if(window.utils?.getSession) return utils.getSession();
   try{
     return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
   }catch(e){ return null; }
 }
 
 function setSession(next){
+  if(window.utils?.setSession){
+    utils.setSession(next);
+    return;
+  }
   localStorage.setItem(SESSION_KEY, JSON.stringify(next));
 }
 

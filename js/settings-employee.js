@@ -146,11 +146,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
 function updateSessionName(name){
   if(!name) return;
   try{
-    const raw = localStorage.getItem('sessionUser');
-    if(!raw) return;
-    const session = JSON.parse(raw);
+    const session = window.utils?.getSession?.();
+    if(!session) return;
     session.name = name;
-    localStorage.setItem('sessionUser', JSON.stringify(session));
+    if(window.utils?.setSession) utils.setSession(session);
+    else localStorage.setItem('sessionUser', JSON.stringify(session));
   }catch(e){}
 }
 

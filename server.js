@@ -184,10 +184,12 @@ app.use(express.json({ limit: '1mb' }));
 // Disable etags and caching for HTML/CSS/JS so UI changes propagate immediately
 app.disable('etag');
 app.use((req, res, next) => {
-  if (/\.(html|css|js|json)$/i.test(req.path)) {
+  if (/\.html$/i.test(req.path)) {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');
+  } else if (/\.(css|js)$/i.test(req.path)) {
+    res.set('Cache-Control', 'public, max-age=300, must-revalidate');
   }
   next();
 });
@@ -583,6 +585,639 @@ function resolveLowStockEnabled(item, categoryRulesMap) {
   const catName = (item?.category || DEFAULT_CATEGORY_NAME || '').toString().trim().toLowerCase();
   const rules = categoryRulesMap.get(catName);
   return rules ? !!rules.lowStockEnabled : false;
+}
+
+function dashboardParseTs(val) {
+  if (val === undefined || val === null) return null;
+  if (typeof val === 'number') return val;
+  const num = Number(val);
+  if (Number.isFinite(num)) return num;
+  const ts = Date.parse(val);
+  return Number.isNaN(ts) ? null : ts;
+}
+
+function dashboardNormalizeJobId(value) {
+  const val = (value || '').toString().trim();
+  if (!val) return '';
+  const lowered = val.toLowerCase();
+  if (['general', 'general inventory', 'none', 'unassigned'].includes(lowered)) return '';
+  return val;
+}
+
+function dashboardBuildOrderBalance(orders, inventory) {
+  const map = new Map();
+  (orders || []).forEach((order) => {
+    const sourceId = order.sourceid || order.sourceId || order.id;
+    if (!sourceId) return;
+    const jobId = dashboardNormalizeJobId(order.jobid || order.jobId || '');
+    if (!map.has(sourceId)) {
+      map.set(sourceId, {
+        sourceId,
+        code: order.code,
+        jobId,
+        name: order.name || '',
+        ordered: 0,
+        checkedIn: 0,
+        eta: order.eta || '',
+        lastOrderTs: 0,
+      });
+    }
+    const rec = map.get(sourceId);
+    rec.ordered += Number(order.qty || 0);
+    rec.lastOrderTs = Math.max(rec.lastOrderTs, dashboardParseTs(order.ts) || 0);
+    if (!rec.eta && order.eta) rec.eta = order.eta;
+  });
+  (inventory || []).filter((entry) => (entry.type || '').toLowerCase() === 'in' && (entry.sourceid || entry.sourceId)).forEach((checkin) => {
+    const key = checkin.sourceid || checkin.sourceId;
+    if (!map.has(key)) return;
+    const rec = map.get(key);
+    rec.checkedIn += Number(checkin.qty || 0);
+  });
+  (inventory || []).filter((entry) => (entry.type || '').toLowerCase() === 'in' && !(entry.sourceid || entry.sourceId)).forEach((checkin) => {
+    const code = checkin.code;
+    if (!code) return;
+    const jobId = dashboardNormalizeJobId(checkin.jobid || checkin.jobId || '');
+    let qtyLeft = Number(checkin.qty || 0);
+    if (qtyLeft <= 0) return;
+    const candidates = Array.from(map.values())
+      .filter((rec) => rec.code === code && (rec.jobId || '') === (jobId || ''))
+      .sort((a, b) => (a.lastOrderTs || 0) - (b.lastOrderTs || 0));
+    candidates.forEach((rec) => {
+      if (qtyLeft <= 0) return;
+      const openQty = Math.max(0, rec.ordered - rec.checkedIn);
+      if (openQty <= 0) return;
+      const usedQty = Math.min(openQty, qtyLeft);
+      rec.checkedIn += usedQty;
+      qtyLeft -= usedQty;
+    });
+  });
+  return map;
+}
+
+function dashboardBuildOpenOrders(orders, inventory) {
+  const balances = dashboardBuildOrderBalance(orders, inventory);
+  const rows = [];
+  balances.forEach((rec) => {
+    const openQty = Math.max(0, rec.ordered - rec.checkedIn);
+    if (openQty <= 0) return;
+    rows.push({ ...rec, openQty });
+  });
+  return rows;
+}
+
+function dashboardAggregateStock(entries) {
+  const map = new Map();
+  (entries || []).forEach((entry) => {
+    if (!entry.code) return;
+    if (!map.has(entry.code)) {
+      map.set(entry.code, { code: entry.code, name: entry.name || '', inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0 });
+    }
+    const rec = map.get(entry.code);
+    if (!rec.name && entry.name) rec.name = entry.name;
+    const qty = Number(entry.qty || 0) || 0;
+    const type = (entry.type || '').toLowerCase();
+    if (type === 'in' || type === 'return') rec.inQty += qty;
+    if (type === 'out') rec.outQty += qty;
+    if (type === 'return') rec.returnQty += qty;
+    if (type === 'reserve') rec.reserveQty += qty;
+    if (type === 'reserve_release') rec.reserveQty -= qty;
+  });
+  const list = [];
+  const totals = { available: 0, reserved: 0, checkedOut: 0 };
+  map.forEach((rec) => {
+    const checkedOut = Math.max(0, rec.outQty - rec.returnQty);
+    const available = Math.max(0, rec.inQty - rec.outQty - rec.reserveQty);
+    const reserved = Math.max(0, rec.reserveQty);
+    const row = { ...rec, checkedOut, available, reserveQty: reserved };
+    totals.available += available;
+    totals.reserved += reserved;
+    totals.checkedOut += checkedOut;
+    list.push(row);
+  });
+  return { list, byCode: new Map(list.map((row) => [row.code, row])), totals };
+}
+
+function dashboardBuildOverdueRows(entries) {
+  const map = new Map();
+  (entries || []).forEach((entry) => {
+    const type = (entry.type || '').toLowerCase();
+    if (type !== 'out' && type !== 'return') return;
+    if (!entry.code) return;
+    const jobId = dashboardNormalizeJobId(entry.jobid || entry.jobId || '');
+    const key = `${entry.code}|${jobId}`;
+    const rec = map.get(key) || { code: entry.code, jobId, out: 0, ret: 0, minDue: null, lastOutTs: 0 };
+    const qty = Number(entry.qty || 0) || 0;
+    if (type === 'out') {
+      rec.out += qty;
+      rec.lastOutTs = Math.max(rec.lastOutTs, dashboardParseTs(entry.ts) || 0);
+      const due = dashboardParseTs(entry.returnDate || entry.returndate);
+      if (due) rec.minDue = rec.minDue ? Math.min(rec.minDue, due) : due;
+    } else {
+      rec.ret += qty;
+    }
+    map.set(key, rec);
+  });
+  const now = Date.now();
+  const rows = [];
+  map.forEach((rec) => {
+    const outstanding = Math.max(0, rec.out - rec.ret);
+    if (outstanding <= 0) return;
+    if (!rec.minDue || rec.minDue >= now) return;
+    const daysLate = Math.floor((now - rec.minDue) / (24 * 60 * 60 * 1000));
+    rows.push({ ...rec, outstanding, daysLate });
+  });
+  return rows;
+}
+
+function dashboardBuildTopMovers(entries, itemMap, stockByCode) {
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const allowedTypes = new Set(['in', 'out', 'return', 'reserve', 'reserve_release', 'purchase', 'consume']);
+  const map = new Map();
+  (entries || []).forEach((entry) => {
+    const ts = dashboardParseTs(entry.ts);
+    if (!ts || ts < cutoff) return;
+    const type = (entry.type || '').toLowerCase();
+    if (!allowedTypes.has(type) || !entry.code) return;
+    const qty = Math.abs(Number(entry.qty || 0) || 0);
+    if (!qty) return;
+    const rec = map.get(entry.code) || { code: entry.code, name: entry.name || '', moves: 0, inUse: 0 };
+    rec.moves += qty;
+    if (!rec.name && entry.name) rec.name = entry.name;
+    map.set(entry.code, rec);
+  });
+  const rows = Array.from(map.values());
+  rows.forEach((row) => {
+    const item = itemMap.get(row.code);
+    if (item?.name) row.name = item.name;
+    row.inUse = stockByCode.get(row.code)?.checkedOut || 0;
+  });
+  rows.sort((a, b) => b.moves - a.moves);
+  return rows.slice(0, 8);
+}
+
+function dashboardBuildCountDueRows(items, counts) {
+  const countMap = new Map();
+  (counts || []).forEach((row) => {
+    if (!row?.code) return;
+    const ts = dashboardParseTs(row.countedAt || row.countedat || row.ts || row.counted_at);
+    const existing = countMap.get(row.code);
+    if (existing && existing.ts && ts && existing.ts > ts) return;
+    countMap.set(row.code, { ts });
+  });
+  const cutoffDays = 30;
+  const now = Date.now();
+  const rows = [];
+  (items || []).forEach((item) => {
+    if (!item?.code) return;
+    const ts = countMap.get(item.code)?.ts || null;
+    const daysSince = ts ? Math.floor((now - ts) / (24 * 60 * 60 * 1000)) : null;
+    if (!ts || daysSince > cutoffDays) {
+      rows.push({ code: item.code, name: item.name || '', lastCounted: ts, daysSince });
+    }
+  });
+  rows.sort((a, b) => {
+    const aScore = a.daysSince === null ? Number.POSITIVE_INFINITY : a.daysSince;
+    const bScore = b.daysSince === null ? Number.POSITIVE_INFINITY : b.daysSince;
+    return bScore - aScore;
+  });
+  return rows;
+}
+
+function dashboardBuildChartBuckets(entries, days = 7) {
+  const buckets = Array.from({ length: days }).map((_, index) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (days - 1 - index));
+    return {
+      key: date.toDateString(),
+      label: `${date.getMonth() + 1}/${date.getDate()}`,
+      total: 0,
+    };
+  });
+  (entries || []).forEach((entry) => {
+    const ts = dashboardParseTs(entry.ts);
+    if (!ts) return;
+    const bucket = buckets.find((candidate) => candidate.key === new Date(ts).toDateString());
+    if (bucket) bucket.total += 1;
+  });
+  return buckets.map(({ label, total }) => ({ label, total }));
+}
+
+function dashboardParseDetails(details) {
+  if (!details) return {};
+  if (typeof details === 'object') return details;
+  try {
+    return JSON.parse(details);
+  } catch (e) {
+    return {};
+  }
+}
+
+function dashboardBuildCategoryRules(categories) {
+  return new Map((categories || []).filter((cat) => cat?.name).map((cat) => [String(cat.name).toLowerCase(), normalizeCategoryRules(cat.rules)]));
+}
+
+function dashboardComputeManagerMetrics({ inventory, counts, items, categories, pickEvents, checkinEvents }) {
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const windowDays = 30;
+  const recentDays = 7;
+  const windowStart = now - windowDays * dayMs;
+  const recentStart = now - recentDays * dayMs;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStart = today.getTime();
+  const itemMap = new Map((items || []).map((item) => [String(item.code || '').trim(), item]));
+  const categoryRules = dashboardBuildCategoryRules(categories || []);
+  const statsMap = new Map();
+  (inventory || []).forEach((entry) => {
+    const code = String(entry.code || '').trim();
+    if (!code) return;
+    const type = String(entry.type || '').toLowerCase();
+    const qty = Number(entry.qty || 0) || 0;
+    const ts = dashboardParseTs(entry.ts) || 0;
+    const rec = statsMap.get(code) || {
+      code,
+      in: 0,
+      out: 0,
+      reserve: 0,
+      reserveRelease: 0,
+      returned: 0,
+      consume: 0,
+      ordered: 0,
+      lastMoveTs: 0,
+      lastAnyTs: 0,
+    };
+    rec.lastAnyTs = Math.max(rec.lastAnyTs, ts);
+    if (type === 'in') rec.in += qty;
+    if (type === 'out') rec.out += qty;
+    if (type === 'reserve') rec.reserve += qty;
+    if (type === 'reserve_release') rec.reserveRelease += qty;
+    if (type === 'return') rec.returned += qty;
+    if (type === 'consume') rec.consume += qty;
+    if (type === 'ordered') rec.ordered += qty;
+    if (['in', 'out', 'return', 'consume'].includes(type)) rec.lastMoveTs = Math.max(rec.lastMoveTs, ts);
+    statsMap.set(code, rec);
+  });
+  statsMap.forEach((rec) => {
+    rec.available = rec.in + rec.returned + rec.reserveRelease - rec.out - rec.reserve - rec.consume;
+    rec.onHand = rec.in + rec.returned - rec.out - rec.consume;
+  });
+
+  let pickedToday = 0;
+  let receivedToday = 0;
+  (inventory || []).forEach((entry) => {
+    const type = String(entry.type || '').toLowerCase();
+    const ts = dashboardParseTs(entry.ts);
+    if (!ts || ts < todayStart) return;
+    const qty = Math.abs(Number(entry.qty || 0) || 0);
+    if (type === 'out') pickedToday += qty;
+    if (type === 'in') receivedToday += qty;
+  });
+
+  const countsMap = new Map();
+  (counts || []).forEach((row) => {
+    const code = String(row.code || '').trim();
+    if (!code) return;
+    const countedAt = dashboardParseTs(row.countedAt || row.countedat || row.ts);
+    const existing = countsMap.get(code);
+    if (existing && existing.countedAt && countedAt && existing.countedAt > countedAt) return;
+    const item = itemMap.get(code);
+    const rawCost = item?.unitPrice ?? item?.unitprice;
+    const cost = Number(rawCost);
+    countsMap.set(code, {
+      qty: Number(row.qty || 0),
+      countedAt,
+      cost: Number.isFinite(cost) ? cost : 0,
+    });
+  });
+
+  const countDueList = [];
+  statsMap.forEach((rec, code) => {
+    const count = countsMap.get(code);
+    const lastCounted = count?.countedAt || 0;
+    if (lastCounted && lastCounted >= (now - windowDays * dayMs)) return;
+    countDueList.push({
+      code,
+      name: itemMap.get(code)?.name || '',
+      lastCounted,
+      available: rec.available,
+    });
+  });
+  countDueList.sort((a, b) => {
+    const aTs = a.lastCounted || 0;
+    const bTs = b.lastCounted || 0;
+    if (aTs === bTs) return String(a.code || '').localeCompare(String(b.code || ''));
+    if (!aTs) return -1;
+    if (!bTs) return 1;
+    return aTs - bTs;
+  });
+
+  const returnMap = new Map();
+  (inventory || []).forEach((entry) => {
+    const type = String(entry.type || '').toLowerCase();
+    if (type !== 'out' && type !== 'return') return;
+    const code = String(entry.code || '').trim();
+    if (!code) return;
+    const jobId = dashboardNormalizeJobId(entry.jobid || entry.jobId || '');
+    const key = `${code}|${jobId}`;
+    const rec = returnMap.get(key) || { code, jobId, out: 0, ret: 0, lastOutTs: 0, minDue: null };
+    const qty = Number(entry.qty || 0) || 0;
+    const ts = dashboardParseTs(entry.ts) || 0;
+    if (type === 'out') {
+      rec.out += qty;
+      rec.lastOutTs = Math.max(rec.lastOutTs, ts);
+      const due = dashboardParseTs(entry.returnDate || entry.returndate);
+      if (due) rec.minDue = rec.minDue ? Math.min(rec.minDue, due) : due;
+    } else {
+      rec.ret += qty;
+    }
+    returnMap.set(key, rec);
+  });
+  const outstandingReturns = Array.from(returnMap.values()).map((rec) => ({ ...rec, outstanding: Math.max(0, rec.out - rec.ret) }));
+  const overdueReturns = outstandingReturns.filter((rec) => {
+    if (rec.outstanding <= 0) return false;
+    if (rec.minDue && rec.minDue < now) return true;
+    return !rec.minDue && rec.lastOutTs && rec.lastOutTs < (now - windowDays * dayMs);
+  });
+  const pendingReturnsQty = outstandingReturns.reduce((sum, rec) => sum + rec.outstanding, 0);
+  const overdueReturnsQty = overdueReturns.reduce((sum, rec) => sum + rec.outstanding, 0);
+  const overdueReturnsCount = overdueReturns.length;
+  const lateReturnsList = overdueReturns.map((rec) => ({
+    code: rec.code,
+    name: itemMap.get(rec.code)?.name || '',
+    jobId: rec.jobId,
+    outstanding: rec.outstanding,
+    due: rec.minDue || rec.lastOutTs || 0,
+  })).sort((a, b) => (a.due || 0) - (b.due || 0)).slice(0, 5);
+
+  let sumSystem = 0;
+  let sumDiff = 0;
+  let discrepancyValue = 0;
+  let counted = 0;
+  statsMap.forEach((rec, code) => {
+    const count = countsMap.get(code);
+    if (!count) return;
+    const systemQty = Number(rec.available || 0);
+    const countedQty = Number(count.qty || 0);
+    const diff = countedQty - systemQty;
+    sumSystem += Math.abs(systemQty);
+    sumDiff += Math.abs(diff);
+    discrepancyValue += Math.abs(diff) * (count.cost || 0);
+    counted += 1;
+  });
+  const accuracy = counted && sumSystem ? Math.max(0, 1 - (sumDiff / sumSystem)) : null;
+
+  const totalTransactions = (inventory || []).filter((entry) => ['in', 'out', 'return', 'reserve', 'consume', 'reserve_release'].includes(String(entry.type || '').toLowerCase())).length;
+  const adjustments = (inventory || []).filter((entry) => {
+    const type = String(entry.type || '').toLowerCase();
+    const status = String(entry.status || '').toLowerCase();
+    return type === 'consume' || status === 'damaged' || status === 'lost';
+  }).length;
+  const adjustmentRate = totalTransactions ? adjustments / totalTransactions : null;
+
+  let inventoryValue = 0;
+  let belowReorder = 0;
+  let negativeAvailability = 0;
+  let notCounted = 0;
+  let deadStock = 0;
+  let stockouts = 0;
+  let totalItems = 0;
+  let totalAvailableValue = 0;
+
+  statsMap.forEach((rec, code) => {
+    const item = itemMap.get(code);
+    const lowStockEnabled = resolveLowStockEnabled(item, categoryRules);
+    const rawCost = item?.unitPrice ?? item?.unitprice;
+    const cost = Number(rawCost);
+    const itemCost = Number.isFinite(cost) ? cost : 0;
+    const available = Number(rec.available || 0);
+    const onHand = Number(rec.onHand || 0);
+    const reorderPoint = Number(item?.reorderPoint ?? item?.reorderpoint);
+    if (lowStockEnabled && Number.isFinite(reorderPoint) && available <= reorderPoint) belowReorder += 1;
+    if (available < 0) negativeAvailability += 1;
+    if (lowStockEnabled && available <= 0) stockouts += 1;
+    totalItems += 1;
+    inventoryValue += Math.max(0, onHand) * itemCost;
+    totalAvailableValue += Math.max(0, onHand) * itemCost;
+    const count = countsMap.get(code);
+    if (!count || !count.countedAt || count.countedAt < (now - windowDays * dayMs)) notCounted += 1;
+    if (!rec.lastMoveTs || rec.lastMoveTs < windowStart) deadStock += 1;
+  });
+
+  const inventoryValueDelta = (inventory || []).reduce((sum, entry) => {
+    const type = String(entry.type || '').toLowerCase();
+    if (!['in', 'out', 'return', 'consume'].includes(type)) return sum;
+    const ts = dashboardParseTs(entry.ts);
+    if (!ts || ts < (now - 7 * dayMs)) return sum;
+    const qty = Number(entry.qty || 0) || 0;
+    const item = itemMap.get(entry.code || '');
+    const cost = Number(item?.unitPrice ?? item?.unitprice);
+    const unitCost = Number.isFinite(cost) ? cost : 0;
+    const direction = (type === 'in' || type === 'return') ? 1 : -1;
+    return sum + (direction * qty * unitCost);
+  }, 0);
+  const valueSevenDaysAgo = inventoryValue - inventoryValueDelta;
+  const inventoryTrend = valueSevenDaysAgo ? (inventoryValue - valueSevenDaysAgo) / valueSevenDaysAgo : null;
+
+  const handledByUser = new Map();
+  (inventory || []).forEach((entry) => {
+    const type = String(entry.type || '').toLowerCase();
+    if (!['in', 'out', 'return', 'consume'].includes(type)) return;
+    const ts = dashboardParseTs(entry.ts);
+    if (!ts || ts < recentStart) return;
+    const qty = Math.abs(Number(entry.qty || 0) || 0);
+    const key = entry.useremail || entry.userEmail || entry.username || entry.userName || 'Unknown';
+    handledByUser.set(key, (handledByUser.get(key) || 0) + qty);
+  });
+  const totalHandled = Array.from(handledByUser.values()).reduce((sum, value) => sum + value, 0);
+  const itemsPerEmployee = handledByUser.size ? totalHandled / handledByUser.size : null;
+
+  const ordersProcessed = new Set();
+  (inventory || []).forEach((entry) => {
+    const type = String(entry.type || '').toLowerCase();
+    if (type !== 'in' || String(entry.sourcetype || entry.sourceType || '').toLowerCase() !== 'order') return;
+    const ts = dashboardParseTs(entry.ts);
+    if (!ts || ts < recentStart) return;
+    const sourceId = entry.sourceid || entry.sourceId || entry.id;
+    if (sourceId) ordersProcessed.add(sourceId);
+  });
+  const ordersPerDay = ordersProcessed.size / recentDays;
+
+  const orderMap = new Map();
+  (inventory || []).forEach((entry) => {
+    if (String(entry.type || '').toLowerCase() !== 'ordered') return;
+    orderMap.set(entry.id, {
+      id: entry.id,
+      qty: Number(entry.qty || 0) || 0,
+      ts: dashboardParseTs(entry.ts),
+      eta: dashboardParseTs(entry.eta),
+      received: 0,
+      firstCheckin: null,
+    });
+  });
+  (inventory || []).forEach((entry) => {
+    const type = String(entry.type || '').toLowerCase();
+    if (type !== 'in' || String(entry.sourcetype || entry.sourceType || '').toLowerCase() !== 'order') return;
+    const sourceId = entry.sourceid || entry.sourceId;
+    if (!sourceId || !orderMap.has(sourceId)) return;
+    const rec = orderMap.get(sourceId);
+    const qty = Number(entry.qty || 0) || 0;
+    rec.received += qty;
+    const ts = dashboardParseTs(entry.ts);
+    if (ts && (!rec.firstCheckin || ts < rec.firstCheckin)) rec.firstCheckin = ts;
+  });
+
+  const leadTimes = [];
+  let onTime = 0;
+  let onTimeTotal = 0;
+  let orderedQtyWindow = 0;
+  let receivedQtyWindow = 0;
+  orderMap.forEach((order) => {
+    const orderTs = order.ts || 0;
+    if (orderTs && orderTs >= windowStart) {
+      orderedQtyWindow += order.qty;
+      receivedQtyWindow += order.received;
+    }
+    if (orderTs && order.firstCheckin) {
+      leadTimes.push(order.firstCheckin - orderTs);
+      if (order.eta) {
+        onTimeTotal += 1;
+        if (order.firstCheckin <= order.eta) onTime += 1;
+      }
+    }
+  });
+  const avgLeadTime = leadTimes.length ? leadTimes.reduce((sum, value) => sum + value, 0) / leadTimes.length : null;
+  const leadVar = leadTimes.length > 1
+    ? Math.sqrt(leadTimes.reduce((sum, value) => sum + Math.pow(value - avgLeadTime, 2), 0) / leadTimes.length)
+    : null;
+  const onTimeRate = onTimeTotal ? onTime / onTimeTotal : null;
+  const fillRate = orderedQtyWindow ? Math.min(1, receivedQtyWindow / orderedQtyWindow) : null;
+  const serviceLevel = stockouts === 0 && totalItems ? 1 : totalItems ? 1 - (stockouts / totalItems) : null;
+
+  const cogs = (inventory || []).reduce((sum, entry) => {
+    if (String(entry.type || '').toLowerCase() !== 'out') return sum;
+    const ts = dashboardParseTs(entry.ts);
+    if (!ts || ts < windowStart) return sum;
+    const qty = Number(entry.qty || 0) || 0;
+    const item = itemMap.get(entry.code || '');
+    const cost = Number(item?.unitPrice ?? item?.unitprice);
+    return sum + (Number.isFinite(cost) ? cost : 0) * qty;
+  }, 0);
+  const avgInventoryValue = totalAvailableValue;
+  const turnover = avgInventoryValue ? cogs / avgInventoryValue : null;
+  const doh = cogs ? (avgInventoryValue / (cogs / windowDays)) : null;
+
+  const usageWindow = new Map();
+  (inventory || []).forEach((entry) => {
+    if (String(entry.type || '').toLowerCase() !== 'out') return;
+    const ts = dashboardParseTs(entry.ts);
+    if (!ts || ts < windowStart) return;
+    const code = String(entry.code || '').trim();
+    if (!code) return;
+    usageWindow.set(code, (usageWindow.get(code) || 0) + (Number(entry.qty || 0) || 0));
+  });
+  const slowMovingList = Array.from(statsMap.values()).map((rec) => ({
+    code: rec.code,
+    name: itemMap.get(rec.code)?.name || '',
+    moves: usageWindow.get(rec.code) || 0,
+    available: rec.available,
+  })).filter((row) => row.moves <= 2).sort((a, b) => a.moves - b.moves || a.available - b.available).slice(0, 6);
+
+  const usageSorted = Array.from(usageWindow.entries()).map(([code, qty]) => ({
+    code,
+    name: itemMap.get(code)?.name || '',
+    qty,
+  })).sort((a, b) => b.qty - a.qty);
+  const usageTotal = usageSorted.reduce((sum, row) => sum + row.qty, 0);
+  const topUsage = usageSorted.slice(0, 6).map((row) => ({
+    ...row,
+    share: usageTotal ? row.qty / usageTotal : 0,
+  }));
+  let cumulative = 0;
+  let skuCount = 0;
+  for (const row of usageSorted) {
+    cumulative += row.qty;
+    skuCount += 1;
+    if (usageTotal && cumulative / usageTotal >= 0.8) break;
+  }
+  const eightyTwenty = totalItems ? (skuCount / totalItems) : null;
+
+  const lostQty = (inventory || []).reduce((sum, entry) => {
+    if (String(entry.type || '').toLowerCase() !== 'consume') return sum;
+    const status = String(entry.status || '').toLowerCase();
+    const reason = String(entry.reason || '').toLowerCase();
+    if (status === 'lost' || reason.includes('lost')) return sum + (Number(entry.qty || 0) || 0);
+    return sum;
+  }, 0);
+  const damagedQty = (inventory || []).reduce((sum, entry) => {
+    if (String(entry.type || '').toLowerCase() !== 'consume') return sum;
+    const status = String(entry.status || '').toLowerCase();
+    const reason = String(entry.reason || '').toLowerCase();
+    if (status === 'damaged' || reason.includes('damage')) return sum + (Number(entry.qty || 0) || 0);
+    return sum;
+  }, 0);
+  const writeOffs = (inventory || []).filter((entry) => String(entry.type || '').toLowerCase() === 'consume').length;
+  const totalIssued = (inventory || []).reduce((sum, entry) => {
+    if (String(entry.type || '').toLowerCase() !== 'out') return sum;
+    const ts = dashboardParseTs(entry.ts);
+    if (!ts || ts < windowStart) return sum;
+    return sum + (Number(entry.qty || 0) || 0);
+  }, 0);
+  const shrinkage = totalIssued ? lostQty / totalIssued : null;
+  const damaged = totalIssued ? damagedQty / totalIssued : null;
+  const avgPerItemValue = inventoryValue / Math.max(totalItems, 1);
+  const lostValue = lostQty * avgPerItemValue;
+  const alertsCount = negativeAvailability + stockouts + overdueReturnsCount;
+
+  const avgDuration = (events) => {
+    const durations = (events || []).map((event) => {
+      const details = dashboardParseDetails(event.details);
+      return Number(details.durationMs || details.duration || event.durationMs || event.duration);
+    }).filter((value) => Number.isFinite(value) && value > 0);
+    if (!durations.length) return null;
+    return durations.reduce((sum, value) => sum + value, 0) / durations.length;
+  };
+
+  return {
+    generatedAt: now,
+    pickedToday,
+    receivedToday,
+    pendingReturnsQty,
+    overdueReturnsQty,
+    overdueReturnsCount,
+    alertsCount,
+    countDueList: countDueList.slice(0, 5),
+    lateReturnsList,
+    accuracy,
+    adjustmentRate,
+    discrepancyValue,
+    inventoryValue,
+    inventoryTrend,
+    belowReorder,
+    negativeAvailability,
+    notCounted,
+    deadStock,
+    stockouts,
+    totalItems,
+    ordersPerDay,
+    itemsPerEmployee,
+    avgLeadTime,
+    leadVar,
+    onTimeRate,
+    fillRate,
+    serviceLevel,
+    turnover,
+    doh,
+    slowMovingList,
+    topUsage,
+    eightyTwenty,
+    shrinkage,
+    damaged,
+    writeOffs,
+    lostValue,
+    avgPickTime: avgDuration(pickEvents),
+    avgCheckinTime: avgDuration(checkinEvents),
+  };
 }
 
 async function ensureTenantCapabilities(tenantIdVal) {
@@ -1161,9 +1796,14 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(sourceType, sourceId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_items_tenant ON items(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant_ts ON inventory(tenantId, ts DESC)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant_type_ts ON inventory(tenantId, type, ts DESC)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant_code_ts ON inventory(tenantId, code, ts DESC)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant_job_ts ON inventory(tenantId, jobId, ts DESC)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_jobs_tenant ON jobs(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_counts_tenant ON inventory_counts(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_counts_tenant_code_countedat ON inventory_counts(tenantId, code, countedAt DESC)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_support_tickets_tenant ON support_tickets(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(userId)');
   await runAsync(`CREATE TABLE IF NOT EXISTS audit_events(
@@ -3000,6 +3640,113 @@ app.get('/api/dev/users', requireDev, async (req, res) => {
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.get('/api/dashboard/admin', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const [metricsRow, lowStockRows, activityRows, items, counts, orderRows, checkins, returnRows, movementRows, stockRows] = await Promise.all([
+      getAsync(`
+        SELECT
+          COALESCE(SUM(CASE WHEN type='in' THEN qty WHEN type='return' THEN qty WHEN type='reserve_release' THEN qty WHEN type='out' THEN -qty WHEN type='reserve' THEN -qty ELSE 0 END),0) as availableunits,
+          COALESCE(SUM(CASE WHEN type='reserve' THEN qty WHEN type='reserve_release' THEN -qty ELSE 0 END),0) as reservedunits,
+          COALESCE(COUNT(DISTINCT CASE WHEN jobId IS NOT NULL AND jobId != '' THEN jobId END),0) as activejobs
+        FROM inventory
+        WHERE tenantId=$1
+      `, [t]),
+      allAsync(`
+        SELECT i.code, i.name,
+          COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) as available,
+          COALESCE(SUM(CASE WHEN inv.type='reserve' THEN inv.qty WHEN inv.type='reserve_release' THEN -inv.qty ELSE 0 END),0) as reserve
+        FROM items i
+        LEFT JOIN inventory inv ON inv.code = i.code AND inv.tenantId = i.tenantId
+        LEFT JOIN categories c ON c.tenantId = i.tenantId AND LOWER(c.name)=LOWER(COALESCE(NULLIF(i.category,''), $2))
+        WHERE i.tenantId=$1
+          AND COALESCE(i.lowStockEnabled, (c.rules->>'lowStockEnabled')::boolean, false) = true
+        GROUP BY i.code, i.name, c.rules
+        HAVING COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) > 0
+          AND COALESCE(SUM(CASE WHEN inv.type='in' THEN inv.qty WHEN inv.type='return' THEN inv.qty WHEN inv.type='reserve_release' THEN inv.qty WHEN inv.type='out' THEN -inv.qty WHEN inv.type='reserve' THEN -inv.qty ELSE 0 END),0) <= COALESCE((c.rules->>'lowStockThreshold')::int, $3)
+        ORDER BY available ASC
+        LIMIT 20
+      `, [t, DEFAULT_CATEGORY_NAME, DEFAULT_CATEGORY_RULES.lowStockThreshold]),
+      allAsync('SELECT type, code, qty, jobId, ts FROM inventory WHERE tenantId=$1 ORDER BY ts DESC LIMIT 20', [t]),
+      allAsync('SELECT code, name FROM items WHERE tenantId=$1 ORDER BY name ASC', [t]),
+      allAsync('SELECT code, countedAt, ts FROM inventory_counts WHERE tenantId=$1', [t]),
+      allAsync("SELECT id, sourceId, code, name, qty, jobId, eta, ts FROM inventory WHERE tenantId=$1 AND type='ordered' ORDER BY ts DESC", [t]),
+      allAsync("SELECT sourceId, code, name, qty, jobId, ts, type FROM inventory WHERE tenantId=$1 AND type='in' ORDER BY ts DESC", [t]),
+      allAsync("SELECT code, qty, jobId, returnDate, ts, type FROM inventory WHERE tenantId=$1 AND type IN ('out','return') ORDER BY ts DESC", [t]),
+      allAsync("SELECT code, name, qty, type, ts FROM inventory WHERE tenantId=$1 AND ts >= $2 AND type IN ('in','out','return','reserve','reserve_release','purchase','consume')", [t, Date.now() - 7 * 24 * 60 * 60 * 1000]),
+      allAsync("SELECT code, name, qty, type FROM inventory WHERE tenantId=$1 AND type IN ('in','out','return','reserve','reserve_release')", [t]),
+    ]);
+
+    const itemMap = new Map((items || []).map((item) => [item.code, item]));
+    const stock = dashboardAggregateStock(stockRows || []);
+    const openOrders = dashboardBuildOpenOrders(orderRows || [], checkins || []);
+    const overdueRows = dashboardBuildOverdueRows(returnRows || []);
+    const topMovers = dashboardBuildTopMovers(movementRows || [], itemMap, stock.byCode);
+    const countDueRows = dashboardBuildCountDueRows(items || [], counts || []);
+    const chart = dashboardBuildChartBuckets(activityRows || [], 7);
+
+    res.json({
+      metrics: {
+        availableUnits: Number(metricsRow?.availableunits || 0),
+        checkedOutUnits: stock.totals.checkedOut,
+        reservedUnits: Number(metricsRow?.reservedunits || 0),
+        activeJobs: Number(metricsRow?.activejobs || 0),
+        lowStockCount: (lowStockRows || []).length,
+        openOrdersCount: openOrders.length,
+        overdueCount: overdueRows.length,
+        outOfStockCount: stock.list.filter((item) => item.available <= 0).length,
+        countDueCount: countDueRows.length,
+      },
+      lowStock: lowStockRows || [],
+      activity: (activityRows || []).slice(0, 8),
+      openOrders: openOrders.sort((a, b) => (dashboardParseTs(a.eta) || a.lastOrderTs || 0) - (dashboardParseTs(b.eta) || b.lastOrderTs || 0)).slice(0, 8),
+      overdue: overdueRows.sort((a, b) => b.daysLate - a.daysLate).slice(0, 8),
+      topMovers,
+      countDue: countDueRows.slice(0, 8),
+      chart,
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+app.get('/api/dashboard/manager', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const [inventory, counts, items, categories, pickEvents, checkinEvents] = await Promise.all([
+      allAsync('SELECT code, qty, jobId, ts, type, status, reason, returnDate, sourceType, sourceId, userEmail, userName FROM inventory WHERE tenantId=$1 ORDER BY ts DESC', [t]),
+      allAsync('SELECT code, qty, countedAt, ts FROM inventory_counts WHERE tenantId=$1', [t]),
+      allAsync('SELECT code, name, category, unitPrice, reorderPoint, lowStockEnabled FROM items WHERE tenantId=$1 ORDER BY name ASC', [t]),
+      allAsync('SELECT name, rules FROM categories WHERE tenantId=$1', [t]),
+      allAsync(
+        `SELECT id, action, details, ts
+         FROM audit_events
+         WHERE tenantId=$1 AND action='ops.pick.finish' AND ts >= $2
+         ORDER BY ts DESC`,
+        [t, Date.now() - 30 * 24 * 60 * 60 * 1000]
+      ),
+      allAsync(
+        `SELECT id, action, details, ts
+         FROM audit_events
+         WHERE tenantId=$1 AND action='ops.checkin.finish' AND ts >= $2
+         ORDER BY ts DESC`,
+        [t, Date.now() - 30 * 24 * 60 * 60 * 1000]
+      ),
+    ]);
+    const metrics = dashboardComputeManagerMetrics({
+      inventory: inventory || [],
+      counts: counts || [],
+      items: items || [],
+      categories: categories || [],
+      pickEvents: pickEvents || [],
+      checkinEvents: checkinEvents || [],
+    });
+    res.json(metrics);
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
   }
 });
 

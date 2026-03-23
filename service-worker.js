@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ims-cache-v41';
+const CACHE_NAME = 'ims-cache-v42';
 const ASSETS = [
   '/',
   '/index.html',
@@ -76,18 +76,41 @@ self.addEventListener('fetch', (event) => {
         const clone = resp.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
         return resp;
-      }).catch(() => caches.match(request))
+      }).catch(() => caches.match(request) || caches.match('/dashboard.html') || caches.match('/index.html'))
+    );
+    return;
+  }
+  if (/\.(css|js)$/i.test(url.pathname)) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        const networkFetch = fetch(request).then((resp) => {
+          const clone = resp.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+          return resp;
+        }).catch(() => cached);
+        return cached || networkFetch;
+      })
+    );
+    return;
+  }
+  if (/\.(png|jpe?g|gif|svg|webp|ico|woff2?)$/i.test(url.pathname)) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((resp) => {
+          const clone = resp.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+          return resp;
+        });
+      })
     );
     return;
   }
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((resp) => {
-        const clone = resp.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
-        return resp;
-      }).catch(() => cached);
-    })
+    fetch(request).then((resp) => {
+      const clone = resp.clone();
+      caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+      return resp;
+    }).catch(() => caches.match(request))
   );
 });

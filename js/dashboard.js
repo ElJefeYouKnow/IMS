@@ -338,20 +338,25 @@ function drawChart(entries){
   const canvas = document.getElementById('trafficChart');
   if(!canvas) return;
   const ctx = canvas.getContext('2d');
-  const days = Array.from({length: 7}).map((_, i)=>{
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const key = d.toDateString();
-    return { label: `${d.getMonth() + 1}/${d.getDate()}`, key, total: 0 };
-  });
-  (entries || []).forEach(e=>{
-    const ts = parseTs(e.ts);
-    if(!ts) return;
-    const d = new Date(ts);
-    const key = d.toDateString();
-    const bucket = days.find(day=> day.key === key);
-    if(bucket) bucket.total += 1;
-  });
+  const isBucketed = Array.isArray(entries) && entries.every(entry=> Object.prototype.hasOwnProperty.call(entry || {}, 'label') && Object.prototype.hasOwnProperty.call(entry || {}, 'total'));
+  const days = isBucketed
+    ? entries.map(entry=>({ label: entry.label, total: Number(entry.total || 0) }))
+    : Array.from({length: 7}).map((_, i)=>{
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        const key = d.toDateString();
+        return { label: `${d.getMonth() + 1}/${d.getDate()}`, key, total: 0 };
+      });
+  if(!isBucketed){
+    (entries || []).forEach(e=>{
+      const ts = parseTs(e.ts);
+      if(!ts) return;
+      const d = new Date(ts);
+      const key = d.toDateString();
+      const bucket = days.find(day=> day.key === key);
+      if(bucket) bucket.total += 1;
+    });
+  }
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
   const pad = 24;
@@ -399,56 +404,26 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   updateClock();
   setInterval(updateClock, 1000);
 
-  const [
-    metrics,
-    lowStock,
-    activity,
-    inventory,
-    items,
-    counts
-  ] = await Promise.all([
-    utils.fetchJsonSafe('/api/metrics', {}, {}),
-    utils.fetchJsonSafe('/api/low-stock', {}, []),
-    utils.fetchJsonSafe('/api/recent-activity?limit=20', {}, []),
-    utils.fetchJsonSafe('/api/inventory', {}, []),
-    utils.fetchJsonSafe('/api/items', {}, []),
-    utils.fetchJsonSafe('/api/inventory-counts', {}, [])
-  ]);
+  const summary = await utils.fetchJsonSafe('/api/dashboard/admin', { cacheTtlMs: 10000 }, {});
+  const metrics = summary?.metrics || {};
 
-  const itemMap = new Map();
-  (items || []).forEach(item=>{
-    if(item?.code) itemMap.set(item.code, item);
-  });
+  setValue('availableUnits', coerceNumber(metrics.availableUnits));
+  setValue('checkedOutUnits', coerceNumber(metrics.checkedOutUnits));
+  setValue('reservedUnits', coerceNumber(metrics.reservedUnits));
+  setValue('activeJobs', coerceNumber(metrics.activeJobs));
+  setValue('lowStockCount', coerceNumber(metrics.lowStockCount));
+  setValue('openOrdersCount', coerceNumber(metrics.openOrdersCount));
+  setValue('overdueCount', coerceNumber(metrics.overdueCount));
+  setValue('outOfStockCount', coerceNumber(metrics.outOfStockCount));
+  setValue('countDueCount', coerceNumber(metrics.countDueCount));
 
-  const stock = aggregateStock(inventory || []);
-  const orders = (inventory || []).filter(e=> e.type === 'ordered');
-  const openOrders = buildOpenOrders(orders, inventory || []);
-  const overdueRows = buildOverdueRows(inventory || []);
-  const topMovers = buildTopMovers(inventory || [], itemMap, stock.byCode);
-  const countDueRows = buildCountDueRows(items || [], counts || []);
-
-  const availableUnits = coerceNumber(metrics.availableUnits) ?? stock.totals.available;
-  const reservedUnits = coerceNumber(metrics.reservedUnits) ?? stock.totals.reserved;
-  const lowStockCount = coerceNumber(metrics.lowStockCount) ?? (lowStock || []).length;
-  const activeJobs = coerceNumber(metrics.activeJobs) ?? countActiveJobs(inventory || []);
-
-  setValue('availableUnits', availableUnits);
-  setValue('checkedOutUnits', stock.totals.checkedOut);
-  setValue('reservedUnits', reservedUnits);
-  setValue('activeJobs', activeJobs);
-  setValue('lowStockCount', lowStockCount);
-  setValue('openOrdersCount', openOrders.length);
-  setValue('overdueCount', overdueRows.length);
-  setValue('outOfStockCount', stock.list.filter(item=> item.available <= 0).length);
-  setValue('countDueCount', countDueRows.length);
-
-  renderLowStock(lowStock || []);
-  renderActivity(activity || []);
-  drawChart(inventory || activity || []);
-  renderOverdue(overdueRows);
-  renderOrdered(openOrders);
-  renderTopMovers(topMovers);
-  renderCountDue(countDueRows);
+  renderLowStock(summary?.lowStock || []);
+  renderActivity(summary?.activity || []);
+  drawChart(summary?.chart || []);
+  renderOverdue(summary?.overdue || []);
+  renderOrdered(summary?.openOrders || []);
+  renderTopMovers(summary?.topMovers || []);
+  renderCountDue(summary?.countDue || []);
 
   if(window.utils?.setupLogout) utils.setupLogout();
 });
