@@ -1,6 +1,7 @@
 let allItems = [];
 let jobOptions = [];
 let upcomingJobs = [];
+let returnJobOptions = [];
 let upcomingReservedCache = { jobId: '', items: [] };
 let openOrders = [];
 let openOrdersMap = new Map();
@@ -51,11 +52,13 @@ function normalizeJobRecord(job){
   if(!code) return null;
   const startDateRaw = job.startDate || job.startdate || job.scheduleDate || job.scheduledate || '';
   const endDateRaw = job.endDate || job.enddate || '';
+  const updatedAtRaw = job.updatedAt || job.updatedat || '';
   return {
     code,
     name: job.name || '',
     startDate: parseDateValue(startDateRaw),
     endDate: parseDateValue(endDateRaw),
+    updatedAt: parseDateValue(updatedAtRaw),
     status: (job.status || '').toString().trim().toLowerCase(),
     location: job.location || ''
   };
@@ -64,6 +67,20 @@ function isJobUpcoming(job, today){
   if(CLOSED_JOB_STATUSES.has(job.status)) return false;
   if(job.endDate && job.endDate.getTime() < today.getTime()) return false;
   return true;
+}
+function getJobCompletionTs(job){
+  if(!job) return null;
+  if(job.endDate) return job.endDate.getTime();
+  if(job.updatedAt) return job.updatedAt.getTime();
+  return null;
+}
+function isJobReturnEligible(job, today){
+  if(!job) return false;
+  if(isJobUpcoming(job, today)) return true;
+  const completedTs = getJobCompletionTs(job);
+  if(!completedTs) return false;
+  const graceMs = 5 * 24 * 60 * 60 * 1000;
+  return completedTs >= (today.getTime() - graceMs);
 }
 function jobSortValue(job, today){
   const todayMs = today.getTime();
@@ -130,7 +147,12 @@ async function loadJobOptions(){
   today.setHours(0,0,0,0);
   const records = (jobs || []).map(normalizeJobRecord).filter(Boolean);
   const upcoming = records.filter(job=> isJobUpcoming(job, today));
+  const returnEligible = records.filter(job=> isJobReturnEligible(job, today));
   jobOptions = upcoming
+    .map(j=> j.code)
+    .filter(Boolean)
+    .sort();
+  returnJobOptions = returnEligible
     .map(j=> j.code)
     .filter(Boolean)
     .sort();
@@ -142,19 +164,22 @@ async function loadJobOptions(){
 }
 
 function applyJobOptions(){
-  const ids = ['checkout-jobId','return-jobId'];
-  ids.forEach(id=>{
+  const configs = [
+    { id: 'checkout-jobId', options: jobOptions },
+    { id: 'return-jobId', options: returnJobOptions }
+  ];
+  configs.forEach(({ id, options })=>{
     const sel = document.getElementById(id);
     if(!sel) return;
     const current = sel.value;
     const isRequired = sel.hasAttribute('required');
     sel.innerHTML = isRequired ? '<option value="">Select job...</option>' : '<option value="">General Inventory</option>';
-    jobOptions.forEach(job=>{
+    options.forEach(job=>{
       const opt=document.createElement('option');
       opt.value=job; opt.textContent=job;
       sel.appendChild(opt);
     });
-    if(current) sel.value=current;
+    if(current && options.includes(current)) sel.value=current;
   });
 }
 
@@ -370,8 +395,16 @@ async function refreshReturnDropdown(select){
   const checkouts = await loadCheckouts();
   const returns = await loadReturns();
   const outstanding = getOutstandingCheckouts(checkouts, returns);
+  const allowedReturnJobs = new Set(returnJobOptions);
   select.innerHTML = '<option value="">-- Manual Entry --</option>';
-  outstanding.slice(-20).reverse().forEach(item=>{
+  outstanding
+    .filter(item=>{
+      const jobId = getEntryJobId(item.entry);
+      return !jobId || allowedReturnJobs.has(jobId);
+    })
+    .slice(-20)
+    .reverse()
+    .forEach(item=>{
     const co = item.entry;
     const jobId = getEntryJobId(co);
     const opt = document.createElement('option');
