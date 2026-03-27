@@ -3369,6 +3369,7 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
       const sourceMeta = { autoReserve: autoReserve !== false };
       const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
       ev.sourceId = ev.id;
+      ev.sourceMeta.batchId = ev.sourceId;
       await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId, ev.sourceMeta]);
       return ev;
@@ -3386,6 +3387,7 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
     const t = tenantId(req);
     const actor = actorInfo(req);
     const results = [];
+    const batchId = newId();
     await withTransaction(async (client) => {
       for (const line of lines) {
         const { code, name, qty, eta, notes, ts, jobId, autoReserve } = line || {};
@@ -3393,7 +3395,7 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
         if (!code || !qtyNum || qtyNum <= 0) throw new Error(`Invalid order line for code ${code || ''}`);
         const jobIdVal = (jobId || '').trim() || null;
         await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-        const sourceMeta = { autoReserve: autoReserve !== false };
+        const sourceMeta = { autoReserve: autoReserve !== false, batchId };
         const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
         ev.sourceId = ev.id;
         await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
@@ -3402,7 +3404,7 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
       }
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { lines: results.length } });
-    res.status(201).json({ count: results.length, orders: results });
+    res.status(201).json({ count: results.length, batchId, orders: results });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }

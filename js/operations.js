@@ -5,6 +5,8 @@ let returnJobOptions = [];
 let upcomingReservedCache = { jobId: '', items: [] };
 let openOrders = [];
 let openOrdersMap = new Map();
+let openOrderGroups = [];
+let openOrderGroupsMap = new Map();
 let pendingCheckout = null;
 const FALLBACK = 'N/A';
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
@@ -25,6 +27,16 @@ function normalizeJobId(value){
 }
 function getEntryJobId(entry){
   return normalizeJobId(entry?.jobId || entry?.jobid || '');
+}
+function getOrderBatchId(entry){
+  const sourceMeta = entry?.sourceMeta || entry?.sourcemeta || {};
+  if(sourceMeta.batchId) return sourceMeta.batchId;
+  const tsBucket = Math.floor((Number(entry?.ts || 0) || 0) / 1000);
+  const userKey = entry?.userEmail || entry?.useremail || entry?.userName || entry?.username || '';
+  const jobKey = normalizeJobId(entry?.jobId || entry?.jobid || '');
+  const etaKey = entry?.eta || '';
+  const notesKey = entry?.notes || '';
+  return `legacy:${userKey}|${jobKey}|${etaKey}|${notesKey}|${tsBucket}`;
 }
 const CLOSED_JOB_STATUSES = new Set(['complete','completed','closed','archived','cancelled','canceled']);
 function parseDateValue(value){
@@ -390,6 +402,17 @@ function fmtD(val){
   const d = new Date(val);
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString([], { year:'numeric', month:'short', day:'2-digit' });
 }
+function getCurrentWeekStartTs(){
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0,0,0,0);
+  start.setDate(start.getDate() - start.getDay());
+  return start.getTime();
+}
+function filterToCurrentWeek(entries){
+  const weekStart = getCurrentWeekStartTs();
+  return (entries || []).filter(entry=> (Number(entry?.ts || 0) || 0) >= weekStart);
+}
 
 async function refreshReturnDropdown(select){
   const checkouts = await loadCheckouts();
@@ -451,6 +474,8 @@ async function loadOpenOrders(){
       name: o.name || '',
       jobId,
       eta: o.eta || '',
+      sourceMeta: o.sourceMeta || o.sourcemeta || {},
+      batchId: getOrderBatchId(o),
       ordered: Number(o.qty || 0),
       checkedIn: 0
     });
@@ -486,20 +511,45 @@ async function loadOpenOrders(){
   map.forEach(rec=>{
     const openQty = Math.max(0, rec.ordered - rec.checkedIn);
     if(openQty <= 0) return;
-    const row = { ...rec, openQty };
+    const row = { ...rec, openQty, batchId: rec.batchId || rec.sourceId };
     openOrders.push(row);
     openOrdersMap.set(rec.sourceId, row);
   });
   openOrders.sort((a,b)=> (a.eta || '').localeCompare(b.eta || '') || a.code.localeCompare(b.code));
+  openOrderGroups = [];
+  openOrderGroupsMap = new Map();
+  openOrders.forEach(order=>{
+    const batchId = order.batchId || order.sourceId;
+    const existing = openOrderGroupsMap.get(batchId) || {
+      batchId,
+      lines: [],
+      totalQty: 0,
+      eta: order.eta || '',
+      jobId: order.jobId || '',
+      mixedJob: false,
+      mixedEta: false
+    };
+    existing.lines.push(order);
+    existing.totalQty += Number(order.openQty || 0);
+    if(existing.jobId !== (order.jobId || '')) existing.mixedJob = true;
+    if(existing.eta !== (order.eta || '')) existing.mixedEta = true;
+    openOrderGroupsMap.set(batchId, existing);
+  });
+  openOrderGroups = Array.from(openOrderGroupsMap.values()).sort((a,b)=>{
+    const aEta = a.eta || '';
+    const bEta = b.eta || '';
+    if(aEta !== bEta) return aEta.localeCompare(bEta);
+    return a.batchId.localeCompare(b.batchId);
+  });
   return openOrders;
 }
 
 async function renderCheckinTable(){
   const tbody=document.querySelector('#checkinTable tbody');tbody.innerHTML='';
-  const entries = await loadCheckins();
+  const entries = filterToCurrentWeek(await loadCheckins());
   if(!entries.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No check-ins yet</td>`;
+    tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No check-ins this week</td>`;
     tbody.appendChild(tr);
     wireSelectAll('checkinTable');
     return;
@@ -524,19 +574,26 @@ function populateOrderSelect(){
     sel.appendChild(opt);
     return;
   }
-  openOrders.forEach(o=>{
-    const jobLabel = o.jobId || 'General';
-    const etaLabel = o.eta || 'N/A';
+  openOrderGroups.forEach(group=>{
+    const jobLabel = group.mixedJob ? 'Mixed' : (group.jobId || 'General');
+    const etaLabel = group.mixedEta ? 'Mixed' : (group.eta || 'N/A');
+    const lineLabel = group.lines.length === 1 ? '1 line' : `${group.lines.length} lines`;
     const opt = document.createElement('option');
-    opt.value = o.sourceId;
-    opt.textContent = `${o.code} | ${jobLabel} | Open ${o.openQty} | ETA ${etaLabel}`;
+    opt.value = group.batchId;
+    opt.textContent = `${lineLabel} | ${jobLabel} | Open ${group.totalQty} | ETA ${etaLabel}`;
     sel.appendChild(opt);
   });
+}
+
+function hasCheckinSourceLine(sourceId){
+  return [...document.querySelectorAll('#checkin-lines .line-row input[name="sourceId"]')]
+    .some(input=> (input.value || '').trim() === sourceId);
 }
 
 function addOrderLine(sourceId){
   const order = openOrdersMap.get(sourceId);
   if(!order) return;
+  if(hasCheckinSourceLine(order.sourceId)) return;
   addLine('checkin');
   const container = document.getElementById('checkin-lines');
   const row = container.lastElementChild;
@@ -553,6 +610,20 @@ function addOrderLine(sourceId){
   row.dataset.openQty = String(order.openQty);
   row.querySelector('input[name="code"]').readOnly = true;
   row.querySelector('input[name="name"]').readOnly = true;
+}
+
+function addOrderGroup(batchId){
+  const group = openOrderGroupsMap.get(batchId);
+  if(!group || !group.lines?.length) return;
+  const container = document.getElementById('checkin-lines');
+  const hasOnlyBlankLine = container
+    && container.querySelectorAll('.line-row').length === 1
+    && !container.querySelector('.line-row input[name="code"]')?.value.trim()
+    && !container.querySelector('.line-row input[name="sourceId"]')?.value.trim();
+  if(hasOnlyBlankLine){
+    container.innerHTML = '';
+  }
+  group.lines.forEach(line=> addOrderLine(line.sourceId));
 }
 
 async function addCheckin(e){
@@ -584,10 +655,10 @@ async function loadCheckouts(){
 
 async function renderCheckoutTable(){
   const tbody=document.querySelector('#checkoutTable tbody');tbody.innerHTML='';
-  const entries = await loadCheckouts();
+  const entries = filterToCurrentWeek(await loadCheckouts());
   if(!entries.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No check-outs yet</td>`;
+    tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No check-outs this week</td>`;
     tbody.appendChild(tr);
     wireSelectAll('checkoutTable');
     return;
@@ -825,10 +896,10 @@ async function loadReturns(){
 
 async function renderReturnTable(){
   const tbody=document.querySelector('#returnTable tbody');tbody.innerHTML='';
-  const entries = await loadReturns();
+  const entries = filterToCurrentWeek(await loadReturns());
   if(!entries.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No returns yet</td>`;
+    tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No returns this week</td>`;
     tbody.appendChild(tr);
     wireSelectAll('returnTable');
     return;
@@ -1013,15 +1084,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     addOrderBtn.addEventListener('click', ()=>{
       const sel = document.getElementById('checkin-orderSelect');
       if(!sel || !sel.value) return;
-      addOrderLine(sel.value);
-    });
-  }
-  const orderSelect = document.getElementById('checkin-orderSelect');
-  if(orderSelect){
-    orderSelect.addEventListener('change', ()=>{
-      if(!orderSelect.value) return;
-      addOrderLine(orderSelect.value);
-      orderSelect.value = '';
+      addOrderGroup(sel.value);
+      sel.value = '';
     });
   }
   const refreshOrdersBtn = document.getElementById('checkin-refreshOrders');
