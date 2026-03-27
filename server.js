@@ -2653,10 +2653,23 @@ app.patch('/api/items/:code', requireRole('admin'), async (req, res) => {
     if (!item) return res.status(404).json({ error: 'item not found' });
     const payload = req.body || {};
     const categoryInfo = await resolveCategoryInput(t, payload.category ?? item.category);
+    const normalizedTags = Object.prototype.hasOwnProperty.call(payload, 'tags')
+      ? normalizeItemTags(payload.tags)
+      : normalizeItemTags(item.tags);
+    const normalizedLowStockEnabled = Object.prototype.hasOwnProperty.call(payload, 'lowStockEnabled')
+      ? normalizeItemLowStockEnabled(payload.lowStockEnabled)
+      : normalizeItemLowStockEnabled(item.lowStockEnabled ?? item.lowstockenabled);
     const updates = {
       name: (payload.name ?? item.name)?.toString().trim(),
       category: categoryInfo.name,
       description: payload.description ?? item.description,
+      unitPrice: Object.prototype.hasOwnProperty.call(payload, 'unitPrice')
+        ? (payload.unitPrice === '' || payload.unitPrice === null || Number.isNaN(Number(payload.unitPrice)) ? null : Number(payload.unitPrice))
+        : (item.unitprice ?? item.unitPrice),
+      material: payload.material ?? item.material,
+      shape: payload.vendor ?? payload.shape ?? item.shape,
+      brand: payload.manufacturer ?? payload.brand ?? item.brand,
+      notes: payload.notes ?? item.notes,
       uom: payload.uom ?? item.uom,
       serialized: Object.prototype.hasOwnProperty.call(payload, 'serialized') ? !!payload.serialized : item.serialized,
       lot: Object.prototype.hasOwnProperty.call(payload, 'lot') ? !!payload.lot : item.lot,
@@ -2665,14 +2678,25 @@ app.patch('/api/items/:code', requireRole('admin'), async (req, res) => {
       zone: payload.zone ?? item.zone,
       bin: payload.bin ?? item.bin,
       reorderPoint: Object.prototype.hasOwnProperty.call(payload, 'reorderPoint') ? Number(payload.reorderPoint) : item.reorderpoint ?? item.reorderPoint,
-      minStock: Object.prototype.hasOwnProperty.call(payload, 'minStock') ? Number(payload.minStock) : item.minstock ?? item.minStock
+      minStock: Object.prototype.hasOwnProperty.call(payload, 'minStock') ? Number(payload.minStock) : item.minstock ?? item.minStock,
+      tags: normalizedTags,
+      lowStockEnabled: normalizedLowStockEnabled
     };
     await runAsync(
-      `UPDATE items SET name=$1, category=$2, description=$3, uom=$4, serialized=$5, lot=$6, expires=$7, warehouse=$8, zone=$9, bin=$10, reorderPoint=$11, minStock=$12 WHERE code=$13 AND tenantId=$14`,
+      `UPDATE items
+       SET name=$1, category=$2, description=$3, unitPrice=$4, material=$5, shape=$6, brand=$7, notes=$8,
+           uom=$9, serialized=$10, lot=$11, expires=$12, warehouse=$13, zone=$14, bin=$15,
+           reorderPoint=$16, minStock=$17, tags=$18, lowStockEnabled=$19
+       WHERE code=$20 AND tenantId=$21`,
       [
         updates.name,
         updates.category,
         updates.description,
+        updates.unitPrice,
+        updates.material,
+        updates.shape,
+        updates.brand,
+        updates.notes,
         updates.uom,
         updates.serialized,
         updates.lot,
@@ -2682,11 +2706,21 @@ app.patch('/api/items/:code', requireRole('admin'), async (req, res) => {
         updates.bin,
         Number.isFinite(updates.reorderPoint) ? Math.floor(updates.reorderPoint) : null,
         Number.isFinite(updates.minStock) ? Math.floor(updates.minStock) : null,
+        JSON.stringify(updates.tags),
+        updates.lowStockEnabled,
         code,
         t
       ]
     );
-    res.json({ ok: true });
+    res.json({
+      ok: true,
+      item: {
+        code,
+        ...updates,
+        reorderPoint: Number.isFinite(updates.reorderPoint) ? Math.floor(updates.reorderPoint) : null,
+        minStock: Number.isFinite(updates.minStock) ? Math.floor(updates.minStock) : null
+      }
+    });
   } catch (e) {
     res.status(500).json({ error: 'server error' });
   }

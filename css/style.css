@@ -592,10 +592,10 @@ body.count-mode .count-input-col{display:table-cell}
 body.panel-open{overflow:hidden}
 .side-panel-backdrop{position:fixed;inset:0;background:rgba(6,18,29,0.45);opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:70}
 .side-panel-backdrop.active{opacity:1;pointer-events:auto}
-.side-panel{position:fixed;top:0;right:0;height:100vh;width:min(420px,92vw);background:var(--card);border-left:1px solid var(--line);box-shadow:-20px 0 50px rgba(0,0,0,0.2);transform:translateX(100%);transition:transform .25s ease;z-index:80;display:flex;flex-direction:column}
+.side-panel{position:fixed;top:0;right:0;height:100vh;width:min(420px,92vw);background:var(--card);border-left:1px solid var(--line);box-shadow:-20px 0 50px rgba(0,0,0,0.2);transform:translateX(100%);transition:transform .25s ease;z-index:80;display:flex;flex-direction:column;overflow-x:auto;overflow-y:hidden}
 .side-panel.open{transform:translateX(0)}
 .dark .side-panel{background:#16221f;border-color:#22312d;color:var(--ink)}
-.side-panel-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:1;flex-wrap:wrap}
+.side-panel-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:1;flex-wrap:wrap;min-width:520px}
 .dark .side-panel-header{background:#16221f;border-color:#22312d}
 .drawer-head{flex:1 1 100%;min-width:0}
 .drawer-title-row{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-top:6px}
@@ -621,12 +621,22 @@ body.panel-open{overflow:hidden}
 .panel-sub{color:var(--muted);font-size:0.9rem;margin-top:4px}
 .icon-btn{border:1px solid var(--line);background:var(--surface-2);color:var(--ink);width:34px;height:34px;border-radius:10px;font-size:18px;font-weight:700;cursor:pointer;display:grid;place-items:center}
 .dark .icon-btn{background:#101b18;border-color:#22312d;color:var(--ink)}
-.side-panel-body{padding:0 0 20px 0;overflow-y:auto;display:flex;flex-direction:column;gap:0}
-.drawer-tabs{position:sticky;top:0;z-index:1;display:flex;gap:6px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line)}
+.side-panel-body{padding:0 0 20px 0;overflow-y:auto;overflow-x:visible;display:flex;flex-direction:column;gap:0;min-width:520px}
+.drawer-tabs{position:sticky;top:0;z-index:1;display:flex;gap:6px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line);overflow-x:auto;flex-wrap:nowrap}
 .drawer-tab{padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);font-weight:800;font-size:0.9rem;cursor:pointer;color:var(--ink)}
 .drawer-tab.active{background:linear-gradient(135deg,#1f6f5c,#164d41);color:#fff;border-color:rgba(31,111,92,0.35)}
 .dark .drawer-tabs{background:#16221f;border-color:#22312d}
-.drawer-body{padding:18px 20px;display:flex;flex-direction:column;gap:16px}
+.drawer-body{padding:18px 20px;display:flex;flex-direction:column;gap:16px;min-width:520px}
+.drawer-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.drawer-section-head h3{margin:0}
+.info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.info-card{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.info-card.wide{grid-column:1 / -1}
+.info-card span{font-size:0.78rem;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:0.08em}
+.info-card strong{font-size:0.95rem;line-height:1.45;word-break:break-word}
+.drawer-textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink);resize:vertical;min-height:84px}
+.dark .info-card{background:#101b18;border-color:#22312d}
+.dark .drawer-textarea{background:#101b18;border-color:#22312d;color:var(--ink)}
 .qty-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .qty-cell{border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
 .qty-cell.zero{opacity:0.7}
@@ -689,6 +699,7 @@ body.panel-open{overflow:hidden}
 @media(max-width:720px){
   .side-panel{width:100%}
   .side-panel{border-radius:0}
+  .side-panel-header,.side-panel-body,.drawer-body{min-width:480px}
   .panel-metrics{grid-template-columns:1fr}
 }
 .stale{color:#b45309;font-weight:800}

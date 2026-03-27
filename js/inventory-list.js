@@ -212,6 +212,24 @@ function renderDrawerTabs(role){
   });
 }
 
+function formatInfoValue(value, fallback = '—'){
+  if(value === null || value === undefined) return fallback;
+  const text = String(value).trim();
+  return text ? text : fallback;
+}
+
+function formatMoneyValue(value){
+  const amount = Number(value);
+  if(!Number.isFinite(amount)) return '—';
+  return `$${amount.toFixed(2)}`;
+}
+
+function formatStorageLocation(meta, item){
+  const parts = [meta?.warehouse, meta?.zone, meta?.bin].map(part => String(part || '').trim()).filter(Boolean);
+  if(parts.length) return parts.join(' / ');
+  return item?.location || '—';
+}
+
 function renderTabOverview(data){
   const item = data?.item || {};
   const states = data?.states || {};
@@ -255,14 +273,41 @@ function renderTabOverview(data){
   const discLabel = discUnits === undefined || discUnits === null
     ? '—'
     : `${discUnits > 0 ? '+' : ''}${discUnits}${discVal ? ` (${discVal})` : ''}`;
+  const staticTags = normalizeTags(meta.tags);
+  const storageLocation = formatStorageLocation(meta, item);
+  const catalogCards = [
+    { label: 'Item Code', value: formatInfoValue(item.code) },
+    { label: 'Category', value: formatInfoValue(meta.category || item.category || DEFAULT_CATEGORY_NAME) },
+    { label: 'Unit of Measure', value: formatInfoValue(meta.uom || meta.unit) },
+    { label: 'Unit Cost', value: formatMoneyValue(meta.unitPrice ?? item.unitPrice) },
+    { label: 'Material', value: formatInfoValue(meta.material) },
+    { label: 'Vendor', value: formatInfoValue(meta.shape) },
+    { label: 'Manufacturer', value: formatInfoValue(meta.brand) },
+    { label: 'Storage Default', value: formatInfoValue(storageLocation) },
+    { label: 'Description', value: formatInfoValue(meta.description), wide: true },
+    { label: 'Notes', value: formatInfoValue(meta.notes), wide: true }
+  ];
+  const controlCards = [
+    { label: 'Low Stock Alerts', value: data?.lowStockEnabled === false ? 'Disabled' : 'Enabled' },
+    { label: 'Serialized', value: meta.serialized ? 'Yes' : 'No' },
+    { label: 'Lot / Batch', value: meta.lot ? 'Yes' : 'No' },
+    { label: 'Expiration Tracked', value: meta.expires ? 'Yes' : 'No' },
+    { label: 'Tags / Flags', value: staticTags.length ? staticTags.join(', ') : '—', wide: true }
+  ];
 
   return `
     <div class="panel-section">
-      <h3>Quantity States</h3>
+      <div class="drawer-section-head">
+        <h3>Quantity States</h3>
+        <span class="panel-kicker">Inventory</span>
+      </div>
       ${qtyGrid}
     </div>
     <div class="panel-section">
-      <h3>Reorder &amp; Health</h3>
+      <div class="drawer-section-head">
+        <h3>Reorder &amp; Health</h3>
+        <span class="panel-kicker">Dynamic</span>
+      </div>
       <div class="reorder-row">
         <div class="reorder-field"><span>Reorder Point</span><strong>${summary.reorderPoint ?? '—'}</strong></div>
         <div class="reorder-field"><span>Minimum Stock</span><strong>${summary.minStock ?? '—'}</strong></div>
@@ -271,13 +316,43 @@ function renderTabOverview(data){
       </div>
     </div>
     <div class="panel-section">
-      <h3>Last Control Events</h3>
+      <div class="drawer-section-head">
+        <h3>Last Control Events</h3>
+        <a class="muted-link" data-action="view-activity" href="#activity">View full activity</a>
+      </div>
       <div class="panel-list compact">
         <div class="panel-row"><span>Last Activity</span><strong>${lastActivity}</strong></div>
         <div class="panel-row"><span>Last Physical Count</span><strong>${lastCount}</strong></div>
         <div class="panel-row"><span>Discrepancy</span><strong>${discLabel}</strong></div>
       </div>
-      <a class="muted-link" data-action="view-activity" href="#activity">View full activity</a>
+    </div>
+    <div class="panel-section">
+      <div class="drawer-section-head">
+        <h3>Catalog Record</h3>
+        <span class="panel-kicker">Static</span>
+      </div>
+      <div class="info-grid">
+        ${catalogCards.map(card=>`
+          <div class="info-card ${card.wide ? 'wide' : ''}">
+            <span>${card.label}</span>
+            <strong>${card.value}</strong>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    <div class="panel-section">
+      <div class="drawer-section-head">
+        <h3>Controls &amp; Defaults</h3>
+        <span class="panel-kicker">Catalog</span>
+      </div>
+      <div class="info-grid">
+        ${controlCards.map(card=>`
+          <div class="info-card ${card.wide ? 'wide' : ''}">
+            <span>${card.label}</span>
+            <strong>${card.value}</strong>
+          </div>
+        `).join('')}
+      </div>
     </div>
   `;
 }
@@ -300,7 +375,7 @@ function renderTabActivity(data){
       <td>${when}</td>
       <td>${(r.type || '').toUpperCase()}</td>
       <td>${qty}</td>
-      <td>${from || '—'}${to ? ` → ${to}` : ''}</td>
+      <td>${from || '—'}${to ? ` &rarr; ${to}` : ''}</td>
       <td>${related || '—'}</td>
       <td>${user || '—'}</td>
       <td>${reason || '—'}</td>
@@ -327,7 +402,7 @@ function renderTabActivity(data){
       </div>
       <div class="panel-table-wrap">
         <table class="drawer-table">
-          <thead><tr><th>Date/Time</th><th>Type</th><th>Qty</th><th>From → To</th><th>Related</th><th>User</th><th>Reason</th></tr></thead>
+          <thead><tr><th>Date/Time</th><th>Type</th><th>Qty</th><th>From &rarr; To</th><th>Related</th><th>User</th><th>Reason</th></tr></thead>
           <tbody>${rows || '<tr><td colspan="7" class="muted-text">No activity yet.</td></tr>'}</tbody>
         </table>
       </div>
@@ -421,13 +496,13 @@ function renderTabLogistics(data){
       <div class="panel-list">
         <div class="panel-row logistic-row" data-field="preferred">
           <span>Preferred Supplier</span>
-          <div class="edit-wrap"><strong>${suppliers.preferred || '—'}</strong>${canEdit ? '<input class="edit-input" type="text" style="display:none;" value="'+(suppliers.preferred||'')+'"><button type="button" class="muted-link edit-log" data-field="preferred">✎</button><button type="button" class="muted-link save-log" data-field="preferred" style="display:none;">Save</button>' : ''}</div>
+          <div class="edit-wrap"><strong>${suppliers.preferred || '—'}</strong>${canEdit ? '<input class="edit-input" type="text" style="display:none;" value="'+(suppliers.preferred||'')+'"><button type="button" class="muted-link edit-log" data-field="preferred">Edit</button><button type="button" class="muted-link save-log" data-field="preferred" style="display:none;">Save</button>' : ''}</div>
         </div>
         <div class="panel-row"><span>Alternate Suppliers</span><strong>${alt || '—'}</strong></div>
         <div class="panel-row"><span>Lead Time (avg/min/max)</span><strong>${lead.avg ?? '—'}/${lead.min ?? '—'}/${lead.max ?? '—'}</strong></div>
         <div class="panel-row logistic-row" data-field="moq">
           <span>MOQ</span>
-          <div class="edit-wrap"><strong>${suppliers.moq ?? '—'}</strong>${canEdit ? '<input class="edit-input" type="number" min="0" style="display:none;" value="'+(suppliers.moq ?? '')+'"><button type="button" class="muted-link edit-log" data-field="moq">✎</button><button type="button" class="muted-link save-log" data-field="moq" style="display:none;">Save</button>' : ''}</div>
+          <div class="edit-wrap"><strong>${suppliers.moq ?? '—'}</strong>${canEdit ? '<input class="edit-input" type="number" min="0" style="display:none;" value="'+(suppliers.moq ?? '')+'"><button type="button" class="muted-link edit-log" data-field="moq">Edit</button><button type="button" class="muted-link save-log" data-field="moq" style="display:none;">Save</button>' : ''}</div>
         </div>
       </div>
     </div>
@@ -492,6 +567,8 @@ function renderTabInsights(data){
 
 function renderTabSettings(data){
   const meta = data?.meta || {};
+  const tags = normalizeTags(meta.tags).join(', ');
+  const lowStockEnabled = meta.lowStockEnabled !== false;
   return `
     <form id="drawerSettingsForm" class="panel-section">
       <h3>Identity</h3>
@@ -503,11 +580,26 @@ function renderTabSettings(data){
         <label style="flex:1;">Description<input name="description" value="${meta.description || ''}"></label>
         <label style="flex:1;">Unit of Measure<input name="uom" value="${meta.uom || meta.unit || ''}" required></label>
       </div>
+      <div class="form-row">
+        <label style="flex:1;">Unit Cost<input name="unitPrice" type="number" min="0" step="0.01" value="${meta.unitPrice ?? ''}"></label>
+        <label style="flex:1;">Material<input name="material" value="${meta.material || ''}"></label>
+      </div>
+      <div class="form-row">
+        <label style="flex:1;">Vendor<input name="vendor" value="${meta.shape || ''}"></label>
+        <label style="flex:1;">Manufacturer<input name="manufacturer" value="${meta.brand || ''}"></label>
+      </div>
+      <div class="form-row">
+        <label style="flex:1;">Tags / Flags<input name="tags" value="${tags}"></label>
+      </div>
+      <div class="form-row">
+        <label style="flex:1;">Notes<textarea class="drawer-textarea" name="notes" rows="3">${meta.notes || ''}</textarea></label>
+      </div>
       <h3>Control Flags</h3>
       <div class="form-row">
         <label class="toggle-inline"><input type="checkbox" name="serialized" ${meta.serialized ? 'checked' : ''}> Serialized</label>
         <label class="toggle-inline"><input type="checkbox" name="lot" ${meta.lot ? 'checked' : ''}> Lot/Batch</label>
         <label class="toggle-inline"><input type="checkbox" name="expires" ${meta.expires ? 'checked' : ''}> Expiration</label>
+        <label class="toggle-inline"><input type="checkbox" name="lowStockEnabled" ${lowStockEnabled ? 'checked' : ''}> Low Stock Alerts</label>
       </div>
       <h3>Storage Defaults</h3>
       <div class="form-row">
@@ -625,13 +717,18 @@ function bindTabEvents(tab){
         const formData = new FormData(form);
         const payload = {};
         formData.forEach((val,key)=>{
-          if(['serialized','lot','expires'].includes(key)) payload[key] = form.querySelector(`[name="${key}"]`).checked;
+          if(['serialized','lot','expires','lowStockEnabled'].includes(key)) payload[key] = form.querySelector(`[name="${key}"]`).checked;
           else payload[key] = val;
+        });
+        ['serialized','lot','expires','lowStockEnabled'].forEach(key=>{
+          if(!Object.prototype.hasOwnProperty.call(payload, key)){
+            payload[key] = !!form.querySelector(`[name="${key}"]`)?.checked;
+          }
         });
         if(!payload.name || !payload.category || !payload.uom){
           const msg = form.querySelector('#drawerSettingsMsg'); if(msg) msg.textContent = 'Name, category, and UOM are required.'; return;
         }
-        const numFields = ['reorderPoint','minStock'];
+        const numFields = ['reorderPoint','minStock','unitPrice'];
         for(const f of numFields){
           if(payload[f] === '') continue;
           const n = Number(payload[f]);
@@ -644,7 +741,42 @@ function bindTabEvents(tab){
         const msg = form.querySelector('#drawerSettingsMsg');
         if(ok){
           drawerState.dirty = false;
-          drawerState.cache.settings = { ...drawerState.cache.settings, meta: { ...drawerState.cache.settings.meta, ...payload } };
+          const mergedMeta = {
+            ...(drawerState.cache.settings?.meta || {}),
+            ...payload,
+            shape: payload.vendor ?? payload.shape ?? drawerState.cache.settings?.meta?.shape,
+            brand: payload.manufacturer ?? payload.brand ?? drawerState.cache.settings?.meta?.brand
+          };
+          drawerState.cache.settings = { ...drawerState.cache.settings, meta: mergedMeta };
+          drawerState.cache.overview = {
+            ...(drawerState.cache.overview || {}),
+            meta: { ...(drawerState.cache.overview?.meta || {}), ...mergedMeta },
+            item: {
+              ...(drawerState.cache.overview?.item || {}),
+              name: payload.name ?? drawerState.cache.overview?.item?.name,
+              category: payload.category ?? drawerState.cache.overview?.item?.category,
+              unitPrice: payload.unitPrice ?? drawerState.cache.overview?.item?.unitPrice,
+              lowStockEnabled: payload.lowStockEnabled
+            },
+            lowStockEnabled: payload.lowStockEnabled
+          };
+          itemMetaByCode.set(drawerState.itemCode, {
+            ...(itemMetaByCode.get(drawerState.itemCode) || {}),
+            code: drawerState.itemCode,
+            ...mergedMeta
+          });
+          onhandBaseRows = onhandBaseRows.map(row=>{
+            if(row.code !== drawerState.itemCode) return row;
+            return {
+              ...row,
+              name: payload.name ?? row.name,
+              category: payload.category ?? row.category,
+              location: formatStorageLocation(mergedMeta, row),
+              lowStockEnabled: payload.lowStockEnabled
+            };
+          });
+          renderDrawerHeader(drawerState.cache.overview.item, drawerState.cache.overview.meta, drawerState.role, drawerState.cache.overview);
+          renderOnhand();
           if(msg) msg.textContent = 'Saved';
         }else{
           if(msg) msg.textContent = 'Save failed';
@@ -1996,3 +2128,4 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   const incomingSearchBox = document.getElementById('incomingSearchBox');
   if(incomingSearchBox) incomingSearchBox.addEventListener('input', renderIncoming);
 });
+
