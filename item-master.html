@@ -70,6 +70,13 @@
               <label>UOM<input id="itemUom" placeholder="ea, box, pack"></label>
             </div>
             <div class="form-row">
+              <label>Preferred Supplier
+                <select id="itemSupplierId"></select>
+              </label>
+              <label>Supplier SKU<input id="itemSupplierSku" placeholder="Vendor part number"></label>
+              <label>Supplier Link<input id="itemSupplierUrl" placeholder="Order page or product URL"></label>
+            </div>
+            <div class="form-row">
               <label>Material<input id="itemMaterial" placeholder="e.g., Steel, PVC"></label>
               <label>Vendor<input id="itemShape" placeholder="Supplier or vendor"></label>
               <label>Manufacturer<input id="itemBrand" placeholder="Manufacturer name"></label>
@@ -110,7 +117,7 @@
 
         <section class="card inventory-card">
           <h3>Import Catalog (CSV)</h3>
-          <p class="muted-text">Columns: code,name,category,unitPrice,material,vendor,manufacturer,notes,description,tags,lowStockEnabled. Header row optional.</p>
+          <p class="muted-text">Columns: code,name,category,unitPrice,supplierId,supplierSku,supplierUrl,material,vendor,manufacturer,notes,description,tags,lowStockEnabled. Header row optional.</p>
           <div class="form-row">
             <input id="importFile" type="file" accept=".csv,text/csv">
             <button id="downloadTemplateBtn" type="button" class="muted">Download Template</button>
@@ -133,6 +140,7 @@
                 <th>Name</th>
                 <th>Category</th>
                 <th>Unit Price</th>
+                <th>Supplier</th>
                 <th>Material</th>
                 <th>Vendor</th>
                 <th>Manufacturer</th>
@@ -205,7 +213,7 @@
             <button id="supplierRefresh" type="button" class="muted">Refresh</button>
           </div>
           <table id="supplierTable">
-            <thead><tr><th>Name</th><th>Contact</th><th>Lead Time</th><th>MOQ</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Website</th><th>Contact</th><th>Lead Time</th><th>MOQ</th><th>Actions</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -221,6 +229,10 @@
             <div class="form-row">
               <label style="flex:1;">Email<input id="supplierEmail" type="email" placeholder="email@example.com"></label>
               <label style="flex:1;">Phone<input id="supplierPhone" placeholder="+1 555-1234"></label>
+            </div>
+            <div class="form-row">
+              <label style="flex:1;">Website URL<input id="supplierWebsiteUrl" type="url" placeholder="https://vendor.com"></label>
+              <label style="flex:1;">Order URL<input id="supplierOrderUrl" type="url" placeholder="https://vendor.com/orders"></label>
             </div>
             <div class="form-row">
               <label style="flex:1;">Lead Time Avg (days)<input id="supplierLeadAvg" type="number" min="0" step="1"></label>
@@ -262,6 +274,13 @@
           </label>
           <label>Unit Price<input id="itemEditUnitPrice" type="number" step="0.01" placeholder="Optional"></label>
           <label>UOM<input id="itemEditUom" placeholder="ea, box, pack"></label>
+        </div>
+        <div class="form-row">
+          <label>Preferred Supplier
+            <select id="itemEditSupplierId"></select>
+          </label>
+          <label>Supplier SKU<input id="itemEditSupplierSku" placeholder="Vendor part number"></label>
+          <label>Supplier Link<input id="itemEditSupplierUrl" placeholder="Order page or product URL"></label>
         </div>
         <div class="form-row">
           <label>Material<input id="itemEditMaterial" placeholder="e.g., Steel, PVC"></label>

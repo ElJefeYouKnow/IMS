@@ -78,6 +78,8 @@ const AUDIT_ACTIONS = [
   'items.create',
   'items.update',
   'items.delete',
+  'procurement.vendor_open',
+  'suppliers.update',
   'projects.materials.update',
   'ops.pick.start',
   'ops.pick.finish',
@@ -1576,6 +1578,9 @@ async function initDb() {
     description TEXT,
     tags JSONB,
     lowStockEnabled BOOLEAN,
+    supplierId TEXT,
+    supplierSku TEXT,
+    supplierUrl TEXT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS category TEXT`);
@@ -1596,6 +1601,24 @@ async function initDb() {
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS description TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tags JSONB`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS lowStockEnabled BOOLEAN`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS supplierId TEXT`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS supplierSku TEXT`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS supplierUrl TEXT`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS suppliers(
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    contact TEXT,
+    email TEXT,
+    phone TEXT,
+    websiteUrl TEXT,
+    orderUrl TEXT,
+    leadTime JSONB,
+    moq NUMERIC,
+    notes TEXT,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default',
+    createdAt BIGINT,
+    updatedAt BIGINT
+  )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS categories(
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -1801,6 +1824,17 @@ async function initDb() {
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS sortOrder INTEGER DEFAULT 0`);
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS createdAt BIGINT`);
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS contact TEXT`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS email TEXT`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS phone TEXT`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS websiteUrl TEXT`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS orderUrl TEXT`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS leadTime JSONB`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS moq NUMERIC`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS createdAt BIGINT`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerified BOOLEAN`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerifiedAt BIGINT`);
@@ -1821,6 +1855,9 @@ async function initDb() {
   await runAsync(`UPDATE job_materials SET qtyReceived = COALESCE(qtyReceived, 0)`);
   await runAsync(`UPDATE job_materials SET createdAt = COALESCE(createdAt, $1::bigint) WHERE createdAt IS NULL`, [Date.now()]);
   await runAsync(`UPDATE job_materials SET updatedAt = COALESCE(updatedAt, createdAt, $1::bigint) WHERE updatedAt IS NULL`, [Date.now()]);
+  await runAsync(`UPDATE suppliers SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE suppliers SET createdAt = COALESCE(createdAt, $1::bigint) WHERE createdAt IS NULL`, [Date.now()]);
+  await runAsync(`UPDATE suppliers SET updatedAt = COALESCE(updatedAt, createdAt, $1::bigint) WHERE updatedAt IS NULL`, [Date.now()]);
   await runAsync(`UPDATE users SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE users SET emailVerified=true WHERE emailVerified IS NULL`);
   await runAsync(`UPDATE inventory_counts SET tenantId='default' WHERE tenantId IS NULL`);
@@ -1836,6 +1873,8 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_job ON inventory(jobId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(sourceType, sourceId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_items_tenant ON items(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_suppliers_tenant ON suppliers(tenantId)');
+  await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS idx_suppliers_tenant_name ON suppliers(tenantId, LOWER(name))');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_job_materials_tenant_job ON job_materials(tenantId, jobId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_job_materials_tenant_code_job ON job_materials(tenantId, code, jobId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory(tenantId)');
@@ -2675,7 +2714,7 @@ app.get('/api/items', async (req, res) => {
 
 app.post('/api/items', requireRole('admin'), async (req, res) => {
   try {
-    const { code, oldCode, name, category, unitPrice, material, shape, brand, notes, description, tags, lowStockEnabled, uom, serialized, lot, expires, warehouse, zone, bin, reorderPoint, minStock } = req.body;
+    const { code, oldCode, name, category, unitPrice, material, shape, brand, notes, description, tags, lowStockEnabled, uom, serialized, lot, expires, warehouse, zone, bin, reorderPoint, minStock, supplierId, supplierSku, supplierUrl } = req.body;
     if (!code || !name) return res.status(400).json({ error: 'code and name required' });
     const t = tenantId(req);
     const exists = await itemExists(code, t);
@@ -2699,13 +2738,20 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
     const minStockValue = Number(minStock);
     const normalizedReorderPoint = Number.isFinite(reorderPointValue) && reorderPointValue >= 0 ? Math.floor(reorderPointValue) : null;
     const normalizedMinStock = Number.isFinite(minStockValue) && minStockValue >= 0 ? Math.floor(minStockValue) : null;
+    const normalizedSupplierId = (supplierId || '').trim() || null;
+    const normalizedSupplierSku = (supplierSku || '').trim() || null;
+    const normalizedSupplierUrl = normalizeUrl(supplierUrl);
+    if (normalizedSupplierId) {
+      const supplier = await getAsync('SELECT id FROM suppliers WHERE id=$1 AND tenantId=$2', [normalizedSupplierId, t]);
+      if (!supplier) return res.status(400).json({ error: 'invalid supplier' });
+    }
     if (oldCode && oldCode !== code) await runAsync('DELETE FROM items WHERE code=$1 AND tenantId=$2', [oldCode, t]);
-    await runAsync(`INSERT INTO items(code,name,category,unitPrice,material,shape,brand,notes,uom,serialized,lot,expires,warehouse,zone,bin,reorderPoint,minStock,description,tags,lowStockEnabled,tenantId)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, material=EXCLUDED.material, shape=EXCLUDED.shape, brand=EXCLUDED.brand, notes=EXCLUDED.notes, uom=EXCLUDED.uom, serialized=EXCLUDED.serialized, lot=EXCLUDED.lot, expires=EXCLUDED.expires, warehouse=EXCLUDED.warehouse, zone=EXCLUDED.zone, bin=EXCLUDED.bin, reorderPoint=EXCLUDED.reorderPoint, minStock=EXCLUDED.minStock, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
-      [code, name, categoryInfo.name, price, materialValue, shapeValue, brandValue, notesValue, uomValue, serializedValue, lotValue, expiresValue, warehouseValue, zoneValue, binValue, normalizedReorderPoint, normalizedMinStock, description, tagsJson, normalizedLowStockEnabled, t]);
+    await runAsync(`INSERT INTO items(code,name,category,unitPrice,material,shape,brand,notes,uom,serialized,lot,expires,warehouse,zone,bin,reorderPoint,minStock,description,tags,lowStockEnabled,supplierId,supplierSku,supplierUrl,tenantId)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, material=EXCLUDED.material, shape=EXCLUDED.shape, brand=EXCLUDED.brand, notes=EXCLUDED.notes, uom=EXCLUDED.uom, serialized=EXCLUDED.serialized, lot=EXCLUDED.lot, expires=EXCLUDED.expires, warehouse=EXCLUDED.warehouse, zone=EXCLUDED.zone, bin=EXCLUDED.bin, reorderPoint=EXCLUDED.reorderPoint, minStock=EXCLUDED.minStock, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, supplierId=EXCLUDED.supplierId, supplierSku=EXCLUDED.supplierSku, supplierUrl=EXCLUDED.supplierUrl, tenantId=EXCLUDED.tenantId`,
+      [code, name, categoryInfo.name, price, materialValue, shapeValue, brandValue, notesValue, uomValue, serializedValue, lotValue, expiresValue, warehouseValue, zoneValue, binValue, normalizedReorderPoint, normalizedMinStock, description, tagsJson, normalizedLowStockEnabled, normalizedSupplierId, normalizedSupplierSku, normalizedSupplierUrl, t]);
     await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: { code } });
-    res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, material: materialValue, shape: shapeValue, brand: brandValue, notes: notesValue, uom: uomValue, serialized: serializedValue, lot: lotValue, expires: expiresValue, warehouse: warehouseValue, zone: zoneValue, bin: binValue, reorderPoint: normalizedReorderPoint, minStock: normalizedMinStock, description, tags: normalizedTags, lowStockEnabled: normalizedLowStockEnabled, tenantId: t });
+    res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, material: materialValue, shape: shapeValue, brand: brandValue, notes: notesValue, uom: uomValue, serialized: serializedValue, lot: lotValue, expires: expiresValue, warehouse: warehouseValue, zone: zoneValue, bin: binValue, reorderPoint: normalizedReorderPoint, minStock: normalizedMinStock, description, tags: normalizedTags, lowStockEnabled: normalizedLowStockEnabled, supplierId: normalizedSupplierId, supplierSku: normalizedSupplierSku, supplierUrl: normalizedSupplierUrl, tenantId: t });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 app.delete('/api/items/:code', requireRole('admin'), async (req, res) => {
@@ -2735,6 +2781,9 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
         const brand = (raw?.brand || '').trim() || null;
         const notes = (raw?.notes || '').trim() || null;
         const uom = (raw?.uom || '').trim() || null;
+        const supplierId = (raw?.supplierId || '').trim() || null;
+        const supplierSku = (raw?.supplierSku || '').trim() || null;
+        const supplierUrl = normalizeUrl(raw?.supplierUrl);
         const warehouse = (raw?.warehouse || '').trim() || null;
         const zone = (raw?.zone || '').trim() || null;
         const bin = (raw?.bin || '').trim() || null;
@@ -2751,10 +2800,10 @@ app.post('/api/items/bulk', requireRole('admin'), async (req, res) => {
         const tags = normalizeItemTags(raw?.tags);
         const tagsJson = JSON.stringify(tags);
         const lowStockEnabled = normalizeItemLowStockEnabled(raw?.lowStockEnabled);
-        await client.query(`INSERT INTO items(code,name,category,unitPrice,material,shape,brand,notes,uom,serialized,lot,expires,warehouse,zone,bin,reorderPoint,minStock,description,tags,lowStockEnabled,tenantId)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-          ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, material=EXCLUDED.material, shape=EXCLUDED.shape, brand=EXCLUDED.brand, notes=EXCLUDED.notes, uom=EXCLUDED.uom, serialized=EXCLUDED.serialized, lot=EXCLUDED.lot, expires=EXCLUDED.expires, warehouse=EXCLUDED.warehouse, zone=EXCLUDED.zone, bin=EXCLUDED.bin, reorderPoint=EXCLUDED.reorderPoint, minStock=EXCLUDED.minStock, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, tenantId=EXCLUDED.tenantId`,
-          [code, name, categoryInfo.name, unitPrice, material, shape, brand, notes, uom, serialized, lot, expires, warehouse, zone, bin, reorderPoint, minStock, description, tagsJson, lowStockEnabled, t]);
+        await client.query(`INSERT INTO items(code,name,category,unitPrice,material,shape,brand,notes,uom,serialized,lot,expires,warehouse,zone,bin,reorderPoint,minStock,description,tags,lowStockEnabled,supplierId,supplierSku,supplierUrl,tenantId)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+          ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, material=EXCLUDED.material, shape=EXCLUDED.shape, brand=EXCLUDED.brand, notes=EXCLUDED.notes, uom=EXCLUDED.uom, serialized=EXCLUDED.serialized, lot=EXCLUDED.lot, expires=EXCLUDED.expires, warehouse=EXCLUDED.warehouse, zone=EXCLUDED.zone, bin=EXCLUDED.bin, reorderPoint=EXCLUDED.reorderPoint, minStock=EXCLUDED.minStock, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, supplierId=EXCLUDED.supplierId, supplierSku=EXCLUDED.supplierSku, supplierUrl=EXCLUDED.supplierUrl, tenantId=EXCLUDED.tenantId`,
+          [code, name, categoryInfo.name, unitPrice, material, shape, brand, notes, uom, serialized, lot, expires, warehouse, zone, bin, reorderPoint, minStock, description, tagsJson, lowStockEnabled, supplierId, supplierSku, supplierUrl, t]);
         results.push(code);
       }
     });
@@ -2797,17 +2846,24 @@ app.patch('/api/items/:code', requireRole('admin'), async (req, res) => {
       warehouse: payload.warehouse ?? item.warehouse,
       zone: payload.zone ?? item.zone,
       bin: payload.bin ?? item.bin,
+      supplierId: payload.supplierId ?? item.supplierid ?? item.supplierId,
+      supplierSku: payload.supplierSku ?? item.suppliersku ?? item.supplierSku,
+      supplierUrl: Object.prototype.hasOwnProperty.call(payload, 'supplierUrl') ? normalizeUrl(payload.supplierUrl) : (item.supplierurl ?? item.supplierUrl),
       reorderPoint: Object.prototype.hasOwnProperty.call(payload, 'reorderPoint') ? Number(payload.reorderPoint) : item.reorderpoint ?? item.reorderPoint,
       minStock: Object.prototype.hasOwnProperty.call(payload, 'minStock') ? Number(payload.minStock) : item.minstock ?? item.minStock,
       tags: normalizedTags,
       lowStockEnabled: normalizedLowStockEnabled
     };
+    if (updates.supplierId) {
+      const supplier = await getAsync('SELECT id FROM suppliers WHERE id=$1 AND tenantId=$2', [updates.supplierId, t]);
+      if (!supplier) return res.status(400).json({ error: 'invalid supplier' });
+    }
     await runAsync(
       `UPDATE items
        SET name=$1, category=$2, description=$3, unitPrice=$4, material=$5, shape=$6, brand=$7, notes=$8,
            uom=$9, serialized=$10, lot=$11, expires=$12, warehouse=$13, zone=$14, bin=$15,
-           reorderPoint=$16, minStock=$17, tags=$18, lowStockEnabled=$19
-       WHERE code=$20 AND tenantId=$21`,
+           supplierId=$16, supplierSku=$17, supplierUrl=$18, reorderPoint=$19, minStock=$20, tags=$21, lowStockEnabled=$22
+       WHERE code=$23 AND tenantId=$24`,
       [
         updates.name,
         updates.category,
@@ -2824,6 +2880,9 @@ app.patch('/api/items/:code', requireRole('admin'), async (req, res) => {
         updates.warehouse,
         updates.zone,
         updates.bin,
+        updates.supplierId || null,
+        updates.supplierSku || null,
+        updates.supplierUrl || null,
         Number.isFinite(updates.reorderPoint) ? Math.floor(updates.reorderPoint) : null,
         Number.isFinite(updates.minStock) ? Math.floor(updates.minStock) : null,
         JSON.stringify(updates.tags),
@@ -2992,6 +3051,102 @@ app.get('/api/items/:code/insights', async (req, res) => {
         suggestedQty
       }
     });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// SUPPLIERS
+app.get('/api/suppliers', async (req, res) => {
+  try {
+    const rows = await readSuppliers(tenantId(req));
+    res.json((rows || []).map(normalizeSupplierRow));
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+app.post('/api/suppliers', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const payload = req.body || {};
+    const name = String(payload.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const existing = await getAsync('SELECT id FROM suppliers WHERE tenantId=$1 AND LOWER(name)=LOWER($2) LIMIT 1', [t, name]);
+    if (existing) return res.status(409).json({ error: 'supplier already exists' });
+    const now = Date.now();
+    const row = {
+      id: newId(),
+      name,
+      contact: String(payload.contact || '').trim() || null,
+      email: String(payload.email || '').trim() || null,
+      phone: String(payload.phone || '').trim() || null,
+      websiteUrl: normalizeUrl(payload.websiteUrl),
+      orderUrl: normalizeUrl(payload.orderUrl),
+      leadTime: payload.leadTime || {},
+      moq: payload.moq === '' || payload.moq === null || payload.moq === undefined || Number.isNaN(Number(payload.moq)) ? null : Number(payload.moq),
+      notes: String(payload.notes || '').trim() || null,
+      tenantId: t,
+      createdAt: now,
+      updatedAt: now
+    };
+    await runAsync(
+      `INSERT INTO suppliers(id,name,contact,email,phone,websiteUrl,orderUrl,leadTime,moq,notes,tenantId,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [row.id, row.name, row.contact, row.email, row.phone, row.websiteUrl, row.orderUrl, row.leadTime, row.moq, row.notes, row.tenantId, row.createdAt, row.updatedAt]
+    );
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'suppliers.update', details: { id: row.id, name: row.name } });
+    res.status(201).json(row);
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.put('/api/suppliers/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getAsync('SELECT * FROM suppliers WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    if (!existing) return res.status(404).json({ error: 'supplier not found' });
+    const payload = req.body || {};
+    const name = String(payload.name || existing.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const dup = await getAsync('SELECT id FROM suppliers WHERE tenantId=$1 AND LOWER(name)=LOWER($2) AND id<>$3 LIMIT 1', [t, name, req.params.id]);
+    if (dup) return res.status(409).json({ error: 'supplier already exists' });
+    const updated = {
+      id: req.params.id,
+      name,
+      contact: String(payload.contact ?? existing.contact ?? '').trim() || null,
+      email: String(payload.email ?? existing.email ?? '').trim() || null,
+      phone: String(payload.phone ?? existing.phone ?? '').trim() || null,
+      websiteUrl: normalizeUrl(payload.websiteUrl ?? existing.websiteurl ?? existing.websiteUrl),
+      orderUrl: normalizeUrl(payload.orderUrl ?? existing.orderurl ?? existing.orderUrl),
+      leadTime: payload.leadTime ?? existing.leadtime ?? existing.leadTime ?? {},
+      moq: payload.moq === '' ? null : (payload.moq !== undefined ? Number(payload.moq) : (existing.moq ?? null)),
+      notes: String(payload.notes ?? existing.notes ?? '').trim() || null,
+      tenantId: t,
+      createdAt: existing.createdat || existing.createdAt || Date.now(),
+      updatedAt: Date.now()
+    };
+    await runAsync(
+      `UPDATE suppliers
+       SET name=$1, contact=$2, email=$3, phone=$4, websiteUrl=$5, orderUrl=$6, leadTime=$7, moq=$8, notes=$9, updatedAt=$10
+       WHERE id=$11 AND tenantId=$12`,
+      [updated.name, updated.contact, updated.email, updated.phone, updated.websiteUrl, updated.orderUrl, updated.leadTime, updated.moq, updated.notes, updated.updatedAt, updated.id, updated.tenantId]
+    );
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'suppliers.update', details: { id: updated.id, name: updated.name } });
+    res.json(updated);
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.delete('/api/suppliers/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    await runAsync('UPDATE items SET supplierId=NULL WHERE supplierId=$1 AND tenantId=$2', [req.params.id, t]);
+    await runAsync('DELETE FROM suppliers WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'suppliers.update', details: { id: req.params.id, deleted: true } });
+    res.status(204).end();
   } catch (e) {
     res.status(500).json({ error: 'server error' });
   }
@@ -3660,6 +3815,25 @@ app.post('/api/inventory-order/:sourceId/cancel', requireRole('admin'), async (r
   }
 });
 
+app.post('/api/procurement/vendor-open', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const supplierId = (req.body?.supplierId || '').toString().trim();
+    const supplierName = (req.body?.supplierName || '').toString().trim();
+    const url = normalizeUrl(req.body?.url || '');
+    const lineCount = Number(req.body?.lineCount || 0) || 0;
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'procurement.vendor_open',
+      details: { supplierId, supplierName, url, qty: lineCount }
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
 // FIELD PURCHASES (employee intake)
 app.post('/api/field-purchase', async (req, res) => {
   try {
@@ -3765,6 +3939,7 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       await client.query('TRUNCATE support_tickets');
       await client.query('TRUNCATE tenant_capabilities');
       await client.query('TRUNCATE items');
+      await client.query('TRUNCATE suppliers');
       await client.query('TRUNCATE equipment_assets');
       await client.query('TRUNCATE vehicle_assets');
       await client.query('TRUNCATE job_materials');
@@ -3861,6 +4036,7 @@ app.post('/api/dev/delete-tenant', requireDev, async (req, res) => {
       await client.query('DELETE FROM equipment_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM vehicle_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM suppliers WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM job_materials WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);
@@ -4247,6 +4423,8 @@ function formatAuditMessage(entry) {
     'items.create': 'Item created',
     'items.update': 'Item updated',
     'items.delete': 'Item deleted',
+    'procurement.vendor_open': 'Vendor site opened',
+    'suppliers.update': 'Supplier updated',
     'projects.materials.update': 'Project materials updated',
     'ops.pick.start': 'Pick started',
     'ops.pick.finish': 'Pick completed',
@@ -4424,6 +4602,7 @@ app.delete('/api/seller/clients/:id', requireDev, async (req, res) => {
       await client.query('DELETE FROM equipment_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM vehicle_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM suppliers WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM job_materials WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);
@@ -4518,6 +4697,32 @@ async function readItems(tenantIdVal) {
 }
 async function readJobs(tenantIdVal) {
   return allAsync('SELECT * FROM jobs WHERE tenantId=$1 ORDER BY code ASC', [tenantIdVal]);
+}
+async function readSuppliers(tenantIdVal) {
+  return allAsync('SELECT * FROM suppliers WHERE tenantId=$1 ORDER BY name ASC', [tenantIdVal]);
+}
+function normalizeUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
+function normalizeSupplierRow(row) {
+  return {
+    id: row?.id || '',
+    tenantId: row?.tenantid || row?.tenantId || '',
+    name: row?.name || '',
+    contact: row?.contact || '',
+    email: row?.email || '',
+    phone: row?.phone || '',
+    websiteUrl: row?.websiteurl || row?.websiteUrl || '',
+    orderUrl: row?.orderurl || row?.orderUrl || '',
+    leadTime: row?.leadtime || row?.leadTime || {},
+    moq: row?.moq ?? null,
+    notes: row?.notes || '',
+    createdAt: row?.createdat || row?.createdAt || null,
+    updatedAt: row?.updatedat || row?.updatedAt || null
+  };
 }
 function numberOrZero(value) {
   const num = Number(value);

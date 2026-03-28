@@ -17,6 +17,9 @@ const fieldMap = {
   name: 'Name',
   category: 'Category',
   unitPrice: 'UnitPrice',
+  supplierId: 'SupplierId',
+  supplierSku: 'SupplierSku',
+  supplierUrl: 'SupplierUrl',
   material: 'Material',
   shape: 'Shape',
   brand: 'Brand',
@@ -145,12 +148,34 @@ function renderCategoryOptions(){
   else select.value = list.find(c=> c.name === DEFAULT_CATEGORY_NAME)?.name || list[0].name;
 }
 
+function renderSupplierOptions(){
+  ['itemSupplierId','itemEditSupplierId'].forEach((id)=>{
+    const select = qs(id);
+    if(!select) return;
+    const current = select.value;
+    select.innerHTML = '<option value="">Unassigned</option>';
+    state.suppliers
+      .slice()
+      .sort((a,b)=> (a.name || '').localeCompare(b.name || ''))
+      .forEach((supplier)=>{
+        const opt = document.createElement('option');
+        opt.value = supplier.id;
+        opt.textContent = supplier.name || FALLBACK;
+        select.appendChild(opt);
+      });
+    if(current && state.suppliers.some(s=> s.id === current)) select.value = current;
+  });
+}
+
 function buildItemPayload(prefix, oldCode){
   const code = getField(prefix, 'code')?.value.trim();
   const name = getField(prefix, 'name')?.value.trim();
   const category = getField(prefix, 'category')?.value.trim();
   if(!code || !name) return { error: 'Code and name are required.' };
   const unitPrice = parseNumber(getField(prefix, 'unitPrice')?.value);
+  const supplierId = getField(prefix, 'supplierId')?.value.trim() || '';
+  const supplierSku = getField(prefix, 'supplierSku')?.value.trim() || '';
+  const supplierUrl = getField(prefix, 'supplierUrl')?.value.trim() || '';
   const material = getField(prefix, 'material')?.value.trim() || '';
   const shape = getField(prefix, 'shape')?.value.trim() || '';
   const brand = getField(prefix, 'brand')?.value.trim() || '';
@@ -173,6 +198,9 @@ function buildItemPayload(prefix, oldCode){
     name,
     category,
     unitPrice,
+    supplierId,
+    supplierSku,
+    supplierUrl,
     material,
     shape,
     brand,
@@ -206,6 +234,9 @@ function fillItemForm(prefix, item){
   setValue('name', item.name || '');
   setValue('category', item.category || DEFAULT_CATEGORY_NAME);
   setValue('unitPrice', item.unitPrice ?? '');
+  setValue('supplierId', item.supplierId || item.supplierid || '');
+  setValue('supplierSku', item.supplierSku || item.suppliersku || '');
+  setValue('supplierUrl', item.supplierUrl || item.supplierurl || '');
   setValue('material', item.material || '');
   setValue('shape', item.shape || '');
   setValue('brand', item.brand || '');
@@ -228,6 +259,7 @@ function clearItemForm(){
   state.editingCode = null;
   dom.itemForm?.reset();
   renderCategoryOptions();
+  renderSupplierOptions();
   if(dom.categorySelect && dom.lowStockEnabled){
     dom.lowStockEnabled.checked = getCategoryLowStockEnabled(dom.categorySelect.value);
   }
@@ -306,7 +338,7 @@ function renderItemsTable(){
   items.sort((a,b)=> (a.code || '').localeCompare((b.code || '')));
   if(!items.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="10" style="text-align:center;color:#6b7280;">No items in catalog</td>';
+    tr.innerHTML = '<td colspan="11" style="text-align:center;color:#6b7280;">No items in catalog</td>';
     tbody.appendChild(tr);
     return;
   }
@@ -314,11 +346,14 @@ function renderItemsTable(){
     const tr = document.createElement('tr');
     const price = Number.isFinite(Number(item.unitPrice)) ? `$${Number(item.unitPrice).toFixed(2)}` : FALLBACK;
     const reorder = Number.isFinite(Number(item.reorderPoint)) ? item.reorderPoint : FALLBACK;
+    const supplierId = item.supplierId || item.supplierid || '';
+    const supplierName = state.suppliers.find(s => s.id === supplierId)?.name || FALLBACK;
     tr.innerHTML = `
       <td>${item.code || ''}</td>
       <td>${item.name || FALLBACK}</td>
       <td>${item.category || FALLBACK}</td>
       <td>${price}</td>
+      <td>${supplierName}</td>
       <td>${item.material || FALLBACK}</td>
       <td>${item.shape || FALLBACK}</td>
       <td>${item.brand || FALLBACK}</td>
@@ -426,7 +461,7 @@ function renderSuppliersTable(){
   tbody.innerHTML = '';
   if(!state.supplierApiAvailable){
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="5" style="text-align:center;color:#6b7280;">Suppliers are not available yet.</td>';
+    tr.innerHTML = '<td colspan="6" style="text-align:center;color:#6b7280;">Suppliers are not available yet.</td>';
     tbody.appendChild(tr);
     return;
   }
@@ -438,20 +473,25 @@ function renderSuppliersTable(){
   rows.sort((a,b)=> (a.name || '').localeCompare((b.name || '')));
   if(!rows.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="5" style="text-align:center;color:#6b7280;">No suppliers</td>';
+    tr.innerHTML = '<td colspan="6" style="text-align:center;color:#6b7280;">No suppliers</td>';
     tbody.appendChild(tr);
     return;
   }
   rows.forEach(s=>{
     const lead = s.leadTime?.avg != null ? `${s.leadTime.avg}d` : '-';
     const moq = s.moq ?? '-';
+    const website = s.orderUrl || s.websiteUrl || '';
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${s.name || FALLBACK}</td>
+      <td>${website ? `<a href="${website}" target="_blank" rel="noopener">Open</a>` : FALLBACK}</td>
       <td>${s.contact || FALLBACK}</td>
       <td>${lead}</td>
       <td>${moq}</td>
-      <td><button class="supplier-edit" data-id="${s.id}">Edit</button></td>
+      <td>
+        <button class="supplier-edit" data-id="${s.id}">Edit</button>
+        <button class="supplier-delete muted" data-id="${s.id}">Delete</button>
+      </td>
     `;
     tbody.appendChild(tr);
   });
@@ -459,6 +499,20 @@ function renderSuppliersTable(){
     btn.addEventListener('click', ()=>{
       const supplier = state.suppliers.find(s => s.id === btn.dataset.id);
       if(supplier) fillSupplierForm(supplier);
+    });
+  });
+  tbody.querySelectorAll('.supplier-delete').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const supplier = state.suppliers.find(s => s.id === btn.dataset.id);
+      if(!supplier?.id) return;
+      if(!confirm(`Delete supplier "${supplier.name || supplier.id}"? Linked catalog items will become unassigned.`)) return;
+      const res = await fetchJson(`/api/suppliers/${encodeURIComponent(supplier.id)}`, { method:'DELETE' });
+      if(!res || !res.ok){
+        alert(res?.data?.error || 'Failed to delete supplier');
+        return;
+      }
+      await refreshSuppliers();
+      await refreshItems();
     });
   });
 }
@@ -497,6 +551,8 @@ function fillSupplierForm(supplier){
   qs('supplierContact').value = supplier?.contact || '';
   qs('supplierEmail').value = supplier?.email || '';
   qs('supplierPhone').value = supplier?.phone || '';
+  qs('supplierWebsiteUrl').value = supplier?.websiteUrl || '';
+  qs('supplierOrderUrl').value = supplier?.orderUrl || '';
   qs('supplierLeadAvg').value = supplier?.leadTime?.avg ?? '';
   qs('supplierLeadMin').value = supplier?.leadTime?.min ?? '';
   qs('supplierLeadMax').value = supplier?.leadTime?.max ?? '';
@@ -514,8 +570,9 @@ function clearSupplierForm(){
 
 async function refreshItems(){
   await loadItems();
+  renderSupplierOptions();
   renderItemsTable();
-  setStatus(`Loaded ${state.items.length} items, ${state.categories.length} categories.`, 'ok');
+  setStatus(`Loaded ${state.items.length} items, ${state.categories.length} categories, ${state.suppliers.length} suppliers.`, 'ok');
 }
 
 async function refreshCategories(){
@@ -526,6 +583,7 @@ async function refreshCategories(){
 
 async function refreshSuppliers(){
   await loadSuppliers();
+  renderSupplierOptions();
   renderSuppliersTable();
 }
 
@@ -570,9 +628,12 @@ function parseCsv(text){
       if(['name','itemname'].includes(h)) map.set('name', idx);
       if(['category','cat'].includes(h)) map.set('category', idx);
       if(['unitprice','price','unitcost','cost'].includes(h)) map.set('unitPrice', idx);
-        if(['material'].includes(h)) map.set('material', idx);
-        if(['shape','vendor','supplier'].includes(h)) map.set('shape', idx);
-        if(['brand','manufacturer','mfr'].includes(h)) map.set('brand', idx);
+      if(['supplierid','preferredsupplier'].includes(h)) map.set('supplierId', idx);
+      if(['suppliersku','vendorsku'].includes(h)) map.set('supplierSku', idx);
+      if(['supplierurl','supplierlink','vendorurl','vendorlink'].includes(h)) map.set('supplierUrl', idx);
+      if(['material'].includes(h)) map.set('material', idx);
+      if(['shape','vendor'].includes(h)) map.set('shape', idx);
+      if(['brand','manufacturer','mfr'].includes(h)) map.set('brand', idx);
       if(['notes','note'].includes(h)) map.set('notes', idx);
       if(['description','desc'].includes(h)) map.set('description', idx);
       if(['tags','tag','flags'].includes(h)) map.set('tags', idx);
@@ -593,6 +654,9 @@ function parseCsv(text){
       name,
       category: hasHeader ? get('category', map.get('category')) : (cols[2] || ''),
       unitPrice: parseNumber(hasHeader ? get('unitPrice', map.get('unitPrice')) : (cols[3] || '')),
+      supplierId: hasHeader ? get('supplierId', map.get('supplierId')) : '',
+      supplierSku: hasHeader ? get('supplierSku', map.get('supplierSku')) : '',
+      supplierUrl: hasHeader ? get('supplierUrl', map.get('supplierUrl')) : '',
       material: hasHeader ? get('material', map.get('material')) : (cols[4] || ''),
       shape: hasHeader ? get('shape', map.get('shape')) : (cols[5] || ''),
       brand: hasHeader ? get('brand', map.get('brand')) : (cols[6] || ''),
@@ -738,6 +802,8 @@ async function handleSaveSupplier(){
     contact: qs('supplierContact')?.value.trim(),
     email: qs('supplierEmail')?.value.trim(),
     phone: qs('supplierPhone')?.value.trim(),
+    websiteUrl: qs('supplierWebsiteUrl')?.value.trim(),
+    orderUrl: qs('supplierOrderUrl')?.value.trim(),
     moq: parseNumber(qs('supplierMoq')?.value),
     notes: qs('supplierNotes')?.value.trim(),
     leadTime: {
@@ -799,6 +865,7 @@ async function refreshAll(){
     runWithTimeout(loadSuppliers(), 'Suppliers')
   ]);
   renderCategoryOptions();
+  renderSupplierOptions();
   renderCategoriesTable();
   renderItemsTable();
   renderSuppliersTable();

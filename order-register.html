@@ -114,6 +114,7 @@
                 <label style="flex:1">Notes<textarea id="orderNotes" rows="2" placeholder="Optional notes for all lines"></textarea></label>
               </div>
               <div class="form-row sticky-actions-mobile">
+                <button id="orderShoppingListBtn" type="button" class="muted">Shopping List</button>
                 <button id="orderSubmitBtn" type="submit">Review &amp; Submit</button>
                 <button id="orderSubmitAnother" type="button" class="muted">Submit &amp; Add More</button>
                 <button id="orderClearBtn" type="button" class="muted">Clear</button>
@@ -282,6 +283,23 @@
       <div class="modal-actions">
         <button id="orderReviewConfirm" type="button">Confirm</button>
         <button id="orderReviewCancel" type="button" class="muted">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="supplierShoppingModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <div>
+          <h3 style="margin:0;">Supplier Shopping List</h3>
+          <p class="muted-text" id="supplierShoppingSummary" style="margin:4px 0 0;">-</p>
+        </div>
+        <button id="supplierShoppingClose" class="muted" type="button">Close</button>
+      </div>
+      <div id="supplierShoppingGroups" class="shopping-groups"></div>
+      <div class="modal-actions">
+        <button id="supplierShoppingOpenAll" type="button">Open All Vendor Sites</button>
+        <button id="supplierShoppingCancel" type="button" class="muted">Close</button>
       </div>
     </div>
   </div>

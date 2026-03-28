@@ -10,12 +10,14 @@ function getSession(){
 function uid(){ return Math.random().toString(16).slice(2,8); }
 
 let itemsCache = [];
+let suppliersCache = [];
 let jobOptions = [];
 let availabilityMap = new Map();
 let inventoryCache = [];
 let projectMaterialsCache = new Map();
 let orderRangeFilter = 'all';
 let pendingSubmit = null;
+let currentShoppingPlan = null;
 
 function normalizeJobId(value){
   const val = (value || '').toString().trim();
@@ -139,6 +141,14 @@ async function loadItems(){
   }catch(e){}
 }
 
+async function loadSuppliers(){
+  try{
+    suppliersCache = await utils.fetchJsonSafe('/api/suppliers', {}, []) || [];
+  }catch(e){
+    suppliersCache = [];
+  }
+}
+
 async function loadProjectMaterials(jobId, force = false){
   const normalizedJobId = normalizeJobId(jobId);
   if(!normalizedJobId) return [];
@@ -154,6 +164,34 @@ function shouldAddProcurementItemsToCatalog(){
 
 function shouldUseInventoryBeforeOrder(){
   return !!document.getElementById('order-use-inventory')?.checked;
+}
+
+function findItemByCode(code){
+  const normalized = (code || '').trim().toLowerCase();
+  if(!normalized) return null;
+  return itemsCache.find(item => (item.code || '').trim().toLowerCase() === normalized) || null;
+}
+
+function findSupplierById(supplierId){
+  const id = (supplierId || '').trim();
+  if(!id) return null;
+  return suppliersCache.find(supplier => supplier.id === id) || null;
+}
+
+function getSupplierTargetForLine(line){
+  const item = findItemByCode(line?.code || '');
+  const supplierId = item?.supplierId || item?.supplierid || '';
+  const supplier = findSupplierById(supplierId);
+  const supplierSku = item?.supplierSku || item?.suppliersku || '';
+  const itemUrl = (item?.supplierUrl || item?.supplierurl || '').trim();
+  const url = itemUrl || (supplier?.orderUrl || supplier?.websiteUrl || '').trim();
+  return {
+    supplierId: supplier?.id || supplierId || '',
+    supplierName: supplier?.name || '',
+    supplierSku,
+    url,
+    assigned: !!supplier
+  };
 }
 
 function buildProcurementPlan(lines){
@@ -184,6 +222,75 @@ function buildProcurementPlan(lines){
     reserveLines: plannedLines.filter(line=> line.inventoryQty > 0),
     orderLines: plannedLines.filter(line=> line.orderQty > 0)
   };
+}
+
+function buildSupplierShoppingPlan(lines){
+  const plan = buildProcurementPlan(lines);
+  const groups = new Map();
+  plan.orderLines.forEach((line)=>{
+    const supplierMeta = getSupplierTargetForLine(line);
+    const key = supplierMeta.assigned ? supplierMeta.supplierId : 'unassigned';
+    if(!groups.has(key)){
+      groups.set(key, {
+        key,
+        supplierId: supplierMeta.supplierId || '',
+        supplierName: supplierMeta.supplierName || 'Unassigned Supplier',
+        url: supplierMeta.url || '',
+        assigned: supplierMeta.assigned,
+        lines: [],
+        totalQty: 0
+      });
+    }
+    const group = groups.get(key);
+    group.lines.push({
+      ...line,
+      supplierSku: supplierMeta.supplierSku || ''
+    });
+    group.totalQty += Number(line.orderQty || 0);
+    if(!group.url && supplierMeta.url) group.url = supplierMeta.url;
+  });
+  return {
+    ...plan,
+    groups: Array.from(groups.values()).sort((a, b)=> {
+      if(a.assigned !== b.assigned) return a.assigned ? -1 : 1;
+      return (a.supplierName || '').localeCompare(b.supplierName || '');
+    })
+  };
+}
+
+function shoppingListTextForGroup(group){
+  const header = [
+    group.supplierName || 'Unassigned Supplier',
+    group.url ? `Vendor URL: ${group.url}` : 'Vendor URL: not set'
+  ];
+  const lines = (group.lines || []).map((line)=>{
+    const parts = [
+      `${line.code} - ${line.name || ''}`.trim(),
+      `Qty ${line.orderQty}`,
+      line.jobId ? `Project ${line.jobId}` : 'General Inventory'
+    ];
+    if(line.supplierSku) parts.push(`Supplier SKU ${line.supplierSku}`);
+    if(line.eta) parts.push(`ETA ${line.eta}`);
+    return `- ${parts.join(' | ')}`;
+  });
+  return [...header, '', ...lines].join('\n');
+}
+
+async function copyTextToClipboard(text){
+  if(navigator.clipboard?.writeText){
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const fallback = document.createElement('textarea');
+  fallback.value = text;
+  fallback.setAttribute('readonly', '');
+  fallback.style.position = 'absolute';
+  fallback.style.left = '-9999px';
+  document.body.appendChild(fallback);
+  fallback.select();
+  const ok = document.execCommand('copy');
+  fallback.remove();
+  return !!ok;
 }
 
 async function reserveInventoryBeforeOrdering(lines, notes, session){
@@ -554,6 +661,128 @@ function closeReviewModal(){
   pendingSubmit = null;
 }
 
+function closeShoppingModal(){
+  const modal = document.getElementById('supplierShoppingModal');
+  if(modal) modal.classList.add('hidden');
+  currentShoppingPlan = null;
+}
+
+function openVendorTab(url){
+  if(!url) return false;
+  const opened = window.open(url, '_blank', 'noopener');
+  return !!opened;
+}
+
+async function logVendorOpen(group){
+  try{
+    await fetch('/api/procurement/vendor-open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        supplierId: group?.supplierId || '',
+        supplierName: group?.supplierName || '',
+        url: group?.url || '',
+        lineCount: Array.isArray(group?.lines) ? group.lines.length : 0
+      })
+    });
+  }catch(e){}
+}
+
+function renderShoppingGroups(plan){
+  const summary = document.getElementById('supplierShoppingSummary');
+  const container = document.getElementById('supplierShoppingGroups');
+  if(!summary || !container) return;
+  container.innerHTML = '';
+  currentShoppingPlan = plan;
+
+  const validGroups = plan.groups.filter(group => group.assigned);
+  const unassignedCount = plan.groups.filter(group => !group.assigned).reduce((sum, group)=> sum + group.lines.length, 0);
+  summary.textContent = `${plan.groups.length} supplier groups, ${plan.orderLines.length} lines to order, ${validGroups.filter(group => group.url).length} vendor links ready${unassignedCount ? `, ${unassignedCount} lines unassigned` : ''}.`;
+
+  if(!plan.orderLines.length){
+    container.innerHTML = '<div class="ds-empty">No procurement order lines remain after inventory allocation.</div>';
+    return;
+  }
+
+  plan.groups.forEach((group)=>{
+    const card = document.createElement('section');
+    card.className = 'card supplier-shopping-card';
+    const rows = (group.lines || []).map((line)=>`
+      <tr>
+        <td>${line.code}</td>
+        <td>${line.name || ''}</td>
+        <td>${line.orderQty}</td>
+        <td>${line.jobId || 'General'}</td>
+        <td>${line.supplierSku || FALLBACK}</td>
+        <td>${line.eta || FALLBACK}</td>
+      </tr>
+    `).join('');
+    const status = !group.assigned
+      ? 'No supplier is assigned to these catalog items yet.'
+      : group.url
+        ? `Vendor URL ready: ${group.url}`
+        : 'Supplier exists, but no vendor URL is saved yet.';
+
+    card.innerHTML = `
+      <div class="supplier-shopping-head">
+        <div>
+          <h4>${group.supplierName || 'Unassigned Supplier'}</h4>
+          <div class="muted-text">${status}</div>
+        </div>
+        <div class="supplier-shopping-actions">
+          <button type="button" class="muted supplier-copy-btn" data-key="${group.key}">Copy List</button>
+          <button type="button" class="supplier-open-btn" data-key="${group.key}" ${group.url ? '' : 'disabled'}>Open Vendor Site</button>
+        </div>
+      </div>
+      <table class="supplier-shopping-table">
+        <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Project</th><th>Supplier SKU</th><th>ETA</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+    container.appendChild(card);
+  });
+
+  container.querySelectorAll('.supplier-copy-btn').forEach((button)=>{
+    button.addEventListener('click', async ()=>{
+      const group = currentShoppingPlan?.groups.find(entry => entry.key === button.dataset.key);
+      if(!group) return;
+      try{
+        await copyTextToClipboard(shoppingListTextForGroup(group));
+        const msg = document.getElementById('orderMsg');
+        if(msg){
+          msg.style.color = '#15803d';
+          msg.textContent = `Copied shopping list for ${group.supplierName || 'supplier'}.`;
+        }
+      }catch(e){
+        alert('Could not copy the shopping list.');
+      }
+    });
+  });
+
+  container.querySelectorAll('.supplier-open-btn').forEach((button)=>{
+    button.addEventListener('click', async ()=>{
+      const group = currentShoppingPlan?.groups.find(entry => entry.key === button.dataset.key);
+      if(!group?.url){
+        alert('No vendor URL is configured for this supplier.');
+        return;
+      }
+      if(!openVendorTab(group.url)){
+        alert('The vendor tab was blocked by the browser. Allow pop-ups for this app and try again.');
+        return;
+      }
+      await logVendorOpen(group);
+    });
+  });
+}
+
+function openShoppingModal(lines){
+  const modal = document.getElementById('supplierShoppingModal');
+  if(!modal) return;
+  const plan = buildSupplierShoppingPlan(lines);
+  renderShoppingGroups(plan);
+  modal.classList.remove('hidden');
+}
+
 async function submitOrders(lines, clearAll){
   const msg = document.getElementById('orderMsg');
   if(msg) msg.textContent = '';
@@ -798,6 +1027,7 @@ function initOrders(){
   if(!form) return;
   const msg = document.getElementById('orderMsg');
   const addLineBtn = document.getElementById('order-addLine');
+  const shoppingListBtn = document.getElementById('orderShoppingListBtn');
   const submitAnother = document.getElementById('orderSubmitAnother');
   const clearBtn = document.getElementById('orderClearBtn');
   const defaultJob = document.getElementById('orderJob');
@@ -809,6 +1039,16 @@ function initOrders(){
   addOrderLine();
 
   addLineBtn?.addEventListener('click', ()=> addOrderLine());
+  shoppingListBtn?.addEventListener('click', ()=>{
+    msg.textContent = '';
+    const { lines, hasError } = gatherOrderLines();
+    if(hasError){
+      msg.style.color = '#b91c1c';
+      msg.textContent = 'Fix the highlighted lines before opening the shopping list.';
+      return;
+    }
+    openShoppingModal(lines);
+  });
   defaultJob?.addEventListener('change', ()=>{
     if(materialsJob && !materialsJob.value && defaultJob.value) materialsJob.value = defaultJob.value;
     if(applyDefault?.checked){
@@ -847,6 +1087,7 @@ function initOrders(){
     form.reset();
     msg.textContent = '';
     clearOrderLines();
+    closeShoppingModal();
   });
 
   const bulkLoadBtn = document.getElementById('order-bulk-load');
@@ -945,6 +1186,9 @@ function initOrders(){
   const reviewClose = document.getElementById('orderReviewClose');
   const reviewCancel = document.getElementById('orderReviewCancel');
   const reviewConfirm = document.getElementById('orderReviewConfirm');
+  const shoppingClose = document.getElementById('supplierShoppingClose');
+  const shoppingCancel = document.getElementById('supplierShoppingCancel');
+  const shoppingOpenAll = document.getElementById('supplierShoppingOpenAll');
   reviewClose?.addEventListener('click', closeReviewModal);
   reviewCancel?.addEventListener('click', closeReviewModal);
   reviewConfirm?.addEventListener('click', async ()=>{
@@ -953,6 +1197,32 @@ function initOrders(){
     if(ok){
       closeReviewModal();
     }
+  });
+  shoppingClose?.addEventListener('click', closeShoppingModal);
+  shoppingCancel?.addEventListener('click', closeShoppingModal);
+  shoppingOpenAll?.addEventListener('click', async ()=>{
+    const groups = currentShoppingPlan?.groups.filter(group => group.url) || [];
+    if(!groups.length){
+      alert('No vendor URLs are configured for the current shopping list.');
+      return;
+    }
+    let blocked = 0;
+    for(const group of groups){
+      if(!openVendorTab(group.url)){
+        blocked += 1;
+        continue;
+      }
+      await logVendorOpen(group);
+    }
+    if(blocked){
+      alert('One or more vendor tabs were blocked by the browser. Allow pop-ups for this app and try again.');
+    }
+  });
+  document.getElementById('supplierShoppingModal')?.addEventListener('click', (event)=>{
+    if(event.target?.id === 'supplierShoppingModal') closeShoppingModal();
+  });
+  document.getElementById('orderReviewModal')?.addEventListener('click', (event)=>{
+    if(event.target?.id === 'orderReviewModal') closeReviewModal();
   });
 }
 
@@ -1225,6 +1495,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   (async ()=>{
     await loadJobs();
     await loadItems();
+    await loadSuppliers();
     await renderRecentOrders();
     initTabs();
     initOrders();

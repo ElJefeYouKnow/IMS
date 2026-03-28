@@ -773,6 +773,19 @@ body:not(.panel-open) .drawer-floating-close{display:none}
 .modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
 .modal-title{margin:4px 0 0 0;font-size:1.1rem}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+.shopping-groups{display:grid;gap:12px;margin-top:14px}
+.supplier-shopping-card{padding:14px}
+.supplier-shopping-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}
+.supplier-shopping-head h4{margin:0 0 4px;font-size:1rem}
+.supplier-shopping-actions{display:flex;gap:8px;flex-wrap:wrap}
+.supplier-shopping-table{width:100%}
+.supplier-shopping-table th,.supplier-shopping-table td{font-size:.92rem}
+.dark .supplier-shopping-card{background:rgba(22,34,31,.85);border-color:#29423c}
+@media (max-width: 760px){
+  .supplier-shopping-head{flex-direction:column}
+  .supplier-shopping-actions{width:100%}
+  .supplier-shopping-actions button{flex:1}
+}
 .modal .muted{background:var(--surface-2);color:var(--ink);border:1px solid var(--line);padding:8px 12px;border-radius:8px;font-weight:700}
 .dark .modal .muted{background:#16221f;color:var(--ink);border:1px solid #22312d}
 .confirm-summary{margin:12px 0;font-weight:700;color:var(--ink)}

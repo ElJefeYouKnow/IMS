@@ -4,6 +4,7 @@ let itemsCache = [];
 let isAdmin = false;
 let editingCode = null;
 let projectMaterialsReportCache = new Map();
+const CLOSED_PROJECT_STATUSES = new Set(['complete','completed','closed','archived','cancelled','canceled']);
 
 function normalizeJobRow(row){
   const safe = row || {};
@@ -159,6 +160,43 @@ function clearEditMode(){
   if(editBulk) editBulk.value = '';
   const modal = document.getElementById('jobEditModal');
   if(modal) modal.classList.add('hidden');
+}
+
+function todayStartTs(){
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+}
+
+function getProjectDisplaySort(project){
+  const todayTs = todayStartTs();
+  const status = (project?.status || '').toString().trim().toLowerCase();
+  const startTs = parseDateValue(project?.startDate)?.getTime() || 0;
+  const endTs = parseDateValue(project?.endDate)?.getTime() || 0;
+  const updatedTs = parseDateValue(project?.updatedAt)?.getTime() || 0;
+  const isClosed = CLOSED_PROJECT_STATUSES.has(status);
+  const isActive = !isClosed && (
+    status === 'active' ||
+    ((startTs && startTs <= todayTs) && (!endTs || endTs >= todayTs))
+  );
+  const isUpcoming = !isClosed && !isActive && startTs && startTs >= todayTs;
+
+  if(isActive){
+    return { bucket: 0, sortValue: endTs && endTs >= todayTs ? endTs : (startTs || todayTs) };
+  }
+  if(isUpcoming){
+    return { bucket: 1, sortValue: startTs };
+  }
+  return { bucket: 2, sortValue: -(updatedTs || endTs || startTs || 0) };
+}
+
+function compareProjectsForDisplay(a, b){
+  const aSort = getProjectDisplaySort(a);
+  const bSort = getProjectDisplaySort(b);
+  if(aSort.bucket !== bSort.bucket) return aSort.bucket - bSort.bucket;
+  if(aSort.sortValue !== bSort.sortValue) return aSort.sortValue - bSort.sortValue;
+  const aCode = (a?.code || a?.projectId || '').toString();
+  const bCode = (b?.code || b?.projectId || '').toString();
+  return aCode.localeCompare(bCode);
 }
 
 function addMaterialLine(containerId, prefill = {}){
@@ -332,7 +370,7 @@ async function renderProjects(){
       return code.includes(search) || name.includes(search) || location.includes(search) || status.includes(search) || notes.includes(search);
     });
   }
-  filtered.sort((a,b)=> (a.code || '').localeCompare(b.code || ''));
+  filtered.sort(compareProjectsForDisplay);
 
   const countBadge = document.getElementById('projectCount');
   if(countBadge) countBadge.textContent = `${filtered.length}`;
@@ -831,7 +869,7 @@ async function renderReport(){
   })));
   const rows = enriched
     .map(project=> ({ ...project, materialStats: summarizeProjectMaterials(project.materials || []) }))
-    .sort((a,b)=> a.projectId.localeCompare(b.projectId));
+    .sort(compareProjectsForDisplay);
   updateReportSummary(rows);
   rows.forEach(project=>{
     const meta = project.meta || {};
