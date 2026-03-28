@@ -1465,7 +1465,7 @@ function aggregateStock(entries){
   const stock = {};
   entries.forEach(e=>{
     if(!e.code) return;
-    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, lastTs: 0, lastLocation: '', lastLocationTs: 0, jobs: new Map() };
+    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, consumeQty: 0, lastTs: 0, lastLocation: '', lastLocationTs: 0, jobs: new Map() };
     const item = stock[e.code];
     if(!item.name && e.name) item.name = e.name;
     const qty = Number(e.qty)||0;
@@ -1474,6 +1474,7 @@ function aggregateStock(entries){
     else if(e.type === 'out') item.outQty += qty;
     else if(e.type === 'reserve') item.reserveQty += qty;
     else if(e.type === 'reserve_release') item.reserveQty -= qty;
+    else if(e.type === 'consume') item.consumeQty += qty;
 
     const jobId = getEntryJobId(e);
     const jobKey = jobId ? jobId.toLowerCase() : '';
@@ -1500,11 +1501,13 @@ function aggregateStock(entries){
       if ((stats.out || 0) > 0 || (stats.reserve || 0) > 0) activeJobs.push(jobId);
     }
     const checkedOut = Math.max(0, s.outQty - s.returnQty);
-    const available = Math.max(0, s.inQty - s.outQty - s.reserveQty);
+    const available = Math.max(0, s.inQty - s.outQty - s.reserveQty - s.consumeQty);
+    const onHand = Math.max(0, s.inQty - s.outQty - s.consumeQty);
     const { threshold, enabled } = getLowStockConfigForCode(s.code);
     return {
       ...s,
       jobsList: activeJobs.length ? activeJobs.sort().join(', ') : FALLBACK,
+      onHand,
       checkedOut,
       available,
       category: itemMetaByCode.get(s.code)?.category || DEFAULT_CATEGORY_NAME,
