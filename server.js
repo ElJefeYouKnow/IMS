@@ -72,6 +72,7 @@ const AUDIT_ACTIONS = [
   'inventory.reserve',
   'inventory.return',
   'inventory.order',
+  'inventory.adjust',
   'inventory.count',
   'items.create',
   'items.update',
@@ -2545,6 +2546,57 @@ app.post('/api/inventory-consume', requireRole('admin'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
+app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
+  try {
+    const { code, delta, reason, notes, location, ts } = req.body || {};
+    const qtyNum = Math.abs(Number(delta));
+    if (!code || !Number.isFinite(qtyNum) || qtyNum <= 0) return res.status(400).json({ error: 'code and non-zero delta required' });
+    if (!reason || !String(reason).trim()) return res.status(400).json({ error: 'reason required' });
+    const deltaNum = Number(delta);
+    const t = tenantId(req);
+    const actor = actorInfo(req);
+    const entry = await withTransaction(async (client) => {
+      if (deltaNum > 0) {
+        const categoryInfo = await getItemCategoryRulesTx(client, t, code);
+        const adjustmentNotes = [`Adjustment: ${String(reason).trim()}`];
+        if (notes && String(notes).trim()) adjustmentNotes.push(String(notes).trim());
+        enforceCategoryRules(categoryInfo.rules, { action: 'checkin', jobId: null, location, notes: adjustmentNotes.join(' | '), qty: qtyNum });
+        return processInventoryEvent(client, {
+          type: 'in',
+          code,
+          qty: qtyNum,
+          location,
+          notes: adjustmentNotes.join(' | '),
+          ts,
+          userEmail: actor.userEmail,
+          userName: actor.userName,
+          tenantIdVal: t
+        });
+      }
+      return processInventoryEvent(client, {
+        type: 'consume',
+        code,
+        qty: qtyNum,
+        reason: String(reason).trim(),
+        notes,
+        ts,
+        userEmail: actor.userEmail,
+        userName: actor.userName,
+        tenantIdVal: t
+      });
+    });
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'inventory.adjust',
+      details: { code, delta: deltaNum, qty: qtyNum, reason, location: location || null }
+    });
+    res.status(201).json(entry);
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
 // ITEMS
 app.get('/api/items', async (req, res) => {
   try {
@@ -4020,6 +4072,7 @@ function formatAuditMessage(entry) {
     'auth.register': 'User registered',
     'inventory.in': 'Checked in',
     'inventory.out': 'Checked out',
+    'inventory.adjust': 'Inventory adjusted',
     'inventory.reserve': 'Reserved',
     'inventory.return': 'Returned',
     'inventory.order': 'Ordered',

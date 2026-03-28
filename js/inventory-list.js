@@ -275,6 +275,44 @@ function renderTabOverview(data){
     : `${discUnits > 0 ? '+' : ''}${discUnits}${discVal ? ` (${discVal})` : ''}`;
   const staticTags = normalizeTags(meta.tags);
   const storageLocation = formatStorageLocation(meta, item);
+  const adminAdjustPanel = drawerState.role === 'admin' ? `
+    <div class="panel-section">
+      <div class="drawer-section-head">
+        <h3>Adjust Quantity</h3>
+        <span class="panel-kicker">Admin</span>
+      </div>
+      <form id="drawerAdjustForm" class="drawer-adjust-form">
+        <div class="form-row">
+          <label style="flex:1;">Action
+            <select name="direction">
+              <option value="add">Add stock</option>
+              <option value="remove">Remove stock</option>
+            </select>
+          </label>
+          <label style="flex:1;">Quantity
+            <input name="qty" type="number" min="1" step="1" required>
+          </label>
+        </div>
+        <div class="form-row">
+          <label style="flex:1;">Location
+            <input name="location" value="${meta.warehouse || item.location || ''}" placeholder="Warehouse / Bin">
+          </label>
+          <label style="flex:1;">Reason
+            <input name="reason" placeholder="Adjustment reason" required>
+          </label>
+        </div>
+        <div class="form-row">
+          <label style="flex:1;">Notes
+            <textarea class="drawer-textarea" name="notes" rows="2" placeholder="Optional notes"></textarea>
+          </label>
+        </div>
+        <div class="form-row" style="justify-content:flex-end;">
+          <span id="drawerAdjustMsg" class="muted-text"></span>
+          <button type="submit" class="action-btn primary">Apply Adjustment</button>
+        </div>
+      </form>
+    </div>
+  ` : '';
   const catalogCards = [
     { label: 'Item Code', value: formatInfoValue(item.code) },
     { label: 'Category', value: formatInfoValue(meta.category || item.category || DEFAULT_CATEGORY_NAME) },
@@ -303,6 +341,7 @@ function renderTabOverview(data){
       </div>
       ${qtyGrid}
     </div>
+    ${adminAdjustPanel}
     <div class="panel-section">
       <div class="drawer-section-head">
         <h3>Reorder &amp; Health</h3>
@@ -653,6 +692,37 @@ function bindTabEvents(tab){
   if(!els?.body) return;
   if(tab === 'overview'){
     els.body.querySelector('[data-action="view-activity"]')?.addEventListener('click',(e)=>{e.preventDefault(); setActiveTab('activity');});
+    const adjustForm = els.body.querySelector('#drawerAdjustForm');
+    if(adjustForm){
+      adjustForm.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        const msg = adjustForm.querySelector('#drawerAdjustMsg');
+        const formData = new FormData(adjustForm);
+        const qty = Number(formData.get('qty'));
+        const direction = String(formData.get('direction') || 'add');
+        const reason = String(formData.get('reason') || '').trim();
+        const notes = String(formData.get('notes') || '').trim();
+        const location = String(formData.get('location') || '').trim();
+        if(!Number.isFinite(qty) || qty <= 0){
+          if(msg) msg.textContent = 'Enter a valid quantity.';
+          return;
+        }
+        if(!reason){
+          if(msg) msg.textContent = 'Reason is required.';
+          return;
+        }
+        if(msg) msg.textContent = 'Saving...';
+        const delta = direction === 'remove' ? -qty : qty;
+        const res = await adjustInventoryFromDrawer(drawerState.itemCode, { delta, reason, notes, location });
+        if(!res.ok){
+          if(msg) msg.textContent = res.error || 'Adjustment failed.';
+          return;
+        }
+        if(msg) msg.textContent = 'Saved';
+        await refreshAll();
+        reopenDrawerForCode(drawerState.itemCode);
+      });
+    }
   }else if(tab === 'activity'){
     const getFilters=()=>{
       const range = els.body.querySelector('#activity-range')?.value || '30';
@@ -912,6 +982,43 @@ async function saveSettings(code, payload){
   }catch(e){
     return false;
   }
+}
+
+async function adjustInventoryFromDrawer(code, payload){
+  try{
+    const res = await fetch('/api/inventory-adjust', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, ...payload, ts: Date.now() })
+    });
+    const data = await res.json().catch(()=> ({}));
+    return { ok: res.ok, data, error: data?.error || '' };
+  }catch(e){
+    return { ok: false, error: 'Adjustment failed' };
+  }
+}
+
+function reopenDrawerForCode(code){
+  if(!code) return;
+  let item = onhandBaseRows.find(row => row.code === code);
+  if(!item){
+    const meta = itemMetaByCode.get(code);
+    if(meta){
+      item = {
+        code: meta.code || code,
+        name: meta.name || code,
+        category: meta.category || DEFAULT_CATEGORY_NAME,
+        location: formatStorageLocation(meta, {}),
+        available: 0,
+        reserveQty: 0,
+        checkedOut: 0,
+        inTransit: 0,
+        damaged: 0,
+        returned: 0
+      };
+    }
+  }
+  if(item) openItemPanel(item);
 }
 
 function renderJobBreakdown(container, rows, emptyText){

@@ -76,6 +76,9 @@
                 <label class="toggle-inline">
                   <input type="checkbox" id="order-add-catalog" checked> Add new procurement items to catalog
                 </label>
+                <label class="toggle-inline">
+                  <input type="checkbox" id="order-use-inventory"> Use available inventory before ordering
+                </label>
               </div>
               
 
@@ -262,7 +265,7 @@
       </div>
       <p class="muted-text" id="orderReviewSummary">-</p>
       <table id="orderReviewTable">
-        <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>ETA</th><th>Project</th></tr></thead>
+        <thead><tr><th>Code</th><th>Name</th><th>Requested</th><th>From Inv.</th><th>To Order</th><th>ETA</th><th>Project</th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="modal-actions">

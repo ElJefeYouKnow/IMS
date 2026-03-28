@@ -140,6 +140,68 @@ function shouldAddProcurementItemsToCatalog(){
   return !!document.getElementById('order-add-catalog')?.checked;
 }
 
+function shouldUseInventoryBeforeOrder(){
+  return !!document.getElementById('order-use-inventory')?.checked;
+}
+
+function buildProcurementPlan(lines){
+  const useInventoryFirst = shouldUseInventoryBeforeOrder();
+  const remainingAvailability = new Map(availabilityMap || []);
+  const plannedLines = (lines || []).map(rawLine=>{
+    const line = { ...rawLine };
+    const requestedQty = Number(line.qty || 0);
+    const jobId = normalizeJobId(line.jobId || '');
+    let inventoryQty = 0;
+    if(useInventoryFirst && jobId && requestedQty > 0){
+      const availableQty = Math.max(0, Number(remainingAvailability.get(line.code) || 0));
+      inventoryQty = Math.min(requestedQty, availableQty);
+      remainingAvailability.set(line.code, Math.max(0, availableQty - inventoryQty));
+    }
+    const orderQty = Math.max(0, requestedQty - inventoryQty);
+    return {
+      ...line,
+      jobId,
+      requestedQty,
+      inventoryQty,
+      orderQty
+    };
+  });
+  return {
+    useInventoryFirst,
+    plannedLines,
+    reserveLines: plannedLines.filter(line=> line.inventoryQty > 0),
+    orderLines: plannedLines.filter(line=> line.orderQty > 0)
+  };
+}
+
+async function reserveInventoryBeforeOrdering(lines, notes, session){
+  const grouped = new Map();
+  for(const line of lines || []){
+    const jobId = normalizeJobId(line.jobId || '');
+    if(!jobId || !line.code || !(Number(line.inventoryQty) > 0)) continue;
+    if(!grouped.has(jobId)) grouped.set(jobId, []);
+    grouped.get(jobId).push({ code: line.code, qty: Number(line.inventoryQty) });
+  }
+  for(const [jobId, groupedLines] of grouped.entries()){
+    const response = await fetch('/api/inventory-reserve/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jobId,
+        notes: notes || 'Allocated from available inventory before procurement order',
+        lines: groupedLines,
+        userEmail: session.email,
+        userName: session.name
+      })
+    });
+    const data = await response.json().catch(()=> ({}));
+    if(!response.ok){
+      return { ok: false, error: data.error || 'Failed to reserve available inventory' };
+    }
+  }
+  return { ok: true };
+}
+
 async function ensureCatalogItems(lines){
   if(!shouldAddProcurementItemsToCatalog()) return { ok: true, created: 0 };
   const session = getSession();
@@ -355,7 +417,10 @@ function gatherOrderLines(){
   lines.forEach(line=>{
     clearLineError(line.row);
     const match = itemsCache.find(i=> i.code.toLowerCase() === line.code.toLowerCase());
-    if(match && !line.name){ line.name = match.name || ''; }
+    if(match){
+      line.code = match.code || line.code;
+      if(!line.name) line.name = match.name || '';
+    }
     if(!line.code){
       setLineError(line.row, 'Code is required');
       hasError = true;
@@ -398,16 +463,19 @@ function openReviewModal(lines, clearAll){
   const tbody = document.querySelector('#orderReviewTable tbody');
   const summary = document.getElementById('orderReviewSummary');
   const autoReserve = document.getElementById('order-auto-reserve')?.checked;
+  const plan = buildProcurementPlan(lines);
 
-  pendingSubmit = { lines, clearAll, autoReserve };
+  pendingSubmit = { lines, clearAll, autoReserve, plan };
   tbody.innerHTML = '';
-  lines.forEach(line=>{
+  plan.plannedLines.forEach(line=>{
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${line.code}</td><td>${line.name || ''}</td><td>${line.qty}</td><td>${line.eta}</td><td>${line.jobId || 'General'}</td>`;
+    tr.innerHTML = `<td>${line.code}</td><td>${line.name || ''}</td><td>${line.requestedQty}</td><td>${line.inventoryQty || '—'}</td><td>${line.orderQty || '—'}</td><td>${line.eta}</td><td>${line.jobId || 'General'}</td>`;
     tbody.appendChild(tr);
   });
-  const totalQty = lines.reduce((sum,l)=> sum + (Number(l.qty)||0), 0);
-  summary.textContent = `${lines.length} lines, ${totalQty} total units, auto-reserve ${autoReserve ? 'on' : 'off'}.`;
+  const totalRequested = plan.plannedLines.reduce((sum,line)=> sum + (Number(line.requestedQty) || 0), 0);
+  const totalFromInventory = plan.reserveLines.reduce((sum,line)=> sum + (Number(line.inventoryQty) || 0), 0);
+  const totalToOrder = plan.orderLines.reduce((sum,line)=> sum + (Number(line.orderQty) || 0), 0);
+  summary.textContent = `${plan.plannedLines.length} lines, ${totalRequested} requested, ${totalFromInventory} from inventory, ${totalToOrder} to order, auto-reserve ${autoReserve ? 'on' : 'off'}, inventory-first ${plan.useInventoryFirst ? 'on' : 'off'}.`;
 
   modal.classList.remove('hidden');
 }
@@ -429,10 +497,11 @@ async function submitOrders(lines, clearAll){
 
   const notes = document.getElementById('orderNotes')?.value.trim() || '';
   const autoReserve = document.getElementById('order-auto-reserve')?.checked;
-  const payload = lines.map(line=>({
+  const plan = buildProcurementPlan(lines);
+  const payload = plan.orderLines.map(line=>({
     code: line.code,
     name: line.name,
-    qty: line.qty,
+    qty: line.orderQty,
     eta: line.eta,
     jobId: line.jobId,
     notes,
@@ -445,17 +514,38 @@ async function submitOrders(lines, clearAll){
       if(msg){ msg.style.color = '#b91c1c'; msg.textContent = catalogResult.error; }
       return false;
     }
-    const r = await fetch('/api/inventory-order/bulk',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ orders: payload, userEmail: session.email, userName: session.name })
-    });
-    const data = await r.json().catch(()=>({}));
-    if(!r.ok){
-      if(msg){ msg.style.color = '#b91c1c'; msg.textContent = data.error || 'Failed to register orders'; }
-      return false;
+    if(plan.reserveLines.length){
+      const reserveResult = await reserveInventoryBeforeOrdering(plan.reserveLines, notes, session);
+      if(!reserveResult.ok){
+        if(msg){ msg.style.color = '#b91c1c'; msg.textContent = reserveResult.error; }
+        return false;
+      }
     }
-    if(msg){ msg.style.color = '#15803d'; msg.textContent = `Registered ${data.count || payload.length} orders`; }
+    let orderedCount = 0;
+    if(payload.length){
+      const r = await fetch('/api/inventory-order/bulk',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ orders: payload, userEmail: session.email, userName: session.name })
+      });
+      const data = await r.json().catch(()=>({}));
+      if(!r.ok){
+        if(msg){ msg.style.color = '#b91c1c'; msg.textContent = data.error || 'Failed to register orders'; }
+        return false;
+      }
+      orderedCount = Number(data.count || payload.length) || payload.length;
+    }
+    if(msg){
+      msg.style.color = '#15803d';
+      const reservedUnits = plan.reserveLines.reduce((sum,line)=> sum + (Number(line.inventoryQty) || 0), 0);
+      const orderedUnits = plan.orderLines.reduce((sum,line)=> sum + (Number(line.orderQty) || 0), 0);
+      msg.textContent = `Allocated ${reservedUnits} from inventory and registered ${orderedCount} orders (${orderedUnits} units).`;
+      if(!plan.reserveLines.length){
+        msg.textContent = `Registered ${orderedCount} orders (${orderedUnits} units).`;
+      }else if(!payload.length){
+        msg.textContent = `Allocated ${reservedUnits} units from inventory. No procurement order needed.`;
+      }
+    }
 
     const keepJob = document.getElementById('order-stick-job')?.checked;
     const defaultJob = document.getElementById('orderJob')?.value || '';
@@ -469,6 +559,7 @@ async function submitOrders(lines, clearAll){
     if(keepJob) document.getElementById('orderJob').value = defaultJob;
 
     await renderRecentOrders();
+    await refreshInventoryAvailability();
     return true;
   }catch(e){
     if(msg){ msg.style.color = '#b91c1c'; msg.textContent = 'Failed to register orders'; }
@@ -696,33 +787,59 @@ function initOrders(){
       const defaultEta = document.getElementById('orderEta')?.value || '';
       const defaultJobValue = document.getElementById('orderJob')?.value || '';
       const autoReserve = document.getElementById('order-auto-reserve')?.checked;
-    const notes = document.getElementById('orderNotes')?.value.trim() || '';
-
-    const payload = parsed.map(line=>({
-      code: line.code,
-      name: line.name,
-      qty: line.qty,
-      eta: line.eta || defaultEta,
-      jobId: line.jobId || defaultJobValue,
-      notes,
-      autoReserve
-    }));
+      const notes = document.getElementById('orderNotes')?.value.trim() || '';
+      const normalizedLines = parsed.map(line=>{
+        const match = itemsCache.find(item => (item.code || '').toLowerCase() === (line.code || '').toLowerCase());
+        return {
+          ...line,
+          code: match?.code || line.code,
+          name: line.name || match?.name || '',
+          eta: line.eta || defaultEta,
+          jobId: line.jobId || defaultJobValue
+        };
+      });
+      const plan = buildProcurementPlan(normalizedLines);
+      const payload = plan.orderLines.map(line=>({
+        code: line.code,
+        name: line.name,
+        qty: line.orderQty,
+        eta: line.eta,
+        jobId: line.jobId,
+        notes,
+        autoReserve
+      }));
     const session = getSession();
     if(!session || session.role !== 'admin'){
       msg.style.color = '#b91c1c'; msg.textContent = 'Admin only';
       return;
     }
     try{
-      const r = await fetch('/api/inventory-order/bulk',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ orders: payload, userEmail: session.email, userName: session.name })
-      });
-      const data = await r.json().catch(()=>({}));
-      if(!r.ok){ msg.style.color = '#b91c1c'; msg.textContent = data.error || 'Bulk failed'; return; }
-      msg.style.color = '#15803d'; msg.textContent = `Registered ${data.count} orders`;
+      if(plan.reserveLines.length){
+        const reserveResult = await reserveInventoryBeforeOrdering(plan.reserveLines, notes, session);
+        if(!reserveResult.ok){ msg.style.color = '#b91c1c'; msg.textContent = reserveResult.error; return; }
+      }
+      let orderedCount = 0;
+      if(payload.length){
+        const r = await fetch('/api/inventory-order/bulk',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ orders: payload, userEmail: session.email, userName: session.name })
+        });
+        const data = await r.json().catch(()=>({}));
+        if(!r.ok){ msg.style.color = '#b91c1c'; msg.textContent = data.error || 'Bulk failed'; return; }
+        orderedCount = Number(data.count || payload.length) || payload.length;
+      }
+      const reservedUnits = plan.reserveLines.reduce((sum,line)=> sum + (Number(line.inventoryQty) || 0), 0);
+      const orderedUnits = plan.orderLines.reduce((sum,line)=> sum + (Number(line.orderQty) || 0), 0);
+      msg.style.color = '#15803d';
+      msg.textContent = !plan.reserveLines.length
+        ? `Registered ${orderedCount} orders (${orderedUnits} units)`
+        : !payload.length
+          ? `Allocated ${reservedUnits} units from inventory. No procurement order needed.`
+          : `Allocated ${reservedUnits} from inventory and registered ${orderedCount} orders (${orderedUnits} units)`;
       bulkArea.value = '';
       await renderRecentOrders();
+      await refreshInventoryAvailability();
     }catch(e){ msg.style.color = '#b91c1c'; msg.textContent = 'Bulk failed'; }
   });
 
