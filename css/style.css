@@ -626,8 +626,10 @@ body.panel-open{overflow:hidden}
 .panel-sub{color:var(--muted);font-size:0.81rem;margin-top:4px}
 .icon-btn{border:1px solid var(--line);background:var(--surface-2);color:var(--ink);width:34px;height:34px;border-radius:10px;font-size:18px;font-weight:700;cursor:pointer;display:grid;place-items:center}
 .dark .icon-btn{background:#101b18;border-color:#22312d;color:var(--ink)}
-#itemPanelClose{position:absolute;top:18px;left:-18px;z-index:5;box-shadow:0 10px 24px rgba(0,0,0,0.18)}
-.dark #itemPanelClose{box-shadow:0 10px 24px rgba(0,0,0,0.35)}
+#itemPanelClose{display:none}
+.drawer-floating-close{position:fixed;top:18px;right:calc(var(--drawer-width) + 10px);z-index:86;box-shadow:0 10px 24px rgba(0,0,0,0.18)}
+.dark .drawer-floating-close{box-shadow:0 10px 24px rgba(0,0,0,0.35)}
+body:not(.panel-open) .drawer-floating-close{display:none}
 .side-panel-body{padding:0 0 20px 0;overflow-y:auto;overflow-x:visible;display:flex;flex-direction:column;gap:0;min-width:520px}
 .drawer-tabs{position:sticky;top:0;z-index:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line);overflow:visible;align-items:stretch}
 .drawer-tab{padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);font-weight:800;font-size:0.8rem;cursor:pointer;color:var(--ink);white-space:nowrap;min-width:0;text-align:center;width:100%}
@@ -710,7 +712,7 @@ body.panel-open{overflow:hidden}
   .side-panel{width:100%}
   .side-panel{border-radius:0}
   .side-panel-resizer{display:none}
-  #itemPanelClose{left:16px;top:16px}
+  .drawer-floating-close{right:16px;top:16px}
   .side-panel-header,.side-panel-body,.drawer-body{min-width:480px}
   .panel-metrics{grid-template-columns:1fr}
 }

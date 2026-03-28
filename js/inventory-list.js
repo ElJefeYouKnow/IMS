@@ -81,7 +81,7 @@ function getItemPanelEls(){
   itemPanelEls = {
     panel,
     backdrop: document.getElementById('itemPanelBackdrop'),
-    close: document.getElementById('itemPanelClose'),
+    close: document.getElementById('itemPanelCloseFloating') || document.getElementById('itemPanelClose'),
     title: document.getElementById('itemPanelTitle'),
     name: document.getElementById('itemPanelName'),
     category: document.getElementById('itemPanelCategory'),
