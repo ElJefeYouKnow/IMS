@@ -1213,6 +1213,127 @@ body.role-manager .admin-only{display:none}
 }
 
 /* Dashboard refinement */
+[data-page="dashboard"] .admin-command-grid{
+  grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);
+}
+[data-page="dashboard"] .admin-insight-grid{
+  grid-template-columns:minmax(0,1.35fr) minmax(320px,1fr);
+}
+[data-page="dashboard"] .admin-hero-card .card-header,
+[data-page="analytics"] .analytics-stage-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+}
+[data-page="dashboard"] .admin-hero-card .summary-grid{margin-bottom:0}
+[data-page="dashboard"] .admin-hero-card .muted-text{max-width:58ch}
+[data-page="dashboard"] .admin-shortcuts-card .quick-grid{margin-top:4px}
+[data-page="dashboard"] .admin-shortcuts-card .action-tile{min-height:96px}
+[data-page="analytics"] .analytics-main{gap:18px}
+[data-page="analytics"] .analytics-topbar-sub{
+  margin-top:6px;
+  font-size:0.88rem;
+  color:rgba(255,255,255,0.82);
+}
+[data-page="analytics"] .analytics-stage-card{padding:18px}
+[data-page="analytics"] .analytics-stage-title{
+  margin:6px 0 8px 0;
+  font-size:1.28rem;
+  line-height:1.2;
+  color:var(--pro-text);
+}
+[data-page="analytics"] .analytics-kicker{
+  text-transform:uppercase;
+  letter-spacing:0.16em;
+  font-size:0.7rem;
+  font-weight:800;
+  color:var(--pro-muted);
+}
+[data-page="analytics"] .analytics-stage-meta{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:8px;
+}
+[data-page="analytics"] .analytics-summary-grid{
+  grid-template-columns:minmax(0,1.55fr) minmax(320px,1fr);
+}
+[data-page="analytics"] .analytics-summary-cards{
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  margin-bottom:0;
+}
+[data-page="analytics"] .analytics-signal-grid{
+  grid-template-columns:repeat(3,minmax(0,1fr));
+}
+[data-page="analytics"] .analytics-table-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+[data-page="analytics"] .analytics-activity-grid{
+  grid-template-columns:minmax(0,1.2fr) minmax(320px,1fr);
+}
+[data-page="analytics"] .analytics-insight-list,
+[data-page="analytics"] .analytics-chip-grid{
+  display:grid;
+  gap:10px;
+}
+[data-page="analytics"] .analytics-insight-card{
+  border:1px solid var(--pro-border);
+  border-radius:16px;
+  background:linear-gradient(180deg, rgba(255,255,255,0.9), rgba(243,247,245,0.96));
+  padding:14px;
+  box-shadow:0 10px 22px rgba(15,27,23,0.06);
+}
+[data-page="analytics"] .analytics-insight-card strong{
+  display:block;
+  font-size:0.88rem;
+  letter-spacing:0.05em;
+  color:var(--pro-accent-2);
+}
+[data-page="analytics"] .analytics-insight-card p{
+  margin:8px 0 0 0;
+  color:var(--pro-muted);
+  line-height:1.45;
+  font-size:0.9rem;
+}
+[data-page="analytics"] .analytics-chip-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+[data-page="analytics"] .analytics-chip{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:14px;
+  border-radius:16px;
+  border:1px solid var(--pro-border);
+  background:linear-gradient(180deg, rgba(255,255,255,0.95), rgba(242,246,244,0.98));
+}
+[data-page="analytics"] .analytics-chip span{
+  font-size:0.72rem;
+  text-transform:uppercase;
+  letter-spacing:0.12em;
+  font-weight:800;
+  color:var(--pro-muted);
+}
+[data-page="analytics"] .analytics-chip strong{
+  font-size:1.08rem;
+  color:var(--pro-accent-2);
+}
+[data-page="analytics"] .analytics-chip.info{border-color:rgba(31,111,92,0.22)}
+[data-page="analytics"] .analytics-chip.warn{border-color:rgba(234,179,8,0.3)}
+[data-page="analytics"] .analytics-chip.static{border-color:rgba(148,163,184,0.28)}
+[data-page="analytics"] .analytics-audit-toolbar{
+  flex-wrap:wrap;
+  margin:0 0 14px 0;
+}
+[data-page="analytics"] .analytics-audit-toolbar input{
+  flex:1 1 320px;
+  max-width:none;
+}
+[data-page="analytics"] .analytics-audit-toolbar select{
+  flex:0 0 220px;
+}
+
 [data-ds="pro"] .dashboard-grid{
   display:grid;
   grid-template-columns:repeat(3,minmax(0,1fr));
@@ -1302,14 +1423,52 @@ body.role-manager .admin-only{display:none}
 .dark [data-ds="pro"] .dashboard-main .tile-title{color:var(--pro-text)}
 .dark [data-ds="pro"] .dashboard-main .tile-sub{color:var(--pro-muted)}
 
+.dark [data-page="analytics"] .analytics-stage-title{color:var(--pro-text)}
+.dark [data-page="analytics"] .analytics-topbar-sub{color:rgba(246,251,248,0.78)}
+.dark [data-page="analytics"] .analytics-insight-card{
+  background:linear-gradient(180deg, rgba(21,33,29,0.98), rgba(14,23,20,0.98));
+  border-color:var(--pro-border);
+  box-shadow:0 12px 24px rgba(0,0,0,0.32);
+}
+.dark [data-page="analytics"] .analytics-insight-card strong{color:var(--pro-text)}
+.dark [data-page="analytics"] .analytics-insight-card p{color:var(--pro-muted)}
+.dark [data-page="analytics"] .analytics-chip{
+  background:linear-gradient(180deg, rgba(23,36,32,0.98), rgba(14,22,19,0.98));
+  border-color:var(--pro-border);
+}
+.dark [data-page="analytics"] .analytics-chip strong{color:#7ce1c4}
+
 @media(max-width:1200px){
   [data-ds="pro"] .dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  [data-page="analytics"] .analytics-summary-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:900px){
   [data-ds="pro"] .dashboard-grid{grid-template-columns:1fr}
+  [data-page="dashboard"] .admin-command-grid,
+  [data-page="dashboard"] .admin-insight-grid,
+  [data-page="analytics"] .analytics-summary-grid,
+  [data-page="analytics"] .analytics-table-grid,
+  [data-page="analytics"] .analytics-activity-grid{
+    grid-template-columns:1fr;
+  }
+  [data-page="analytics"] .analytics-signal-grid{
+    grid-template-columns:1fr;
+  }
 }
 @media(max-width:900px){
   [data-ds="pro"] .main{padding:16px;padding-bottom:110px}
+  [data-page="analytics"] .analytics-stage-head{
+    flex-direction:column;
+  }
+  [data-page="analytics"] .analytics-stage-meta{
+    justify-content:flex-start;
+  }
+}
+@media(max-width:640px){
+  [data-page="analytics"] .analytics-summary-cards,
+  [data-page="analytics"] .analytics-chip-grid{
+    grid-template-columns:1fr;
+  }
 }
 
 /* Design system preview scope (order-register.html) */

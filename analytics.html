@@ -4,9 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Analytics</title>
+  <meta name="theme-color" content="#132a24" />
+  <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
-<body data-ds="pro">
+<body data-ds="pro" data-page="analytics">
   <div class="app">
     <aside class="sidebar">
       <div>
@@ -15,12 +17,12 @@
         <div class="user-chip">
           <div class="avatar">US</div>
           <div>
-            <div style="font-weight:700;">User</div>
-            <div style="font-size:12px;opacity:0.8;"></div>
+            <div class="user-name" style="font-weight:700;">User</div>
+            <div class="user-role"></div>
           </div>
         </div>
       </div>
-                  <nav>
+      <nav>
         <a href="dashboard.html" data-role="admin">Dashboard</a>
         <a href="ops-dashboard.html" data-role="manager">Dashboard</a>
         <a href="employee-dashboard.html" data-role="employee">Dashboard</a>
@@ -37,13 +39,30 @@
       </nav>
     </aside>
 
-    <main class="main">
+    <main class="main analytics-main">
       <header class="topbar">
-        <h1>Analytics (Admin)</h1>
-        <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
+        <div>
+          <h1>Analytics</h1>
+          <div class="analytics-topbar-sub">Functional draft wired to live dashboard, workflow, and audit data.</div>
+        </div>
+        <div class="topbar-right">
+          <div class="clock-pill"><span class="clock-label">Now</span><span id="analyticsClock" class="clock-value"></span></div>
+          <button id="logoutBtn" class="muted">Logout</button>
+        </div>
       </header>
 
-      <section class="card" style="margin-bottom:12px;">
+      <section class="card analytics-stage-card">
+        <div class="analytics-stage-head">
+          <div>
+            <div class="analytics-kicker">Admin Reporting</div>
+            <h2 class="analytics-stage-title">Executive overview and audit trail in one place</h2>
+            <p class="muted-text">This page is still a draft, but every section below uses current system data.</p>
+          </div>
+          <div class="analytics-stage-meta">
+            <span class="badge info">Functional Draft</span>
+            <span id="analyticsFreshness" class="badge static">Loading</span>
+          </div>
+        </div>
         <div class="mode-tabs">
           <button class="mode-btn active" data-mode="overview" type="button">Overview</button>
           <button class="mode-btn" data-mode="audit" type="button">Audit</button>
@@ -51,39 +70,150 @@
       </section>
 
       <div id="overview-mode" class="mode-content active">
-        <section class="card">
-          <h3>Overview</h3>
-          <p class="muted-text">Analytics dashboards are coming next. Use the Audit tab to review all inventory activity.</p>
+        <section class="page-grid analytics-summary-grid">
+          <section class="card analytics-hero-card">
+            <div class="card-header">
+              <div>
+                <h3>Executive Snapshot</h3>
+                <p class="muted-text">Core service, accuracy, and exception metrics for the last 30 days.</p>
+              </div>
+              <span id="analyticsHealthBadge" class="badge info">Loading</span>
+            </div>
+            <div class="summary-grid analytics-summary-cards">
+              <div class="summary-item"><span>Inventory Accuracy</span><strong id="analytics-accuracy">-</strong></div>
+              <div class="summary-item"><span>Discrepancy Value</span><strong id="analytics-discrepancy">-</strong></div>
+              <div class="summary-item"><span>Fill Rate</span><strong id="analytics-fill-rate">-</strong></div>
+              <div class="summary-item"><span>Service Level</span><strong id="analytics-service-level">-</strong></div>
+              <div class="summary-item"><span>Open Orders</span><strong id="analytics-open-orders">-</strong></div>
+              <div class="summary-item"><span>Count Due</span><strong id="analytics-count-due">-</strong></div>
+              <div class="summary-item"><span>Critical Exceptions</span><strong id="analytics-critical">-</strong></div>
+              <div class="summary-item"><span>Inventory Alerts</span><strong id="analytics-alerts">-</strong></div>
+            </div>
+          </section>
+
+          <section class="card analytics-side-card">
+            <div class="card-header">
+              <h3>Executive Notes</h3>
+              <a class="kpi-link" href="dashboard.html">Back to dashboard</a>
+            </div>
+            <div id="analyticsInsights" class="analytics-insight-list">
+              <div class="report-empty">Loading insights...</div>
+            </div>
+          </section>
         </section>
-        <div class="page-grid">
+
+        <section class="dashboard-grid analytics-signal-grid">
+          <div class="card">
+            <div class="card-header">
+              <h3>Demand Signals</h3>
+              <a class="kpi-link" href="inventory-list.html">Inventory</a>
+            </div>
+            <div id="analyticsDemandSignals" class="analytics-chip-grid">
+              <div class="report-empty">Loading demand signals...</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Supply Risks</h3>
+              <a class="kpi-link" href="order-register.html">Procurement</a>
+            </div>
+            <div id="analyticsRiskList" class="workflow-list">
+              <div class="report-empty">Loading supply risks...</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <h3>Procurement Queue</h3>
+              <a class="kpi-link" href="order-register.html">Open</a>
+            </div>
+            <div id="analyticsProcurementList" class="workflow-list">
+              <div class="report-empty">Loading procurement queue...</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="dashboard-grid analytics-table-grid">
+          <div class="table-card">
+            <div class="card-header">
+              <h3>Top Usage Items</h3>
+              <span class="badge static">30d</span>
+            </div>
+            <table id="analyticsTopUsageTable">
+              <thead><tr><th>Code</th><th>Name</th><th>Issued Qty</th><th>Share</th></tr></thead>
+              <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="table-card">
+            <div class="card-header">
+              <h3>Slow Movers</h3>
+              <span class="badge static">30d</span>
+            </div>
+            <table id="analyticsSlowMovingTable">
+              <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>Available</th></tr></thead>
+              <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="page-grid analytics-activity-grid">
           <section class="card">
-            <h3>Usage Signals</h3>
-            <p class="muted-text">Track high-velocity SKUs, consumption trends, and allocation hotspots.</p>
+            <div class="card-header">
+              <h3>Recent Inventory Activity</h3>
+              <a class="kpi-link" href="#audit">Audit view</a>
+            </div>
+            <ul id="analyticsActivityList" class="worklist-list">
+              <li class="muted">Loading...</li>
+            </ul>
           </section>
           <section class="card">
-            <h3>Loss &amp; Variance</h3>
-            <p class="muted-text">Surface write-offs, returns, and discrepancies as they happen.</p>
+            <div class="card-header">
+              <h3>Cycle Count Focus</h3>
+              <a class="kpi-link" href="inventory-list.html">Counts</a>
+            </div>
+            <div id="analyticsCountDueList" class="workflow-list">
+              <div class="report-empty">Loading count focus...</div>
+            </div>
           </section>
-        </div>
+        </section>
       </div>
 
       <div id="audit-mode" class="mode-content">
         <section class="card">
-          <div style="margin-bottom:12px; display:flex; gap:8px; flex-wrap:wrap;">
-            <input id="histSearch" type="text" placeholder="Search code or job..." style="padding:8px;border-radius:6px;border:1px solid #e6edf3;max-width:220px;">
-            <select id="histType" style="padding:8px;border-radius:6px;border:1px solid #e6edf3;">
+          <div class="card-header">
+            <div>
+              <h3>Audit Summary</h3>
+              <p class="muted-text">Filtered live from inventory transaction history.</p>
+            </div>
+            <span id="auditRangeBadge" class="badge static">All activity</span>
+          </div>
+          <div class="summary-grid">
+            <div class="summary-item"><span>Total Rows</span><strong id="audit-total">-</strong></div>
+            <div class="summary-item"><span>Check-Out Qty</span><strong id="audit-issued">-</strong></div>
+            <div class="summary-item"><span>Check-In Qty</span><strong id="audit-received">-</strong></div>
+            <div class="summary-item"><span>Returns Qty</span><strong id="audit-returned">-</strong></div>
+            <div class="summary-item"><span>Reserved Qty</span><strong id="audit-reserved">-</strong></div>
+            <div class="summary-item"><span>Adjustments</span><strong id="audit-adjustments">-</strong></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="data-toolbar analytics-audit-toolbar">
+            <input id="histSearch" type="text" placeholder="Search code, job, notes, or user..." />
+            <select id="histType">
               <option value="">All types</option>
               <option value="ordered">Ordered</option>
               <option value="purchase">Field Purchase</option>
               <option value="in">Check-In</option>
               <option value="out">Check-Out</option>
               <option value="reserve">Reserve</option>
+              <option value="reserve_release">Reserve Release</option>
               <option value="return">Return</option>
+              <option value="consume">Consume / Write-off</option>
             </select>
           </div>
           <table id="historyTable">
             <thead><tr><th>Type</th><th>Status</th><th>Code</th><th>Qty</th><th>Job</th><th>User</th><th>When</th><th>Notes</th></tr></thead>
-            <tbody></tbody>
+            <tbody><tr><td colspan="8" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </section>
       </div>
@@ -91,10 +221,20 @@
   </div>
 
   <script src="js/utils.js"></script>
-  <script src="js/item-history.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded',()=>{
+      if(window.utils){
+        if(!utils.requireSession?.()) return;
+        utils.wrapFetchWithRole?.();
+        utils.applyStoredTheme?.();
+        utils.requireRole?.('admin');
+        utils.buildMobileNav?.();
+        utils.applyNavVisibility?.();
+        utils.registerServiceWorker?.();
+        utils.setupLogout?.();
+      }
+    });
+  </script>
   <script src="js/analytics.js"></script>
-  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
 </body>
 </html>
-
-
