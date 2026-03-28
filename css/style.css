@@ -1668,3 +1668,92 @@ body.role-manager .admin-only{display:none}
   border-bottom:1px solid #e5e7eb;
   text-align:left;
 }
+
+.workflow-grid{
+  align-items:start;
+}
+
+.workflow-card{
+  min-height:100%;
+}
+
+.workflow-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.workflow-row{
+  display:flex;
+  justify-content:space-between;
+  gap:14px;
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:16px;
+  background:var(--surface-2);
+}
+
+.workflow-row.compact{
+  padding:12px 14px;
+}
+
+.workflow-main{
+  min-width:0;
+  flex:1 1 auto;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.workflow-title-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.workflow-sub{
+  color:var(--muted);
+  font-size:0.92rem;
+}
+
+.workflow-metrics{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 14px;
+  color:var(--muted);
+  font-size:0.86rem;
+}
+
+.workflow-metrics strong{
+  color:var(--ink);
+}
+
+.workflow-actions{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  align-items:flex-end;
+  justify-content:center;
+  flex:0 0 auto;
+}
+
+.workflow-actions .action-btn,
+.workflow-actions a.action-btn{
+  min-width:132px;
+  text-align:center;
+}
+
+@media (max-width: 900px){
+  .workflow-row{
+    flex-direction:column;
+  }
+  .workflow-actions{
+    width:100%;
+    align-items:stretch;
+  }
+  .workflow-actions .action-btn,
+  .workflow-actions a.action-btn{
+    width:100%;
+  }
+}

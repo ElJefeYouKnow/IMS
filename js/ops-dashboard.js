@@ -665,6 +665,41 @@ function renderWorklists(metrics){
   }
 }
 
+function renderManagerWorkflow(workflow){
+  const inboxList = document.getElementById('managerInboxList');
+  if(inboxList){
+    const inbox = workflow?.inbox?.manager || {};
+    const entries = [
+      ...(inbox.projects || []).map(row=>({
+        title: row.code,
+        detail: `${row.outstandingLines || 0} open lines · ${row.missingSupplierLines || 0} supplier gaps`,
+        href: 'job-creator.html#report'
+      })),
+      ...(inbox.countsDue || []).map(row=>({
+        title: row.code,
+        detail: row.lastCounted ? `Last counted ${fmtDateShort(row.lastCounted)}` : 'Never counted',
+        href: 'inventory-list.html#counts'
+      })),
+      ...(inbox.overdueReturns || []).map(row=>({
+        title: row.code,
+        detail: `${row.outstanding} overdue${row.jobId ? ` · ${row.jobId}` : ''}`,
+        href: 'inventory-operations.html?mode=return'
+      })),
+    ].slice(0, 8);
+    inboxList.innerHTML = entries.length
+      ? entries.map(entry=> `<li><div class="worklist-main"><strong>${entry.title}</strong><span class="worklist-sub">${entry.detail}</span></div><a class="kpi-link" href="${entry.href}">Open</a></li>`).join('')
+      : '<li class="muted">No manager follow-ups.</li>';
+  }
+
+  const suggestionList = document.getElementById('managerSuggestionList');
+  if(suggestionList){
+    const rows = workflow?.inbox?.manager?.shortages || [];
+    suggestionList.innerHTML = rows.length
+      ? rows.map(row=> `<li><div class="worklist-main"><strong>${row.code}</strong><span class="worklist-sub">${row.jobId || 'Project'} · shortage ${fmtNum(row.shortageQty)} · available ${fmtNum(row.availableQty)}</span></div><a class="kpi-link" href="order-register.html?project=${encodeURIComponent(row.jobId || '')}&loadMaterials=1#order">Procure</a></li>`).join('')
+      : '<li class="muted">No procurement shortages.</li>';
+  }
+}
+
 function initTabs(){
   const tabs = Array.from(document.querySelectorAll('.kpi-tab'));
   if(!tabs.length) return;
@@ -701,7 +736,10 @@ function applyDensityMode(){
 }
 
 async function renderOpsDashboard(){
-  const metrics = await utils.fetchJsonSafe('/api/dashboard/manager', { cacheTtlMs: 10000 }, {}) || {};
+  const [metrics, workflow] = await Promise.all([
+    utils.fetchJsonSafe('/api/dashboard/manager', { cacheTtlMs: 10000 }, {}) || {},
+    utils.fetchJsonSafe('/api/workflows/overview', { cacheTtlMs: 5000 }, {}) || {}
+  ]);
   metrics.slowMovingList = Array.isArray(metrics.slowMovingList) ? metrics.slowMovingList : [];
   metrics.topUsage = Array.isArray(metrics.topUsage) ? metrics.topUsage : [];
   metrics.countDueList = Array.isArray(metrics.countDueList) ? metrics.countDueList : [];
@@ -759,6 +797,7 @@ async function renderOpsDashboard(){
 
   renderTables(metrics);
   renderWorklists(metrics);
+  renderManagerWorkflow(workflow);
 }
 
 document.addEventListener('DOMContentLoaded', async ()=>{

@@ -1050,16 +1050,23 @@ async function renderRecentOrders(){
 
 function initTabs(){
   const tabs = document.querySelectorAll('.mode-btn');
+  const setMode = (mode)=>{
+    tabs.forEach(btn=> btn.classList.toggle('active', btn.dataset.mode === mode));
+    document.querySelectorAll('.mode-content').forEach(div=> div.classList.remove('active'));
+    const tgt = document.getElementById(`${mode}-mode`);
+    if(tgt) tgt.classList.add('active');
+    if(history.replaceState){
+      const url = new URL(window.location.href);
+      url.hash = mode;
+      history.replaceState(null, '', url.toString());
+    }
+  };
   tabs.forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      tabs.forEach(b=> b.classList.remove('active'));
-      btn.classList.add('active');
-      const mode = btn.dataset.mode;
-      document.querySelectorAll('.mode-content').forEach(div=> div.classList.remove('active'));
-      const tgt = document.getElementById(`${mode}-mode`);
-      if(tgt) tgt.classList.add('active');
-    });
+    btn.addEventListener('click', ()=> setMode(btn.dataset.mode));
   });
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get('mode') || (window.location.hash || '').replace('#','');
+  setMode(requested === 'reserve' ? 'reserve' : 'order');
 }
 
 function initOrders(){
@@ -1531,6 +1538,21 @@ function initFilterButtons(){
   });
 }
 
+async function applyPageIntent(){
+  const params = new URLSearchParams(window.location.search);
+  const project = normalizeJobId(params.get('project') || params.get('job') || '');
+  if(!project) return;
+  const orderJob = document.getElementById('orderJob');
+  const orderMaterialsJob = document.getElementById('orderMaterialsJob');
+  const reserveJob = document.getElementById('reserve-jobId');
+  if(orderJob) orderJob.value = project;
+  if(orderMaterialsJob) orderMaterialsJob.value = project;
+  if(reserveJob) reserveJob.value = project;
+  if(params.get('loadMaterials') === '1'){
+    await loadSelectedProjectMaterials(true);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', ()=>{
   (async ()=>{
     await loadJobs();
@@ -1542,6 +1564,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     initReserve();
     initReassign();
     initFilterButtons();
+    await applyPageIntent();
     document.getElementById('orderFilter')?.addEventListener('input', renderRecentOrders);
   })();
 });

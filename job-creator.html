@@ -142,6 +142,26 @@
               <strong id="reportReserved">-</strong>
             </div>
           </div>
+          <div class="dashboard-grid workflow-grid" style="margin-bottom:12px;">
+            <section class="card workflow-card">
+              <div class="card-header">
+                <h3>Fulfillment Board</h3>
+                <span class="badge info">Project readiness</span>
+              </div>
+              <div id="fulfillmentBoard" class="workflow-list">
+                <div class="report-empty">Loading fulfillment board...</div>
+              </div>
+            </section>
+            <section class="card workflow-card">
+              <div class="card-header">
+                <h3>Procurement Suggestions</h3>
+                <span class="badge warn">Shortage first</span>
+              </div>
+              <div id="projectProcurementSuggestions" class="workflow-list">
+                <div class="report-empty">Loading suggestions...</div>
+              </div>
+            </section>
+          </div>
           <div class="data-toolbar">
             <input id="reportSearchBox" type="text" placeholder="Search by project, status, or location...">
             <select id="reportStatusFilter">

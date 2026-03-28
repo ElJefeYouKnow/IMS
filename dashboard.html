@@ -72,6 +72,37 @@
         </div>
       </section>
 
+      <section class="dashboard-grid worklist-grid">
+        <div class="card worklist-card">
+          <div class="card-header">
+            <h3>Admin Inbox</h3>
+            <a class="kpi-link" href="settings.html">Open settings</a>
+          </div>
+          <ul id="adminInboxList" class="worklist-list">
+            <li class="muted">Loading...</li>
+          </ul>
+        </div>
+        <div class="card worklist-card">
+          <div class="card-header">
+            <h3>Critical Exceptions</h3>
+            <a class="kpi-link" href="inventory-list.html">Review</a>
+          </div>
+          <ul id="adminExceptionList" class="worklist-list">
+            <li class="muted">Loading...</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="card workflow-card">
+        <div class="card-header">
+          <h3>Procurement Suggestions</h3>
+          <a class="kpi-link" href="order-register.html">Open procurement</a>
+        </div>
+        <div id="adminProcurementSuggestions" class="workflow-list">
+          <div class="report-empty">Loading suggestions...</div>
+        </div>
+      </section>
+
       <section class="dashboard-grid">
         <div class="card">
           <h3>Accuracy &amp; Control</h3>
@@ -148,7 +179,7 @@
       }
     });
   </script>
-  <script src="js/ops-dashboard.js"></script>
+  <script src="js/admin-dashboard.js"></script>
 </body>
 </html>
 

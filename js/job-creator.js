@@ -5,6 +5,7 @@ let suppliersCache = [];
 let isAdmin = false;
 let editingCode = null;
 let projectMaterialsReportCache = new Map();
+let workflowOverviewCache = null;
 const CLOSED_PROJECT_STATUSES = new Set(['complete','completed','closed','archived','cancelled','canceled']);
 
 function normalizeJobRow(row){
@@ -561,6 +562,10 @@ function initTabs(){
   const hash = (window.location.hash || '').replace('#','');
   const startTab = (hash === 'report' || hash === 'projects') ? hash : (isAdmin ? 'projects' : 'report');
   setTab(startTab);
+  window.addEventListener('hashchange', ()=>{
+    const next = (window.location.hash || '').replace('#','');
+    if(next === 'report' || next === 'projects') setTab(next);
+  });
   window.addEventListener('pageshow', ()=>{
     const active = document.querySelector('.mode-btn.active')?.dataset.tab || '';
     if(active) refreshActiveTab(active);
@@ -930,12 +935,115 @@ function setExpandAllState(expand){
   if(expandBtn) expandBtn.textContent = expand ? 'Collapse All' : 'Expand All';
 }
 
+async function loadWorkflowOverview(force = false){
+  if(!force && workflowOverviewCache) return workflowOverviewCache;
+  workflowOverviewCache = await utils.fetchJsonSafe('/api/workflows/overview', { cacheTtlMs: 5000 }, {}) || {};
+  return workflowOverviewCache;
+}
+
+function workflowPrimaryAction(project){
+  const code = encodeURIComponent(project?.code || '');
+  switch(project?.nextAction){
+    case 'order_materials':
+      return { href: `order-register.html?project=${code}&loadMaterials=1#order`, label: 'Open Procurement' };
+    case 'reserve_stock':
+      return { href: `order-register.html?mode=reserve&job=${code}#reserve`, label: 'Reserve Stock' };
+    case 'assign_suppliers':
+      return { href: 'item-master.html#suppliers', label: 'Assign Suppliers' };
+    case 'close_returns':
+      return { href: 'inventory-operations.html?mode=return', label: 'Process Returns' };
+    case 'plan_materials':
+      return { href: '#projects', label: 'Edit Project' };
+    default:
+      return { href: '#report', label: 'Review Project' };
+  }
+}
+
+function renderFulfillmentBoard(summaryRows){
+  const container = document.getElementById('fulfillmentBoard');
+  if(!container) return;
+  const rows = Array.isArray(summaryRows) ? summaryRows : [];
+  if(!rows.length){
+    container.innerHTML = '<div class="report-empty">No active fulfillment work.</div>';
+    return;
+  }
+  container.innerHTML = rows.slice(0, 6).map(project=>{
+    const action = workflowPrimaryAction(project);
+    const tone = project.shortageQty > 0
+      ? 'danger'
+      : project.missingSupplierLines > 0
+        ? 'warn'
+        : project.outstandingLines > 0
+          ? 'open'
+          : 'low';
+    return `
+      <article class="workflow-row">
+        <div class="workflow-main">
+          <div class="workflow-title-row">
+            <strong>${escapeHtml(project.code || '')}</strong>
+            <span class="badge ${tone}">${escapeHtml(project.nextActionLabel || 'Review')}</span>
+          </div>
+          <div class="workflow-sub">${escapeHtml(project.name || formatStatus(project.status || 'Project'))}</div>
+          <div class="workflow-metrics">
+            <span>Open lines: <strong>${Number(project.outstandingLines || 0)}</strong></span>
+            <span>Shortage: <strong>${Number(project.shortageQty || 0)}</strong></span>
+            <span>Missing suppliers: <strong>${Number(project.missingSupplierLines || 0)}</strong></span>
+            <span>Received / Needed: <strong>${Number(project.totalReceived || 0)} / ${Number(project.totalRequired || 0)}</strong></span>
+          </div>
+        </div>
+        <div class="workflow-actions">
+          <a class="action-btn" href="${action.href}">${escapeHtml(action.label)}</a>
+          <a class="muted action-btn" href="#report">Report</a>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function renderProjectProcurementSuggestions(suggestions){
+  const container = document.getElementById('projectProcurementSuggestions');
+  if(!container) return;
+  const rows = (Array.isArray(suggestions) ? suggestions : []).slice(0, 8);
+  if(!rows.length){
+    container.innerHTML = '<div class="report-empty">No open shortages. Projects can be covered from stock or are already ready.</div>';
+    return;
+  }
+  container.innerHTML = rows.map(row=>{
+    const tone = Number(row.shortageQty || 0) > 0 ? 'danger' : 'low';
+    const href = `order-register.html?project=${encodeURIComponent(row.jobId || '')}&loadMaterials=1#order`;
+    return `
+      <article class="workflow-row compact">
+        <div class="workflow-main">
+          <div class="workflow-title-row">
+            <strong>${escapeHtml(row.code || '')}</strong>
+            <span class="badge ${tone}">${Number(row.shortageQty || 0) > 0 ? 'Order' : 'Reserve'}</span>
+          </div>
+          <div class="workflow-sub">${escapeHtml(row.name || '')} ${row.jobId ? `· ${escapeHtml(row.jobId)}` : ''}</div>
+          <div class="workflow-metrics">
+            <span>Open: <strong>${Number(row.outstandingQty || 0)}</strong></span>
+            <span>Available: <strong>${Number(row.availableQty || 0)}</strong></span>
+            <span>Shortage: <strong>${Number(row.shortageQty || 0)}</strong></span>
+            <span>Supplier: <strong>${escapeHtml(row.supplierName || 'Unassigned')}</strong></span>
+          </div>
+        </div>
+        <div class="workflow-actions">
+          <a class="action-btn" href="${href}">${Number(row.shortageQty || 0) > 0 ? 'Procure' : 'Allocate'}</a>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
 async function renderReport(){
   const list = document.getElementById('reportCards');
   if(!list) return;
   list.innerHTML = '';
   projectMaterialsReportCache = new Map();
+  workflowOverviewCache = null;
   await loadJobs();
+  const workflow = await loadWorkflowOverview(true);
+  renderFulfillmentBoard(workflow.fulfillmentBoard || []);
+  renderProjectProcurementSuggestions(workflow.procurementSuggestions || []);
   const entries = await loadEntries();
   const items = aggregateByProject(entries);
   const summary = buildReportSummary(items);

@@ -107,6 +107,7 @@ const DEFAULT_CATEGORY_RULES = {
   lowStockThreshold: 5,
   lowStockEnabled: false
 };
+const CLOSED_PROJECT_STATUSES = new Set(['complete', 'completed', 'closed', 'archived', 'cancelled', 'canceled']);
 let sellerStore = { clients: [], tickets: [], activities: [] };
 
 const app = express();
@@ -1226,6 +1227,389 @@ function dashboardComputeManagerMetrics({ inventory, counts, items, categories, 
     lostValue,
     avgPickTime: avgDuration(pickEvents),
     avgCheckinTime: avgDuration(checkinEvents),
+  };
+}
+
+function workflowNormalizeJob(row) {
+  return {
+    code: row?.code || '',
+    name: row?.name || '',
+    status: row?.status || '',
+    startDate: row?.startdate || row?.startDate || '',
+    endDate: row?.enddate || row?.endDate || '',
+    location: row?.location || '',
+    notes: row?.notes || '',
+    updatedAt: row?.updatedat || row?.updatedAt || row?.createdat || row?.createdAt || 0,
+  };
+}
+
+function workflowProjectSortValue(job) {
+  const status = String(job?.status || '').trim().toLowerCase();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayTs = today.getTime();
+  const startTs = dashboardParseTs(job?.startDate) || 0;
+  const endTs = dashboardParseTs(job?.endDate) || 0;
+  const updatedTs = dashboardParseTs(job?.updatedAt) || 0;
+  const isClosed = CLOSED_PROJECT_STATUSES.has(status);
+  const isActive = !isClosed && (
+    status === 'active'
+    || ((startTs && startTs <= todayTs) && (!endTs || endTs >= todayTs))
+  );
+  const isUpcoming = !isClosed && !isActive && startTs && startTs >= todayTs;
+  if (isActive) return { bucket: 0, value: endTs && endTs >= todayTs ? endTs : (startTs || todayTs) };
+  if (isUpcoming) return { bucket: 1, value: startTs };
+  return { bucket: 2, value: -(updatedTs || endTs || startTs || 0) };
+}
+
+function workflowCompareProjects(a, b) {
+  const left = workflowProjectSortValue(a);
+  const right = workflowProjectSortValue(b);
+  if (left.bucket !== right.bucket) return left.bucket - right.bucket;
+  if (left.value !== right.value) return left.value - right.value;
+  return String(a?.code || '').localeCompare(String(b?.code || ''));
+}
+
+function workflowAggregateInventory(entries) {
+  const byCode = new Map();
+  const reservedByJob = new Map();
+  (entries || []).forEach((entry) => {
+    const code = String(entry.code || '').trim();
+    if (!code) return;
+    const type = String(entry.type || '').toLowerCase();
+    const qty = Number(entry.qty || 0) || 0;
+    const rec = byCode.get(code) || {
+      code,
+      name: entry.name || '',
+      inQty: 0,
+      outQty: 0,
+      returnedQty: 0,
+      reserveQty: 0,
+      reserveReleaseQty: 0,
+      consumeQty: 0,
+      orderedQty: 0,
+      lastTs: 0,
+    };
+    if (!rec.name && entry.name) rec.name = entry.name;
+    rec.lastTs = Math.max(rec.lastTs, dashboardParseTs(entry.ts) || 0);
+    if (type === 'in') rec.inQty += qty;
+    if (type === 'out') rec.outQty += qty;
+    if (type === 'return') {
+      rec.returnedQty += qty;
+    }
+    if (type === 'reserve') rec.reserveQty += qty;
+    if (type === 'reserve_release') rec.reserveReleaseQty += qty;
+    if (type === 'consume') rec.consumeQty += qty;
+    if (type === 'ordered') rec.orderedQty += qty;
+    byCode.set(code, rec);
+
+    if (type === 'reserve' || type === 'reserve_release') {
+      const jobId = dashboardNormalizeJobId(entry.jobid || entry.jobId || '');
+      if (jobId) {
+        const key = `${jobId}|${code}`;
+        const delta = type === 'reserve' ? qty : -qty;
+        const current = reservedByJob.get(key) || { jobId, code, qty: 0 };
+        current.qty += delta;
+        reservedByJob.set(key, current);
+      }
+    }
+  });
+  byCode.forEach((rec) => {
+    rec.reserved = rec.reserveQty - rec.reserveReleaseQty;
+    rec.available = rec.inQty + rec.returnedQty + rec.reserveReleaseQty - rec.outQty - rec.reserveQty - rec.consumeQty;
+    rec.onHand = rec.inQty + rec.returnedQty - rec.outQty - rec.consumeQty;
+    rec.checkedOut = Math.max(0, rec.outQty - rec.returnedQty);
+  });
+  return {
+    byCode,
+    reservedByJob: Array.from(reservedByJob.values()).filter((row) => row.qty > 0),
+  };
+}
+
+function workflowBuildOverview({ jobs, materials, items, suppliers, categories, inventory, counts }) {
+  const supplierMap = new Map((suppliers || []).map((supplier) => [supplier.id, supplier]));
+  const itemMap = new Map((items || []).map((item) => [String(item.code || '').trim(), item]));
+  const categoryRules = dashboardBuildCategoryRules(categories || []);
+  const stock = workflowAggregateInventory(inventory || []);
+  const overdueReturns = dashboardBuildOverdueRows(inventory || []).sort((a, b) => b.daysLate - a.daysLate);
+  const countDue = dashboardBuildCountDueRows(items || [], counts || []);
+  const orderedRows = (inventory || []).filter((entry) => String(entry.type || '').toLowerCase() === 'ordered');
+  const openOrders = dashboardBuildOpenOrders(orderedRows, inventory || [])
+    .sort((a, b) => (dashboardParseTs(a.eta) || a.lastOrderTs || 0) - (dashboardParseTs(b.eta) || b.lastOrderTs || 0));
+  const materialsByJob = new Map();
+  (materials || []).forEach((row) => {
+    const jobId = String(row.jobId || '').trim();
+    if (!jobId) return;
+    if (!materialsByJob.has(jobId)) materialsByJob.set(jobId, []);
+    materialsByJob.get(jobId).push(row);
+  });
+
+  const checkedOutByJob = new Map();
+  (inventory || []).forEach((entry) => {
+    const jobId = dashboardNormalizeJobId(entry.jobid || entry.jobId || '');
+    const code = String(entry.code || '').trim();
+    if (!jobId || !code) return;
+    const key = `${jobId}|${code}`;
+    const rec = checkedOutByJob.get(key) || { jobId, code, qty: 0 };
+    const qty = Number(entry.qty || 0) || 0;
+    const type = String(entry.type || '').toLowerCase();
+    if (type === 'out') rec.qty += qty;
+    if (type === 'return') rec.qty -= qty;
+    checkedOutByJob.set(key, rec);
+  });
+
+  const projects = (jobs || []).map(workflowNormalizeJob).map((job) => {
+    const projectMaterials = (materialsByJob.get(job.code) || [])
+      .slice()
+      .sort((a, b) => (Number(a.sortOrder || 0) - Number(b.sortOrder || 0)) || String(a.code || '').localeCompare(String(b.code || '')));
+    let totalRequired = 0;
+    let totalOrdered = 0;
+    let totalAllocated = 0;
+    let totalReceived = 0;
+    let outstandingLines = 0;
+    let readyLines = 0;
+    let shortageLines = 0;
+    let shortageQty = 0;
+    let missingSupplierLines = 0;
+    const materialRows = projectMaterials.map((material) => {
+      const code = String(material.code || '').trim();
+      const item = itemMap.get(code);
+      const supplierId = material.supplierId || item?.supplierId || item?.supplierid || '';
+      const supplier = supplierMap.get(supplierId);
+      const stockRow = stock.byCode.get(code);
+      const available = Math.max(0, Number(stockRow?.available || 0));
+      const outstandingQty = Math.max(0, Number(material.outstandingQty || 0));
+      const reserveReadyQty = Math.min(available, outstandingQty);
+      const shortage = Math.max(0, outstandingQty - available);
+      totalRequired += Number(material.qtyRequired || 0);
+      totalOrdered += Number(material.qtyOrdered || 0);
+      totalAllocated += Number(material.qtyAllocated || 0);
+      totalReceived += Number(material.qtyReceived || 0);
+      if (outstandingQty > 0) outstandingLines += 1;
+      if (String(material.status || '') === 'ready') readyLines += 1;
+      if (shortage > 0) {
+        shortageLines += 1;
+        shortageQty += shortage;
+      }
+      if (!supplierId) missingSupplierLines += 1;
+      return {
+        ...material,
+        supplierId,
+        supplierName: supplier?.name || '',
+        available,
+        reserveReadyQty,
+        shortageQty: shortage,
+      };
+    });
+    const dueReturns = overdueReturns.filter((row) => row.jobId === job.code);
+    const reservedQty = stock.reservedByJob
+      .filter((row) => row.jobId === job.code)
+      .reduce((sum, row) => sum + Number(row.qty || 0), 0);
+    const checkedOutQty = Array.from(checkedOutByJob.values())
+      .filter((row) => row.jobId === job.code && row.qty > 0)
+      .reduce((sum, row) => sum + Number(row.qty || 0), 0);
+    let nextAction = 'review';
+    let nextActionLabel = 'Review project';
+    if (!materialRows.length) {
+      nextAction = 'plan_materials';
+      nextActionLabel = 'Build material plan';
+    } else if (missingSupplierLines > 0) {
+      nextAction = 'assign_suppliers';
+      nextActionLabel = 'Assign suppliers';
+    } else if (shortageQty > 0) {
+      nextAction = 'order_materials';
+      nextActionLabel = 'Order materials';
+    } else if (outstandingLines > 0) {
+      nextAction = 'reserve_stock';
+      nextActionLabel = 'Reserve stock';
+    } else if (dueReturns.length) {
+      nextAction = 'close_returns';
+      nextActionLabel = 'Close returns';
+    } else {
+      nextAction = 'ready';
+      nextActionLabel = 'Ready to run';
+    }
+    return {
+      ...job,
+      materialLines: materialRows.length,
+      outstandingLines,
+      readyLines,
+      shortageLines,
+      shortageQty: roundQty(shortageQty),
+      missingSupplierLines,
+      totalRequired: roundQty(totalRequired),
+      totalOrdered: roundQty(totalOrdered),
+      totalAllocated: roundQty(totalAllocated),
+      totalReceived: roundQty(totalReceived),
+      reservedQty: roundQty(reservedQty),
+      checkedOutQty: roundQty(checkedOutQty),
+      overdueReturnLines: dueReturns.length,
+      nextAction,
+      nextActionLabel,
+      materials: materialRows,
+    };
+  }).sort(workflowCompareProjects);
+
+  const projectsMissingMaterials = projects
+    .filter((project) => !project.materialLines && !CLOSED_PROJECT_STATUSES.has(String(project.status || '').toLowerCase()))
+    .slice(0, 8)
+    .map((project) => ({
+      code: project.code,
+      name: project.name,
+      status: project.status,
+      startDate: project.startDate,
+      endDate: project.endDate,
+      location: project.location,
+    }));
+
+  const procurementSuggestions = projects.flatMap((project) => project.materials
+    .filter((material) => Number(material.outstandingQty || 0) > 0)
+    .map((material) => ({
+      jobId: project.code,
+      projectName: project.name || '',
+      materialId: material.id,
+      code: material.code,
+      name: material.name || '',
+      supplierId: material.supplierId || '',
+      supplierName: material.supplierName || '',
+      outstandingQty: roundQty(material.outstandingQty || 0),
+      availableQty: roundQty(material.available || 0),
+      reserveReadyQty: roundQty(material.reserveReadyQty || 0),
+      shortageQty: roundQty(material.shortageQty || 0),
+      qtyOrdered: roundQty(material.qtyOrdered || 0),
+      qtyAllocated: roundQty(material.qtyAllocated || 0),
+      qtyReceived: roundQty(material.qtyReceived || 0),
+      notes: material.notes || '',
+    })))
+    .sort((a, b) => {
+      if ((b.shortageQty || 0) !== (a.shortageQty || 0)) return (b.shortageQty || 0) - (a.shortageQty || 0);
+      if ((a.reserveReadyQty || 0) !== (b.reserveReadyQty || 0)) return (a.reserveReadyQty || 0) - (b.reserveReadyQty || 0);
+      return String(a.jobId || '').localeCompare(String(b.jobId || ''));
+    })
+    .slice(0, 16);
+
+  const negativeAvailability = Array.from(stock.byCode.values())
+    .filter((row) => Number(row.available || 0) < 0)
+    .map((row) => ({
+      code: row.code,
+      name: itemMap.get(row.code)?.name || row.name || '',
+      available: roundQty(row.available || 0),
+      reserved: roundQty(row.reserved || 0),
+      checkedOut: roundQty(row.checkedOut || 0),
+    }))
+    .sort((a, b) => a.available - b.available)
+    .slice(0, 8);
+
+  const missingSupplier = (items || [])
+    .filter((item) => !(item.supplierId || item.supplierid))
+    .map((item) => {
+      const projectDemand = procurementSuggestions
+        .filter((row) => row.code === item.code)
+        .reduce((sum, row) => sum + Number(row.outstandingQty || 0), 0);
+      return {
+        code: item.code,
+        name: item.name || '',
+        category: item.category || '',
+        demandQty: roundQty(projectDemand),
+      };
+    })
+    .sort((a, b) => (b.demandQty || 0) - (a.demandQty || 0) || String(a.code || '').localeCompare(String(b.code || '')))
+    .slice(0, 8);
+
+  const missingReorderRule = (items || [])
+    .filter((item) => resolveLowStockEnabled(item, categoryRules))
+    .filter((item) => {
+      const reorderPoint = Number(item.reorderPoint ?? item.reorderpoint);
+      return !Number.isFinite(reorderPoint) || reorderPoint < 0;
+    })
+    .map((item) => ({
+      code: item.code,
+      name: item.name || '',
+      category: item.category || '',
+    }))
+    .slice(0, 8);
+
+  const employeePickMap = new Map();
+  stock.reservedByJob.forEach((row) => {
+    if (!row.jobId) return;
+    const current = employeePickMap.get(row.jobId) || { jobId: row.jobId, skuCount: 0, reservedQty: 0 };
+    current.skuCount += 1;
+    current.reservedQty += Number(row.qty || 0);
+    employeePickMap.set(row.jobId, current);
+  });
+  const employeePicks = Array.from(employeePickMap.values())
+    .map((row) => ({
+      title: `Pick ${row.jobId}`,
+      detail: `${row.skuCount} SKUs reserved / ${roundQty(row.reservedQty)} units`,
+      href: 'inventory-operations.html?mode=checkout',
+      tone: row.reservedQty > 10 ? 'warn' : 'ok',
+    }))
+    .sort((a, b) => {
+      const aQty = Number((a.detail.match(/\/ ([\d.]+)/) || [])[1] || 0);
+      const bQty = Number((b.detail.match(/\/ ([\d.]+)/) || [])[1] || 0);
+      return bQty - aQty;
+    })
+    .slice(0, 5);
+
+  const employeeReturns = overdueReturns.slice(0, 5).map((row) => ({
+    title: `Return ${row.code}`,
+    detail: `${row.outstanding} overdue for ${row.jobId || 'General'}`,
+    href: 'inventory-operations.html?mode=return',
+    tone: 'critical',
+  }));
+
+  const employeeInbound = openOrders.slice(0, 5).map((row) => ({
+    title: `Receive ${row.code}`,
+    detail: `${row.openQty} due ${row.eta || 'soon'}`,
+    href: 'inventory-operations.html?mode=checkin',
+    tone: dashboardParseTs(row.eta) && dashboardParseTs(row.eta) < Date.now() ? 'critical' : 'ok',
+  }));
+
+  return {
+    generatedAt: Date.now(),
+    fulfillmentBoard: projects.slice(0, 10),
+    procurementSuggestions,
+    exceptions: {
+      negativeAvailability,
+      missingSupplier,
+      missingReorderRule,
+      overdueReturns: overdueReturns.slice(0, 8).map((row) => ({
+        code: row.code,
+        jobId: row.jobId,
+        outstanding: row.outstanding,
+        daysLate: row.daysLate,
+      })),
+      projectsMissingMaterials,
+    },
+    inbox: {
+      employee: {
+        picks: employeePicks,
+        returns: employeeReturns,
+        inbound: employeeInbound,
+      },
+      manager: {
+        countsDue: countDue.slice(0, 5),
+        shortages: procurementSuggestions.filter((row) => Number(row.shortageQty || 0) > 0).slice(0, 5),
+        projects: projects.filter((project) => project.outstandingLines > 0 || project.missingSupplierLines > 0).slice(0, 5),
+        overdueReturns: overdueReturns.slice(0, 5).map((row) => ({
+          code: row.code,
+          jobId: row.jobId,
+          outstanding: row.outstanding,
+          daysLate: row.daysLate,
+        })),
+      },
+      admin: {
+        missingSupplier: missingSupplier.slice(0, 5),
+        missingReorderRule: missingReorderRule.slice(0, 5),
+        projectsMissingMaterials: projectsMissingMaterials.slice(0, 5),
+        openOrders: openOrders.slice(0, 5).map((row) => ({
+          code: row.code,
+          jobId: row.jobId,
+          openQty: row.openQty,
+          eta: row.eta || '',
+        })),
+      },
+    },
   };
 }
 
@@ -4182,6 +4566,38 @@ app.get('/api/dashboard/manager', async (req, res) => {
   }
 });
 
+app.get('/api/workflows/overview', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const [jobs, materials, items, suppliers, categories, inventory, counts] = await Promise.all([
+      readJobs(t),
+      readAllJobMaterials(t),
+      readItems(t),
+      readSuppliers(t),
+      readCategories(t),
+      allAsync(
+        `SELECT id, code, name, qty, type, jobId, returnDate, eta, ts, status, sourceId, sourceType
+         FROM inventory
+         WHERE tenantId=$1
+         ORDER BY ts DESC`,
+        [t]
+      ),
+      allAsync('SELECT code, qty, countedAt, ts FROM inventory_counts WHERE tenantId=$1', [t]),
+    ]);
+    res.json(workflowBuildOverview({
+      jobs: jobs || [],
+      materials: materials || [],
+      items: items || [],
+      suppliers: suppliers || [],
+      categories: categories || [],
+      inventory: inventory || [],
+      counts: counts || [],
+    }));
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // METRICS
 app.get('/api/metrics', async (req, res) => {
   try {
@@ -4697,6 +5113,9 @@ app.listen(PORT, () => console.log(`Server listening on ${PUBLIC_BASE_URL}`));
 async function readItems(tenantIdVal) {
   return allAsync('SELECT * FROM items WHERE tenantId=$1 ORDER BY name ASC', [tenantIdVal]);
 }
+async function readCategories(tenantIdVal) {
+  return allAsync('SELECT * FROM categories WHERE tenantId=$1 ORDER BY name ASC', [tenantIdVal]);
+}
 async function readJobs(tenantIdVal) {
   return allAsync('SELECT * FROM jobs WHERE tenantId=$1 ORDER BY code ASC', [tenantIdVal]);
 }
@@ -4784,6 +5203,13 @@ async function readJobMaterials(tenantIdVal, jobId) {
   const rows = await allAsync(
     'SELECT * FROM job_materials WHERE tenantId=$1 AND jobId=$2 ORDER BY sortOrder ASC, createdAt ASC, code ASC',
     [tenantIdVal, jobId]
+  );
+  return (rows || []).map(normalizeJobMaterialRow);
+}
+async function readAllJobMaterials(tenantIdVal) {
+  const rows = await allAsync(
+    'SELECT * FROM job_materials WHERE tenantId=$1 ORDER BY jobId ASC, sortOrder ASC, createdAt ASC, code ASC',
+    [tenantIdVal]
   );
   return (rows || []).map(normalizeJobMaterialRow);
 }

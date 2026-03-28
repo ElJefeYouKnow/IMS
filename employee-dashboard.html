@@ -53,10 +53,42 @@
         <a class="employee-action" data-icon="⊕" href="field-purchase.html">Field Purchase</a>
         <a class="employee-action" data-icon="▦" href="inventory-list.html">Inventory</a>
       </section>
+
+      <section class="dashboard-grid worklist-grid">
+        <div class="card worklist-card">
+          <div class="card-header">
+            <h3>Pick Queue</h3>
+            <a class="kpi-link" href="inventory-operations.html?mode=checkout">Open picks</a>
+          </div>
+          <ul id="employeePickList" class="worklist-list">
+            <li class="muted">Loading...</li>
+          </ul>
+        </div>
+        <div class="card worklist-card">
+          <div class="card-header">
+            <h3>Returns Due</h3>
+            <a class="kpi-link" href="inventory-operations.html?mode=return">Open returns</a>
+          </div>
+          <ul id="employeeReturnList" class="worklist-list">
+            <li class="muted">Loading...</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="card worklist-card">
+        <div class="card-header">
+          <h3>Inbound To Receive</h3>
+          <a class="kpi-link" href="inventory-operations.html?mode=checkin">Receive</a>
+        </div>
+        <ul id="employeeInboundList" class="worklist-list">
+          <li class="muted">Loading...</li>
+        </ul>
+      </section>
     </main>
   </div>
 
   <script src="js/utils.js"></script>
+  <script src="js/employee-dashboard.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded',()=>{
       if(window.utils){
