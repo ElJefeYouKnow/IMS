@@ -32,6 +32,8 @@ function getEntryJobId(entry){
 function buildOrderBalance(orders, inventory){
   const map = new Map();
   (orders||[]).forEach(o=>{
+    const status = String(o.status || '').toLowerCase();
+    if(status === 'cancelled' || status === 'canceled') return;
     const sourceId = o.sourceId || o.id;
     const jobId = normalizeJobId(o.jobId || o.jobid || '');
     const key = sourceId;
@@ -739,7 +741,7 @@ async function renderRecentOrders(){
   const recent = filtered.sort((a,b)=> (b.lastOrderTs||0)-(a.lastOrderTs||0)).slice(0,12);
   if(!recent.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="6" class="ds-table-empty">No orders yet</td>`;
+    tr.innerHTML=`<td colspan="7" class="ds-table-empty">No orders yet</td>`;
     tbody.appendChild(tr);
   }else{
     recent.forEach(o=>{
@@ -747,8 +749,28 @@ async function renderRecentOrders(){
       const jobValue = o.jobId || '';
       const jobLabel = jobValue && jobValue.trim() ? jobValue : 'General';
       const tsLabel = utils.formatDateTime?.(o.lastOrderTs) || '';
-      tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.openQty}</td><td>${jobLabel}</td><td>${o.eta||''}</td><td>${tsLabel}</td>`;
+      tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.openQty}</td><td>${jobLabel}</td><td>${o.eta||''}</td><td>${tsLabel}</td><td><button type="button" class="muted cancel-order-btn" data-source-id="${o.sourceId}">Cancel</button></td>`;
       tbody.appendChild(tr);
+    });
+    tbody.querySelectorAll('.cancel-order-btn').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const sourceId = btn.dataset.sourceId || '';
+        if(!sourceId) return;
+        if(!confirm('Cancel the remaining quantity on this incoming order?')) return;
+        btn.disabled = true;
+        const response = await fetch(`/api/inventory-order/${encodeURIComponent(sourceId)}/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const data = await response.json().catch(()=> ({}));
+        if(!response.ok){
+          alert(data.error || 'Failed to cancel incoming order');
+          btn.disabled = false;
+          return;
+        }
+        await renderRecentOrders();
+      });
     });
   }
 

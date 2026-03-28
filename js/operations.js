@@ -455,7 +455,11 @@ async function loadCheckins(){
   return await utils.fetchJsonSafe('/api/inventory?type=in', {}, []) || [];
 }
 async function loadOrders(){
-  return await utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []) || [];
+  const rows = await utils.fetchJsonSafe('/api/inventory?type=ordered', {}, []) || [];
+  return rows.filter(row=>{
+    const status = String(row.status || '').toLowerCase();
+    return status !== 'cancelled' && status !== 'canceled';
+  });
 }
 
 async function loadOpenOrders(){

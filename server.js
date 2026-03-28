@@ -72,6 +72,7 @@ const AUDIT_ACTIONS = [
   'inventory.reserve',
   'inventory.return',
   'inventory.order',
+  'inventory.order.cancel',
   'inventory.adjust',
   'inventory.count',
   'items.create',
@@ -609,6 +610,8 @@ function dashboardNormalizeJobId(value) {
 function dashboardBuildOrderBalance(orders, inventory) {
   const map = new Map();
   (orders || []).forEach((order) => {
+    const status = String(order.status || '').toLowerCase();
+    if (status === 'cancelled' || status === 'canceled') return;
     const sourceId = order.sourceid || order.sourceId || order.id;
     if (!sourceId) return;
     const jobId = dashboardNormalizeJobId(order.jobid || order.jobId || '');
@@ -1048,6 +1051,8 @@ function dashboardComputeManagerMetrics({ inventory, counts, items, categories, 
   const orderMap = new Map();
   (inventory || []).forEach((entry) => {
     if (String(entry.type || '').toLowerCase() !== 'ordered') return;
+    const status = String(entry.status || '').toLowerCase();
+    if (status === 'cancelled' || status === 'canceled') return;
     orderMap.set(entry.id, {
       id: entry.id,
       qty: Number(entry.qty || 0) || 0,
@@ -2137,6 +2142,7 @@ async function loadSourceEvent(client, sourceType, sourceId, tenantIdVal) {
   if (!source) return null;
   if (sourceType === 'order' && source.type !== 'ordered') return null;
   if (sourceType === 'purchase' && source.type !== 'purchase') return null;
+  if (String(source.status || '').toLowerCase() === 'cancelled') return null;
   return source;
 }
 
@@ -3600,6 +3606,60 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
   }
 });
 
+app.post('/api/inventory-order/:sourceId/cancel', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const { reason } = req.body || {};
+    const actor = actorInfo(req);
+    const result = await withTransaction(async (client) => {
+      const sourceRow = await client.query(
+        `SELECT * FROM inventory WHERE id=$1 AND tenantId=$2 AND type='ordered' FOR UPDATE`,
+        [req.params.sourceId, t]
+      );
+      const source = sourceRow.rows?.[0];
+      if (!source) throw new Error('incoming order not found');
+      const status = String(source.status || '').toLowerCase();
+      if (status === 'cancelled' || status === 'canceled') throw new Error('incoming order already cancelled');
+      const openQty = await calcOpenSourceQtyTx(client, req.params.sourceId, source.code, t);
+      if (!(openQty > 0)) throw new Error('no open quantity left to cancel');
+      const sourceMeta = source.sourcemeta || source.sourceMeta || {};
+      const jobIdVal = normalizeJobId(source.jobid || source.jobId || '') || null;
+      const nextMeta = {
+        ...sourceMeta,
+        cancelledAt: Date.now(),
+        cancelledBy: actor.userEmail,
+        cancelReason: reason ? String(reason).trim() : '',
+        cancelledOpenQty: openQty
+      };
+      await client.query(
+        'UPDATE inventory SET status=$1, sourceMeta=$2 WHERE id=$3 AND tenantId=$4',
+        ['cancelled', nextMeta, req.params.sourceId, t]
+      );
+      await changeJobMaterialQtyTx(client, t, jobIdVal, sourceMeta?.jobMaterialId || null, 'qtyOrdered', -openQty);
+      return {
+        sourceId: req.params.sourceId,
+        code: source.code,
+        jobId: jobIdVal,
+        cancelledQty: openQty
+      };
+    });
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'inventory.order.cancel',
+      details: { sourceId: result.sourceId, code: result.code, jobId: result.jobId, qty: result.cancelledQty, reason: reason || '' }
+    });
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    const message = e.message || 'server error';
+    if (message === 'incoming order not found') return res.status(404).json({ error: message });
+    if (message === 'incoming order already cancelled' || message === 'no open quantity left to cancel') {
+      return res.status(400).json({ error: message });
+    }
+    res.status(500).json({ error: message });
+  }
+});
+
 // FIELD PURCHASES (employee intake)
 app.post('/api/field-purchase', async (req, res) => {
   try {
@@ -4182,6 +4242,7 @@ function formatAuditMessage(entry) {
     'inventory.reserve': 'Reserved',
     'inventory.return': 'Returned',
     'inventory.order': 'Ordered',
+    'inventory.order.cancel': 'Incoming order cancelled',
     'inventory.count': 'Cycle count',
     'items.create': 'Item created',
     'items.update': 'Item updated',
