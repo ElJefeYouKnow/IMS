@@ -358,7 +358,6 @@ function renderTabOverview(data){
     { label: 'Unit of Measure', value: formatInfoValue(meta.uom || meta.unit) },
     { label: 'Unit Cost', value: formatMoneyValue(meta.unitPrice ?? item.unitPrice) },
     { label: 'Material', value: formatInfoValue(meta.material) },
-    { label: 'Vendor', value: formatInfoValue(meta.shape) },
     { label: 'Manufacturer', value: formatInfoValue(meta.brand) },
     { label: 'Storage Default', value: formatInfoValue(storageLocation) },
     { label: 'Description', value: formatInfoValue(meta.description), wide: true },
@@ -663,7 +662,6 @@ function renderTabSettings(data){
         <label style="flex:1;">Material<input name="material" value="${meta.material || ''}"></label>
       </div>
       <div class="form-row">
-        <label style="flex:1;">Vendor<input name="vendor" value="${meta.shape || ''}"></label>
         <label style="flex:1;">Manufacturer<input name="manufacturer" value="${meta.brand || ''}"></label>
       </div>
       <div class="form-row">

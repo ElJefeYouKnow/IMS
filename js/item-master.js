@@ -344,7 +344,7 @@ function renderItemsTable(){
   items.sort((a,b)=> (a.code || '').localeCompare((b.code || '')));
   if(!items.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="11" style="text-align:center;color:#6b7280;">No items in catalog</td>';
+    tr.innerHTML = '<td colspan="10" style="text-align:center;color:#6b7280;">No items in catalog</td>';
     tbody.appendChild(tr);
     return;
   }
@@ -361,7 +361,6 @@ function renderItemsTable(){
       <td>${price}</td>
       <td>${supplierName}</td>
       <td>${item.material || FALLBACK}</td>
-      <td>${item.shape || FALLBACK}</td>
       <td>${item.brand || FALLBACK}</td>
       <td>${item.notes || FALLBACK}</td>
       <td>${reorder}</td>
@@ -638,7 +637,7 @@ function parseCsv(text){
       if(['suppliersku','vendorsku'].includes(h)) map.set('supplierSku', idx);
       if(['supplierurl','supplierlink','vendorurl','vendorlink'].includes(h)) map.set('supplierUrl', idx);
       if(['material'].includes(h)) map.set('material', idx);
-      if(['shape','vendor'].includes(h)) map.set('shape', idx);
+      if(['shape'].includes(h)) map.set('shape', idx);
       if(['brand','manufacturer','mfr'].includes(h)) map.set('brand', idx);
       if(['notes','note'].includes(h)) map.set('notes', idx);
       if(['description','desc'].includes(h)) map.set('description', idx);

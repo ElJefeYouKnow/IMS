@@ -78,7 +78,6 @@
             </div>
             <div class="form-row">
               <label>Material<input id="itemMaterial" placeholder="e.g., Steel, PVC"></label>
-              <label>Vendor<input id="itemShape" placeholder="Supplier or vendor"></label>
               <label>Manufacturer<input id="itemBrand" placeholder="Manufacturer name"></label>
             </div>
             <div class="form-row">
@@ -117,7 +116,7 @@
 
         <section class="card inventory-card">
           <h3>Import Catalog (CSV)</h3>
-          <p class="muted-text">Columns: code,name,category,unitPrice,supplierId,supplierSku,supplierUrl,material,vendor,manufacturer,notes,description,tags,lowStockEnabled. Header row optional.</p>
+          <p class="muted-text">Columns: code,name,category,unitPrice,supplierId,supplierSku,supplierUrl,material,manufacturer,notes,description,tags,lowStockEnabled. Header row optional.</p>
           <div class="form-row">
             <input id="importFile" type="file" accept=".csv,text/csv">
             <button id="downloadTemplateBtn" type="button" class="muted">Download Template</button>
@@ -142,7 +141,6 @@
                 <th>Unit Price</th>
                 <th>Supplier</th>
                 <th>Material</th>
-                <th>Vendor</th>
                 <th>Manufacturer</th>
                 <th>Notes</th>
                 <th>Reorder</th>
@@ -284,7 +282,6 @@
         </div>
         <div class="form-row">
           <label>Material<input id="itemEditMaterial" placeholder="e.g., Steel, PVC"></label>
-          <label>Vendor<input id="itemEditShape" placeholder="Supplier or vendor"></label>
           <label>Manufacturer<input id="itemEditBrand" placeholder="Manufacturer name"></label>
         </div>
         <div class="form-row">
