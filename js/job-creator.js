@@ -239,8 +239,12 @@ function parseMaterialBulkText(text){
 }
 
 function bindMaterialComposer({ containerId, addBtnId, bulkInputId, bulkLoadBtnId, bulkClearBtnId }){
-  document.getElementById(addBtnId)?.addEventListener('click', ()=> addMaterialLine(containerId));
-  document.getElementById(bulkLoadBtnId)?.addEventListener('click', ()=>{
+  document.getElementById(addBtnId)?.addEventListener('click', (ev)=>{
+    ev.preventDefault();
+    addMaterialLine(containerId);
+  });
+  document.getElementById(bulkLoadBtnId)?.addEventListener('click', (ev)=>{
+    ev.preventDefault();
     const bulk = document.getElementById(bulkInputId);
     const rows = parseMaterialBulkText(bulk?.value || '');
     if(!rows.length){
@@ -249,7 +253,8 @@ function bindMaterialComposer({ containerId, addBtnId, bulkInputId, bulkLoadBtnI
     }
     resetMaterialLines(containerId, rows);
   });
-  document.getElementById(bulkClearBtnId)?.addEventListener('click', ()=>{
+  document.getElementById(bulkClearBtnId)?.addEventListener('click', (ev)=>{
+    ev.preventDefault();
     const bulk = document.getElementById(bulkInputId);
     if(bulk) bulk.value = '';
   });
