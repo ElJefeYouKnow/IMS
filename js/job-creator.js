@@ -1,6 +1,7 @@
 const FALLBACK = 'N/A';
 let jobCache = [];
 let itemsCache = [];
+let suppliersCache = [];
 let isAdmin = false;
 let editingCode = null;
 let projectMaterialsReportCache = new Map();
@@ -43,6 +44,33 @@ async function loadItems(){
     itemsCache = [];
   }
   return itemsCache;
+}
+
+async function loadSuppliers(){
+  try{
+    suppliersCache = await utils.fetchJsonSafe('/api/suppliers', {}, []) || [];
+  }catch(e){
+    suppliersCache = [];
+  }
+  ['job-material-lines','job-edit-material-lines'].forEach(refreshMaterialSupplierOptions);
+  return suppliersCache;
+}
+
+function refreshMaterialSupplierOptions(containerId){
+  document.querySelectorAll(`#${containerId} .order-line select[name="supplierId"]`).forEach(select=>{
+    const current = select.value;
+    select.innerHTML = '<option value="">Unassigned supplier</option>';
+    suppliersCache
+      .slice()
+      .sort((a,b)=> (a.name || '').localeCompare(b.name || ''))
+      .forEach(supplier=>{
+        const opt = document.createElement('option');
+        opt.value = supplier.id;
+        opt.textContent = supplier.name || FALLBACK;
+        select.appendChild(opt);
+      });
+    if(current && suppliersCache.some(s=> s.id === current)) select.value = current;
+  });
 }
 
 function formatDate(val){
@@ -216,6 +244,9 @@ function addMaterialLine(containerId, prefill = {}){
       <div id="${suggId}" class="suggestions"></div>
     </label>
     <label>Item Name<input id="${nameId}" name="name" placeholder="Required for new codes"></label>
+    <label>Supplier
+      <select name="supplierId"></select>
+    </label>
     <label style="max-width:120px;">Qty Needed<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
     <label style="flex:1">Notes<input id="${notesId}" name="notes" placeholder="Optional notes"></label>
     <button type="button" class="muted remove-line">Remove</button>
@@ -223,18 +254,32 @@ function addMaterialLine(containerId, prefill = {}){
   container.appendChild(row);
   const codeInput = row.querySelector('input[name="code"]');
   const nameInput = row.querySelector('input[name="name"]');
+  const supplierSelect = row.querySelector('select[name="supplierId"]');
   const idInput = row.querySelector('input[name="materialId"]');
   if(idInput) idInput.value = prefill.id || '';
   if(prefill.code) codeInput.value = prefill.code;
   if(prefill.name) nameInput.value = prefill.name;
   if(prefill.qtyRequired || prefill.qty) row.querySelector('input[name="qty"]').value = prefill.qtyRequired || prefill.qty;
   if(prefill.notes) row.querySelector('input[name="notes"]').value = prefill.notes;
+  refreshMaterialSupplierOptions(containerId);
+  if(prefill.supplierId || prefill.supplierid) supplierSelect.value = prefill.supplierId || prefill.supplierid;
   utils.attachItemLookup?.({
     getItems: ()=> itemsCache,
     codeInputId: codeId,
     nameInputId: nameId,
     suggestionsId: suggId
   });
+  const syncKnownItemMeta = ()=>{
+    const match = itemsCache.find(item => (item.code || '').toLowerCase() === (codeInput.value || '').trim().toLowerCase());
+    if(match){
+      nameInput.value = nameInput.value || match.name || '';
+      supplierSelect.value = match.supplierId || match.supplierid || '';
+    }
+  };
+  codeInput.addEventListener('input', syncKnownItemMeta);
+  codeInput.addEventListener('blur', syncKnownItemMeta);
+  codeInput.addEventListener('change', syncKnownItemMeta);
+  syncKnownItemMeta();
   row.querySelector('.remove-line')?.addEventListener('click', ()=>{
     row.remove();
     if(!container.querySelector('.order-line')) addMaterialLine(containerId);
@@ -258,6 +303,7 @@ function collectMaterialLines(containerId){
       id: row.querySelector('input[name="materialId"]')?.value.trim() || '',
       code: row.querySelector('input[name="code"]')?.value.trim() || '',
       name: row.querySelector('input[name="name"]')?.value.trim() || '',
+      supplierId: row.querySelector('select[name="supplierId"]')?.value.trim() || '',
       qtyRequired: Number(row.querySelector('input[name="qty"]')?.value || 0),
       notes: row.querySelector('input[name="notes"]')?.value.trim() || '',
       sortOrder: index
@@ -443,6 +489,11 @@ function initProjectForm(){
     const notes = document.getElementById('jobNotes')?.value.trim() || '';
     const materials = collectMaterialLines('job-material-lines');
     if(!code){alert('Project code required');return;}
+    const catalogResult = await ensureCatalogItemsForMaterials(materials);
+    if(!catalogResult.ok){
+      alert(catalogResult.error || 'Failed to add project materials to catalog');
+      return;
+    }
     const result = await saveProject({code,name,status,startDate,endDate,location,notes,materials});
     if(!result.ok){
       alert(result.error || 'Failed to save project (check permissions or server)');
@@ -466,6 +517,11 @@ function initProjectForm(){
       const notes = document.getElementById('jobEditNotes')?.value.trim() || '';
       const materials = collectMaterialLines('job-edit-material-lines');
       if(!code){alert('Project code required');return;}
+      const catalogResult = await ensureCatalogItemsForMaterials(materials);
+      if(!catalogResult.ok){
+        alert(catalogResult.error || 'Failed to add project materials to catalog');
+        return;
+      }
       const result = await saveProject({code,name,status,startDate,endDate,location,notes,materials});
       if(!result.ok){
         alert(result.error || 'Failed to save project (check permissions or server)');
@@ -817,6 +873,42 @@ function openProjectDetail(btn){
   }
 }
 
+async function ensureCatalogItemsForMaterials(materials){
+  if(!isAdmin) return { ok:false, error:'Admin only' };
+  const existingCodes = new Set((itemsCache || []).map(item => (item.code || '').trim().toLowerCase()).filter(Boolean));
+  const missingByCode = new Map();
+  for(const line of materials || []){
+    const code = (line?.code || '').trim();
+    if(!code) continue;
+    const key = code.toLowerCase();
+    if(existingCodes.has(key) || missingByCode.has(key)) continue;
+    const name = (line?.name || '').trim();
+    if(!name) return { ok:false, error:`Name required to add new catalog item: ${code}` };
+    missingByCode.set(key, {
+      code,
+      name,
+      supplierId: (line?.supplierId || '').trim() || null
+    });
+  }
+  if(!missingByCode.size) return { ok:true, created:0 };
+  try{
+    const response = await fetch('/api/items/bulk', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      credentials:'include',
+      body: JSON.stringify({ items: Array.from(missingByCode.values()) })
+    });
+    const data = await response.json().catch(()=> ({}));
+    if(!response.ok) return { ok:false, error:data.error || 'Failed to add project materials to catalog' };
+    await loadItems();
+    await loadSuppliers();
+    ['job-material-lines','job-edit-material-lines'].forEach(refreshMaterialSupplierOptions);
+    return { ok:true, created:Number(data.count || missingByCode.size) || missingByCode.size };
+  }catch(e){
+    return { ok:false, error:e.message || 'Failed to add project materials to catalog' };
+  }
+}
+
 function closeProjectDetail(btn){
   const { card, detail } = getReportDetail(btn);
   if(detail){
@@ -1067,6 +1159,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   if(adminOnly && !isAdmin) adminOnly.style.display = 'none';
 
   await loadItems();
+  await loadSuppliers();
   resetMaterialLines('job-material-lines');
   resetMaterialLines('job-edit-material-lines');
   bindMaterialComposer({

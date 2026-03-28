@@ -147,6 +147,7 @@ async function loadSuppliers(){
   }catch(e){
     suppliersCache = [];
   }
+  refreshOrderLineSupplierOptions();
 }
 
 async function loadProjectMaterials(jobId, force = false){
@@ -180,7 +181,7 @@ function findSupplierById(supplierId){
 
 function getSupplierTargetForLine(line){
   const item = findItemByCode(line?.code || '');
-  const supplierId = item?.supplierId || item?.supplierid || '';
+  const supplierId = (line?.supplierId || item?.supplierId || item?.supplierid || '').trim();
   const supplier = findSupplierById(supplierId);
   const supplierSku = item?.supplierSku || item?.suppliersku || '';
   const itemUrl = (item?.supplierUrl || item?.supplierurl || '').trim();
@@ -339,7 +340,11 @@ async function ensureCatalogItems(lines){
     if(!name){
       return { ok: false, error: `Name required to add new catalog item: ${code}` };
     }
-    missingByCode.set(normalizedCode, { code, name });
+    missingByCode.set(normalizedCode, {
+      code,
+      name,
+      supplierId: (line?.supplierId || '').trim() || null
+    });
   }
 
   if(!missingByCode.size) return { ok: true, created: 0 };
@@ -355,6 +360,8 @@ async function ensureCatalogItems(lines){
   }
 
   await loadItems();
+  await loadSuppliers();
+  refreshOrderLineSupplierOptions();
   refreshReserveSkuDatalist();
   return { ok: true, created: Number(data.count || missingByCode.size) || missingByCode.size };
 }
@@ -445,6 +452,9 @@ function addOrderLine(prefill = {}){
       <div id="${suggId}" class="suggestions"></div>
     </label>
     <label>Item Name<input id="${nameId}" name="name" placeholder="Required for new codes"></label>
+    <label>Supplier
+      <select name="supplierId"></select>
+    </label>
     <label style="max-width:120px;">Qty<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
     <label style="max-width:160px;">ETA<input id="${etaId}" name="eta" type="date" class="eta-input"></label>
     <label>Project
@@ -459,11 +469,13 @@ function addOrderLine(prefill = {}){
 
   const codeInput = row.querySelector('input[name="code"]');
   const nameInput = row.querySelector('input[name="name"]');
+  const supplierSelect = row.querySelector('select[name="supplierId"]');
   const qtyInput = row.querySelector('input[name="qty"]');
   const etaInput = row.querySelector('input[name="eta"]');
   const jobSelect = row.querySelector('select[name="jobId"]');
 
   refreshOrderLineJobOptions();
+  refreshOrderLineSupplierOptions();
 
   const applyDefault = document.getElementById('order-apply-default')?.checked;
   const defaultJob = document.getElementById('orderJob')?.value.trim() || '';
@@ -486,12 +498,20 @@ function addOrderLine(prefill = {}){
     if(materialInput) materialInput.value = prefill.jobMaterialId;
   }
 
+  if(prefill.supplierId){ supplierSelect.value = prefill.supplierId; }
   codeInput.setAttribute('list', 'order-sku-options');
-  codeInput.addEventListener('input', ()=> fillNameIfKnown(codeInput, nameInput));
-  codeInput.addEventListener('blur', ()=> fillNameIfKnown(codeInput, nameInput));
-  codeInput.addEventListener('change', ()=> fillNameIfKnown(codeInput, nameInput));
+  const syncKnownItemMeta = ()=>{
+    fillNameIfKnown(codeInput, nameInput);
+    const match = findItemByCode(codeInput.value);
+    if(match){
+      supplierSelect.value = match.supplierId || match.supplierid || '';
+    }
+  };
+  codeInput.addEventListener('input', syncKnownItemMeta);
+  codeInput.addEventListener('blur', syncKnownItemMeta);
+  codeInput.addEventListener('change', syncKnownItemMeta);
 
-  fillNameIfKnown(codeInput, nameInput);
+  syncKnownItemMeta();
 
   row.querySelector('.remove-line').addEventListener('click', ()=>{
     row.remove();
@@ -543,6 +563,7 @@ async function loadSelectedProjectMaterials(force = false){
     addOrderLine({
       code: line.code,
       name: line.name,
+      supplierId: line.supplierId || line.supplierid || '',
       qty: Number(line.outstandingQty || 0),
       eta: defaultEta,
       jobId,
@@ -585,7 +606,8 @@ function gatherOrderLines(){
     const lineJob = row.querySelector('select[name="jobId"]')?.value.trim() || '';
     const jobId = lineJob || (applyDefault ? defaultJob : '');
     const jobMaterialId = row.querySelector('input[name="jobMaterialId"]')?.value.trim() || '';
-    return { row, code, name, qty, eta, jobId, jobMaterialId };
+    const supplierId = row.querySelector('select[name="supplierId"]')?.value.trim() || '';
+    return { row, code, name, qty, eta, jobId, jobMaterialId, supplierId };
   });
 
   let hasError = false;
@@ -772,6 +794,24 @@ function renderShoppingGroups(plan){
       }
       await logVendorOpen(group);
     });
+  });
+}
+
+function refreshOrderLineSupplierOptions(){
+  const selects = document.querySelectorAll('.order-line select[name="supplierId"]');
+  selects.forEach(sel=>{
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Unassigned supplier</option>';
+    suppliersCache
+      .slice()
+      .sort((a,b)=> (a.name || '').localeCompare(b.name || ''))
+      .forEach(supplier=>{
+        const opt = document.createElement('option');
+        opt.value = supplier.id;
+        opt.textContent = supplier.name || FALLBACK;
+        sel.appendChild(opt);
+      });
+    if(current && suppliersCache.some(s=> s.id === current)) sel.value = current;
   });
 }
 

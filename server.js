@@ -1671,6 +1671,7 @@ async function initDb() {
     jobId TEXT NOT NULL,
     code TEXT NOT NULL,
     name TEXT,
+    supplierId TEXT,
     qtyRequired NUMERIC DEFAULT 0,
     qtyOrdered NUMERIC DEFAULT 0,
     qtyAllocated NUMERIC DEFAULT 0,
@@ -1816,6 +1817,7 @@ async function initDb() {
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS jobId TEXT`);
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS code TEXT`);
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS name TEXT`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS supplierId TEXT`);
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS qtyRequired NUMERIC DEFAULT 0`);
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS qtyOrdered NUMERIC DEFAULT 0`);
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS qtyAllocated NUMERIC DEFAULT 0`);
@@ -4748,6 +4750,7 @@ function normalizeJobMaterialRow(row) {
     jobId: row?.jobid || row?.jobId || '',
     code: row?.code || '',
     name: row?.name || row?.code || '',
+    supplierId: row?.supplierid || row?.supplierId || '',
     qtyRequired,
     qtyOrdered,
     qtyAllocated,
@@ -4763,6 +4766,7 @@ function normalizeJobMaterialRow(row) {
 function normalizeJobMaterialInput(raw, index = 0) {
   const code = String(raw?.code || '').trim();
   const name = String(raw?.name || '').trim();
+  const supplierId = String(raw?.supplierId || '').trim();
   const qtyRequired = roundQty(raw?.qtyRequired ?? raw?.qty ?? 0);
   if (!code) throw new Error('material code required');
   if (!(qtyRequired > 0)) throw new Error(`material qty required for ${code}`);
@@ -4770,6 +4774,7 @@ function normalizeJobMaterialInput(raw, index = 0) {
     id: String(raw?.id || '').trim() || newId(),
     code,
     name: name || code,
+    supplierId,
     qtyRequired,
     notes: String(raw?.notes || '').trim(),
     sortOrder: Number.isFinite(Number(raw?.sortOrder)) ? Math.floor(Number(raw.sortOrder)) : index
@@ -4791,15 +4796,20 @@ async function replaceJobMaterialsTx(client, tenantIdVal, jobId, materials) {
   for (let i = 0; i < (materials || []).length; i += 1) {
     const material = normalizeJobMaterialInput(materials[i], i);
     const existing = existingMap.get(material.id);
+    if (material.supplierId) {
+      const supplier = await client.query('SELECT id FROM suppliers WHERE id=$1 AND tenantId=$2 LIMIT 1', [material.supplierId, tenantIdVal]);
+      if (!supplier.rows?.[0]) throw new Error(`supplier not found for ${material.code}`);
+    }
     await client.query(
-      `INSERT INTO job_materials(id,tenantId,jobId,code,name,qtyRequired,qtyOrdered,qtyAllocated,qtyReceived,notes,sortOrder,createdAt,updatedAt)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      `INSERT INTO job_materials(id,tenantId,jobId,code,name,supplierId,qtyRequired,qtyOrdered,qtyAllocated,qtyReceived,notes,sortOrder,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [
         material.id,
         tenantIdVal,
         jobId,
         material.code,
         material.name,
+        material.supplierId || null,
         material.qtyRequired,
         roundQty(existing?.qtyordered ?? 0),
         roundQty(existing?.qtyallocated ?? 0),
