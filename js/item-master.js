@@ -307,17 +307,23 @@ async function loadSuppliers(){
   const res = await fetchJson('/api/suppliers');
   if(!res){
     state.suppliers = [];
-    state.supplierApiAvailable = false;
+    state.supplierApiAvailable = true;
+    setStatus('Catalog error: unable to load suppliers', 'error');
     return false;
   }
   if(res.status === 404){
     state.suppliers = [];
     state.supplierApiAvailable = false;
+    if(dom.supplierMsg){
+      dom.supplierMsg.textContent = 'Supplier feature is not on the current server deployment yet. Redeploy the app.';
+      dom.supplierMsg.style.color = '#b91c1c';
+    }
     return true;
   }
   if(!res.ok){
     state.suppliers = [];
-    state.supplierApiAvailable = false;
+    state.supplierApiAvailable = true;
+    setStatus('Catalog error: unable to load suppliers', 'error');
     return false;
   }
   state.suppliers = Array.isArray(res.data) ? res.data : [];
@@ -793,7 +799,7 @@ async function handleSaveCategory(){
 
 async function handleSaveSupplier(){
   if(!state.supplierApiAvailable){
-    alert('Suppliers are not available yet.');
+    alert('Supplier feature is not on the current server deployment yet. Redeploy the app and refresh this page.');
     return;
   }
   const payload = {
@@ -869,7 +875,11 @@ async function refreshAll(){
   renderCategoriesTable();
   renderItemsTable();
   renderSuppliersTable();
-  if(catsOk && itemsOk && (suppliersOk || !state.supplierApiAvailable)){
+  if(!state.supplierApiAvailable){
+    setStatus(`Loaded ${state.items.length} items and ${state.categories.length} categories. Supplier routes are missing on this deployment.`, 'error');
+    return;
+  }
+  if(catsOk && itemsOk && suppliersOk){
     setStatus(`Loaded ${state.items.length} items, ${state.categories.length} categories, ${state.suppliers.length} suppliers.`, 'ok');
   }
 }
