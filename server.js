@@ -1973,6 +1973,20 @@ async function calcAvailabilityTx(client, code, tenantIdVal) {
   },0);
 }
 
+async function calcOnHandTx(client, code, tenantIdVal) {
+  const rows = await client.query(
+    `SELECT id,type,qty FROM inventory WHERE code = $1 AND tenantId=$2 FOR UPDATE`,
+    [code, tenantIdVal]
+  );
+  return (rows.rows || []).reduce((sum, r) => {
+    const t = r.type;
+    const q = Number(r.qty) || 0;
+    if (t === 'in' || t === 'return') return sum + q;
+    if (t === 'out' || t === 'consume') return sum - q;
+    return sum;
+  }, 0);
+}
+
 async function calcReservedOutstandingTx(client, code, jobId, tenantIdVal) {
   if(!jobId) return 0;
   const rows = await client.query(
@@ -2150,7 +2164,7 @@ async function ensureDevAccount() {
     [newId(), normalizeEmail(DEV_EMAIL), 'Dev', 'dev', salt, hash, Date.now(), true, Date.now(), tenantId]);
 }
 
-async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn, returnWindowDays, sourceType, sourceId, sourceMeta }) {
+async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn, returnWindowDays, sourceType, sourceId, sourceMeta, consumeAgainstOnHand }) {
   const qtyNum = Number(qty);
   if (!code || !qtyNum || qtyNum <= 0) throw new Error('code and positive qty required');
   const jobIdVal = (jobId || '').trim() || null;
@@ -2194,8 +2208,12 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
   if (type === 'consume') {
     if (!reason) throw new Error('reason required for consumption');
     status = reason.toLowerCase().includes('lost') ? 'lost' : (reason.toLowerCase().includes('damage') ? 'damaged' : 'consumed');
-    const avail = await calcAvailabilityTx(client, code, tenantIdVal);
-    if (qtyNum > avail) throw new Error('insufficient stock to consume');
+    const availableQty = consumeAgainstOnHand
+      ? await calcOnHandTx(client, code, tenantIdVal)
+      : await calcAvailabilityTx(client, code, tenantIdVal);
+    if (qtyNum > availableQty) {
+      throw new Error(consumeAgainstOnHand ? 'insufficient stock on hand to adjust' : 'insufficient stock to consume');
+    }
   }
 
   const entry = {
@@ -2582,7 +2600,8 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
         ts,
         userEmail: actor.userEmail,
         userName: actor.userName,
-        tenantIdVal: t
+        tenantIdVal: t,
+        consumeAgainstOnHand: true
       });
     });
     await logAudit({
