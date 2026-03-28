@@ -13,6 +13,7 @@ let itemsCache = [];
 let jobOptions = [];
 let availabilityMap = new Map();
 let inventoryCache = [];
+let projectMaterialsCache = new Map();
 let orderRangeFilter = 'all';
 let pendingSubmit = null;
 
@@ -112,10 +113,10 @@ async function loadJobs(){
   try{
     const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
     jobOptions = (jobs || []).map(j=> j.code).filter(Boolean).sort();
-    const selects = ['orderJob','reserve-jobId','reassign-from','reassign-to'].map(id=> document.getElementById(id)).filter(Boolean);
+    const selects = ['orderJob','orderMaterialsJob','reserve-jobId','reassign-from','reassign-to'].map(id=> document.getElementById(id)).filter(Boolean);
     selects.forEach(sel=>{
       const current = sel.value;
-      const projectOnly = sel.id === 'reserve-jobId' || sel.id === 'reassign-from';
+      const projectOnly = sel.id === 'orderMaterialsJob' || sel.id === 'reserve-jobId' || sel.id === 'reassign-from';
       sel.innerHTML = projectOnly ? '<option value="">Select project...</option>' : '<option value="">General Inventory</option>';
       jobOptions.forEach(job=>{
         const opt = document.createElement('option');
@@ -134,6 +135,15 @@ async function loadItems(){
     itemsCache = await utils.fetchJsonSafe('/api/items', {}, []) || [];
     refreshSkuDatalist();
   }catch(e){}
+}
+
+async function loadProjectMaterials(jobId, force = false){
+  const normalizedJobId = normalizeJobId(jobId);
+  if(!normalizedJobId) return [];
+  if(!force && projectMaterialsCache.has(normalizedJobId)) return projectMaterialsCache.get(normalizedJobId) || [];
+  const rows = await utils.fetchJsonSafe(`/api/jobs/${encodeURIComponent(normalizedJobId)}/materials`, {}, []) || [];
+  projectMaterialsCache.set(normalizedJobId, rows);
+  return rows;
 }
 
 function shouldAddProcurementItemsToCatalog(){
@@ -180,7 +190,7 @@ async function reserveInventoryBeforeOrdering(lines, notes, session){
     const jobId = normalizeJobId(line.jobId || '');
     if(!jobId || !line.code || !(Number(line.inventoryQty) > 0)) continue;
     if(!grouped.has(jobId)) grouped.set(jobId, []);
-    grouped.get(jobId).push({ code: line.code, qty: Number(line.inventoryQty) });
+    grouped.get(jobId).push({ code: line.code, qty: Number(line.inventoryQty), jobMaterialId: line.jobMaterialId || '' });
   }
   for(const [jobId, groupedLines] of grouped.entries()){
     const response = await fetch('/api/inventory-reserve/bulk', {
@@ -320,6 +330,7 @@ function addOrderLine(prefill = {}){
   const row = document.createElement('div');
   row.className = 'form-row line-row order-line';
   row.innerHTML = `
+    <input type="hidden" name="jobMaterialId">
     <label class="with-suggest">Item Code
       <input id="${codeId}" name="code" placeholder="SKU/part" required>
       <div id="${suggId}" class="suggestions"></div>
@@ -361,6 +372,10 @@ function addOrderLine(prefill = {}){
   if(prefill.qty){ qtyInput.value = prefill.qty; }
   if(prefill.eta){ etaInput.value = prefill.eta; }
   if(prefill.jobId){ jobSelect.value = prefill.jobId; }
+  if(prefill.jobMaterialId){
+    const materialInput = row.querySelector('input[name="jobMaterialId"]');
+    if(materialInput) materialInput.value = prefill.jobMaterialId;
+  }
 
   codeInput.setAttribute('list', 'order-sku-options');
   codeInput.addEventListener('input', ()=> fillNameIfKnown(codeInput, nameInput));
@@ -383,6 +398,56 @@ function clearOrderLines(){
     container.innerHTML = '';
     addOrderLine();
   }
+}
+
+async function loadSelectedProjectMaterials(force = false){
+  const select = document.getElementById('orderMaterialsJob');
+  const jobId = normalizeJobId(select?.value || '');
+  const msg = document.getElementById('orderMsg');
+  if(msg) msg.textContent = '';
+  if(!jobId){
+    if(msg){ msg.style.color = '#b91c1c'; msg.textContent = 'Select a project to load materials'; }
+    return;
+  }
+  const materials = await loadProjectMaterials(jobId, force);
+  const outstanding = (materials || []).filter(line=> Number(line.outstandingQty || 0) > 0);
+  if(!outstanding.length){
+    if(msg){ msg.style.color = '#475569'; msg.textContent = 'No outstanding materials to procure for that project'; }
+    return;
+  }
+  const defaultEta = document.getElementById('orderEta')?.value || '';
+  const existingIds = new Set(
+    Array.from(document.querySelectorAll('#order-lines input[name="jobMaterialId"]'))
+      .map(input=> (input.value || '').trim())
+      .filter(Boolean)
+  );
+  const blankRow = document.querySelector('#order-lines .order-line');
+  const blankRowUnused = blankRow
+    && !(blankRow.querySelector('input[name="code"]')?.value.trim())
+    && !(blankRow.querySelector('input[name="jobMaterialId"]')?.value.trim());
+  if(blankRowUnused){
+    blankRow.remove();
+  }
+  let added = 0;
+  outstanding.forEach(line=>{
+    if(line.id && existingIds.has(line.id)) return;
+    addOrderLine({
+      code: line.code,
+      name: line.name,
+      qty: Number(line.outstandingQty || 0),
+      eta: defaultEta,
+      jobId,
+      jobMaterialId: line.id
+    });
+    added += 1;
+  });
+  if(!added){
+    if(msg){ msg.style.color = '#475569'; msg.textContent = 'All outstanding project materials are already in the procurement list'; }
+    return;
+  }
+  document.getElementById('orderJob').value = jobId;
+  if(document.getElementById('order-apply-default')) document.getElementById('order-apply-default').checked = true;
+  if(msg){ msg.style.color = '#15803d'; msg.textContent = `Loaded ${added} project material lines for ${jobId}`; }
 }
 
 function clearLineError(row){
@@ -410,7 +475,8 @@ function gatherOrderLines(){
     const eta = row.querySelector('input[name="eta"]')?.value || (applyDefault ? defaultEta : '');
     const lineJob = row.querySelector('select[name="jobId"]')?.value.trim() || '';
     const jobId = lineJob || (applyDefault ? defaultJob : '');
-    return { row, code, name, qty, eta, jobId };
+    const jobMaterialId = row.querySelector('input[name="jobMaterialId"]')?.value.trim() || '';
+    return { row, code, name, qty, eta, jobId, jobMaterialId };
   });
 
   let hasError = false;
@@ -504,6 +570,7 @@ async function submitOrders(lines, clearAll){
     qty: line.orderQty,
     eta: line.eta,
     jobId: line.jobId,
+    jobMaterialId: line.jobMaterialId || '',
     notes,
     autoReserve
   }));
@@ -712,18 +779,24 @@ function initOrders(){
   const submitAnother = document.getElementById('orderSubmitAnother');
   const clearBtn = document.getElementById('orderClearBtn');
   const defaultJob = document.getElementById('orderJob');
+  const materialsJob = document.getElementById('orderMaterialsJob');
   const applyDefault = document.getElementById('order-apply-default');
+  const loadMaterialsBtn = document.getElementById('order-loadMaterials');
+  const refreshMaterialsBtn = document.getElementById('order-refreshMaterials');
 
   addOrderLine();
 
   addLineBtn?.addEventListener('click', ()=> addOrderLine());
   defaultJob?.addEventListener('change', ()=>{
+    if(materialsJob && !materialsJob.value && defaultJob.value) materialsJob.value = defaultJob.value;
     if(applyDefault?.checked){
       document.querySelectorAll('.order-line select[name="jobId"]').forEach(sel=>{
         if(!sel.value){ sel.value = defaultJob.value; }
       });
     }
   });
+  loadMaterialsBtn?.addEventListener('click', ()=> loadSelectedProjectMaterials(false));
+  refreshMaterialsBtn?.addEventListener('click', ()=> loadSelectedProjectMaterials(true));
 
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
@@ -795,7 +868,8 @@ function initOrders(){
           code: match?.code || line.code,
           name: line.name || match?.name || '',
           eta: line.eta || defaultEta,
-          jobId: line.jobId || defaultJobValue
+          jobId: line.jobId || defaultJobValue,
+          jobMaterialId: line.jobMaterialId || ''
         };
       });
       const plan = buildProcurementPlan(normalizedLines);
@@ -805,6 +879,7 @@ function initOrders(){
         qty: line.orderQty,
         eta: line.eta,
         jobId: line.jobId,
+        jobMaterialId: line.jobMaterialId || '',
         notes,
         autoReserve
       }));

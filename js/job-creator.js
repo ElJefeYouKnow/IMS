@@ -1,5 +1,6 @@
 const FALLBACK = 'N/A';
 let jobCache = [];
+let itemsCache = [];
 let isAdmin = false;
 let editingCode = null;
 
@@ -31,6 +32,15 @@ async function loadJobs(){
   }catch(e){}
   jobCache = [];
   return [];
+}
+
+async function loadItems(){
+  try{
+    itemsCache = await utils.fetchJsonSafe('/api/items', {}, []) || [];
+  }catch(e){
+    itemsCache = [];
+  }
+  return itemsCache;
 }
 
 function formatDate(val){
@@ -108,7 +118,7 @@ function getEntryJobId(entry){
   return val;
 }
 
-function setEditMode(project){
+async function setEditMode(project){
   if(!project) return;
   editingCode = project.code;
   const codeInput = document.getElementById('jobEditCode');
@@ -128,6 +138,8 @@ function setEditMode(project){
   if(endInput) endInput.value = project.endDate || '';
   if(locationInput) locationInput.value = project.location || '';
   if(notesInput) notesInput.value = project.notes || '';
+  const materials = await loadProjectMaterials(project.code);
+  resetMaterialLines('job-edit-material-lines', materials);
 
   const meta = document.getElementById('jobEditMeta');
   if(meta) meta.textContent = `Editing project: ${project.code}`;
@@ -141,8 +153,115 @@ function clearEditMode(){
   if(form) form.reset();
   const statusInput = document.getElementById('jobEditStatus');
   if(statusInput) statusInput.value = 'planned';
+  resetMaterialLines('job-edit-material-lines');
+  const editBulk = document.getElementById('jobEditMaterialBulk');
+  if(editBulk) editBulk.value = '';
   const modal = document.getElementById('jobEditModal');
   if(modal) modal.classList.add('hidden');
+}
+
+function addMaterialLine(containerId, prefill = {}){
+  const container = document.getElementById(containerId);
+  if(!container) return;
+  const codeId = `job-material-code-${Math.random().toString(16).slice(2,8)}`;
+  const nameId = `job-material-name-${Math.random().toString(16).slice(2,8)}`;
+  const qtyId = `job-material-qty-${Math.random().toString(16).slice(2,8)}`;
+  const notesId = `job-material-notes-${Math.random().toString(16).slice(2,8)}`;
+  const suggId = `${codeId}-s`;
+  const row = document.createElement('div');
+  row.className = 'form-row line-row order-line';
+  row.innerHTML = `
+    <input type="hidden" name="materialId">
+    <label class="with-suggest">Item Code
+      <input id="${codeId}" name="code" placeholder="SKU/part" required>
+      <div id="${suggId}" class="suggestions"></div>
+    </label>
+    <label>Item Name<input id="${nameId}" name="name" placeholder="Required for new codes"></label>
+    <label style="max-width:120px;">Qty Needed<input id="${qtyId}" name="qty" type="number" min="1" value="1" required></label>
+    <label style="flex:1">Notes<input id="${notesId}" name="notes" placeholder="Optional notes"></label>
+    <button type="button" class="muted remove-line">Remove</button>
+  `;
+  container.appendChild(row);
+  const codeInput = row.querySelector('input[name="code"]');
+  const nameInput = row.querySelector('input[name="name"]');
+  const idInput = row.querySelector('input[name="materialId"]');
+  if(idInput) idInput.value = prefill.id || '';
+  if(prefill.code) codeInput.value = prefill.code;
+  if(prefill.name) nameInput.value = prefill.name;
+  if(prefill.qtyRequired || prefill.qty) row.querySelector('input[name="qty"]').value = prefill.qtyRequired || prefill.qty;
+  if(prefill.notes) row.querySelector('input[name="notes"]').value = prefill.notes;
+  utils.attachItemLookup?.({
+    getItems: ()=> itemsCache,
+    codeInputId: codeId,
+    nameInputId: nameId,
+    suggestionsId: suggId
+  });
+  row.querySelector('.remove-line')?.addEventListener('click', ()=>{
+    row.remove();
+    if(!container.querySelector('.order-line')) addMaterialLine(containerId);
+  });
+}
+
+function resetMaterialLines(containerId, materials = []){
+  const container = document.getElementById(containerId);
+  if(!container) return;
+  container.innerHTML = '';
+  if(Array.isArray(materials) && materials.length){
+    materials.forEach(material=> addMaterialLine(containerId, material));
+    return;
+  }
+  addMaterialLine(containerId);
+}
+
+function collectMaterialLines(containerId){
+  return Array.from(document.querySelectorAll(`#${containerId} .order-line`))
+    .map((row, index)=>({
+      id: row.querySelector('input[name="materialId"]')?.value.trim() || '',
+      code: row.querySelector('input[name="code"]')?.value.trim() || '',
+      name: row.querySelector('input[name="name"]')?.value.trim() || '',
+      qtyRequired: Number(row.querySelector('input[name="qty"]')?.value || 0),
+      notes: row.querySelector('input[name="notes"]')?.value.trim() || '',
+      sortOrder: index
+    }))
+    .filter(line=> line.code && line.qtyRequired > 0);
+}
+
+function parseMaterialBulkText(text){
+  return String(text || '')
+    .split(/\r?\n/)
+    .map(line=> line.trim())
+    .filter(Boolean)
+    .map((line, index)=>{
+      const [code, name, qty, notes] = line.split(',').map(part=> (part || '').trim());
+      return { code, name, qtyRequired: Number(qty || 0), notes, sortOrder: index };
+    })
+    .filter(line=> line.code && line.qtyRequired > 0);
+}
+
+function bindMaterialComposer({ containerId, addBtnId, bulkInputId, bulkLoadBtnId, bulkClearBtnId }){
+  document.getElementById(addBtnId)?.addEventListener('click', ()=> addMaterialLine(containerId));
+  document.getElementById(bulkLoadBtnId)?.addEventListener('click', ()=>{
+    const bulk = document.getElementById(bulkInputId);
+    const rows = parseMaterialBulkText(bulk?.value || '');
+    if(!rows.length){
+      alert('No valid material rows found');
+      return;
+    }
+    resetMaterialLines(containerId, rows);
+  });
+  document.getElementById(bulkClearBtnId)?.addEventListener('click', ()=>{
+    const bulk = document.getElementById(bulkInputId);
+    if(bulk) bulk.value = '';
+  });
+}
+
+async function loadProjectMaterials(code){
+  if(!code) return [];
+  try{
+    return await utils.fetchJsonSafe(`/api/jobs/${encodeURIComponent(code)}/materials`, {}, []) || [];
+  }catch(e){
+    return [];
+  }
 }
 
 function resetAddForm(){
@@ -152,6 +271,9 @@ function resetAddForm(){
   if(statusInput) statusInput.value = 'planned';
   const codeInput = document.getElementById('jobCode');
   if(codeInput) codeInput.disabled = false;
+  resetMaterialLines('job-material-lines');
+  const bulk = document.getElementById('jobMaterialBulk');
+  if(bulk) bulk.value = '';
 }
 
 async function saveProject(project){
@@ -231,10 +353,10 @@ async function renderProjects(){
 
   if(isAdmin){
     document.querySelectorAll('.edit-btn').forEach(btn=>{
-      btn.addEventListener('click', ev=>{
+      btn.addEventListener('click', async ev=>{
         const code = ev.target.dataset.code;
         const project = jobCache.find(j=> (j.code || '') === code);
-        if(project) setEditMode(project);
+        if(project) await setEditMode(project);
       });
     });
     document.querySelectorAll('.delete-btn').forEach(btn=>{
@@ -271,8 +393,9 @@ function initProjectForm(){
     const endDate = document.getElementById('jobEndDate')?.value || '';
     const location = document.getElementById('jobLocation')?.value.trim() || '';
     const notes = document.getElementById('jobNotes')?.value.trim() || '';
+    const materials = collectMaterialLines('job-material-lines');
     if(!code){alert('Project code required');return;}
-    const result = await saveProject({code,name,status,startDate,endDate,location,notes});
+    const result = await saveProject({code,name,status,startDate,endDate,location,notes,materials});
     if(!result.ok){
       alert(result.error || 'Failed to save project (check permissions or server)');
     }else{
@@ -293,8 +416,9 @@ function initProjectForm(){
       const endDate = document.getElementById('jobEditEndDate')?.value || '';
       const location = document.getElementById('jobEditLocation')?.value.trim() || '';
       const notes = document.getElementById('jobEditNotes')?.value.trim() || '';
+      const materials = collectMaterialLines('job-edit-material-lines');
       if(!code){alert('Project code required');return;}
-      const result = await saveProject({code,name,status,startDate,endDate,location,notes});
+      const result = await saveProject({code,name,status,startDate,endDate,location,notes,materials});
       if(!result.ok){
         alert(result.error || 'Failed to save project (check permissions or server)');
       }else{
@@ -751,6 +875,23 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const adminOnly = document.querySelector('.admin-only');
   if(adminOnly && !isAdmin) adminOnly.style.display = 'none';
 
+  await loadItems();
+  resetMaterialLines('job-material-lines');
+  resetMaterialLines('job-edit-material-lines');
+  bindMaterialComposer({
+    containerId: 'job-material-lines',
+    addBtnId: 'jobMaterialAddBtn',
+    bulkInputId: 'jobMaterialBulk',
+    bulkLoadBtnId: 'jobMaterialBulkLoad',
+    bulkClearBtnId: 'jobMaterialBulkClear'
+  });
+  bindMaterialComposer({
+    containerId: 'job-edit-material-lines',
+    addBtnId: 'jobEditMaterialAddBtn',
+    bulkInputId: 'jobEditMaterialBulk',
+    bulkLoadBtnId: 'jobEditMaterialBulkLoad',
+    bulkClearBtnId: 'jobEditMaterialBulkClear'
+  });
   initTabs();
   initProjectForm();
   await renderProjects();

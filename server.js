@@ -77,6 +77,7 @@ const AUDIT_ACTIONS = [
   'items.create',
   'items.update',
   'items.delete',
+  'projects.materials.update',
   'ops.pick.start',
   'ops.pick.finish',
   'ops.checkin.start',
@@ -1636,6 +1637,21 @@ async function initDb() {
     updatedAt BIGINT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS job_materials(
+    id TEXT PRIMARY KEY,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default',
+    jobId TEXT NOT NULL,
+    code TEXT NOT NULL,
+    name TEXT,
+    qtyRequired NUMERIC DEFAULT 0,
+    qtyOrdered NUMERIC DEFAULT 0,
+    qtyAllocated NUMERIC DEFAULT 0,
+    qtyReceived NUMERIC DEFAULT 0,
+    notes TEXT,
+    sortOrder INTEGER DEFAULT 0,
+    createdAt BIGINT,
+    updatedAt BIGINT
+  )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS users(
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
@@ -1768,6 +1784,18 @@ async function initDb() {
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS location TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS notes TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS jobId TEXT`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS code TEXT`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS name TEXT`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS qtyRequired NUMERIC DEFAULT 0`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS qtyOrdered NUMERIC DEFAULT 0`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS qtyAllocated NUMERIC DEFAULT 0`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS qtyReceived NUMERIC DEFAULT 0`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS sortOrder INTEGER DEFAULT 0`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS createdAt BIGINT`);
+  await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerified BOOLEAN`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerifiedAt BIGINT`);
@@ -1781,6 +1809,13 @@ async function initDb() {
   await runAsync(`UPDATE jobs SET startDate = scheduleDate WHERE startDate IS NULL AND scheduleDate IS NOT NULL`);
   await runAsync(`UPDATE jobs SET status = 'planned' WHERE status IS NULL OR status = ''`);
   await runAsync(`UPDATE jobs SET updatedAt = COALESCE(updatedAt, $1::bigint)`, [Date.now()]);
+  await runAsync(`UPDATE job_materials SET tenantId='default' WHERE tenantId IS NULL`);
+  await runAsync(`UPDATE job_materials SET qtyRequired = COALESCE(qtyRequired, 0)`);
+  await runAsync(`UPDATE job_materials SET qtyOrdered = COALESCE(qtyOrdered, 0)`);
+  await runAsync(`UPDATE job_materials SET qtyAllocated = COALESCE(qtyAllocated, 0)`);
+  await runAsync(`UPDATE job_materials SET qtyReceived = COALESCE(qtyReceived, 0)`);
+  await runAsync(`UPDATE job_materials SET createdAt = COALESCE(createdAt, $1::bigint) WHERE createdAt IS NULL`, [Date.now()]);
+  await runAsync(`UPDATE job_materials SET updatedAt = COALESCE(updatedAt, createdAt, $1::bigint) WHERE updatedAt IS NULL`, [Date.now()]);
   await runAsync(`UPDATE users SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE users SET emailVerified=true WHERE emailVerified IS NULL`);
   await runAsync(`UPDATE inventory_counts SET tenantId='default' WHERE tenantId IS NULL`);
@@ -1796,6 +1831,8 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_job ON inventory(jobId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(sourceType, sourceId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_items_tenant ON items(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_job_materials_tenant_job ON job_materials(tenantId, jobId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_job_materials_tenant_code_job ON job_materials(tenantId, code, jobId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant_ts ON inventory(tenantId, ts DESC)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant_type_ts ON inventory(tenantId, type, ts DESC)');
@@ -2267,6 +2304,7 @@ app.post('/api/inventory', async (req, res) => {
       if (source.code !== code) throw new Error('source item mismatch');
       const sourceMeta = source?.sourcemeta || source?.sourceMeta || null;
       const autoReserve = sourceMeta?.autoReserve !== false;
+      const jobMaterialId = sourceMeta?.jobMaterialId || null;
       const openQty = await calcOpenSourceQtyTx(client, sourceId, code, t);
       if (qtyNum > openQty) throw new Error('check-in exceeds remaining open qty');
       const sourceJob = normalizeJobId(source.jobid || source.jobId || '');
@@ -2296,12 +2334,14 @@ app.post('/api/inventory', async (req, res) => {
         sourceType,
         sourceId
       });
+      await changeJobMaterialQtyTx(client, t, jobIdVal, jobMaterialId, 'qtyReceived', qtyNum);
       // If a project is selected, auto-reserve the same qty to earmark stock for that project.
       if (jobIdVal && autoReserve && categoryInfo.rules.allowReserve !== false) {
         const avail = await calcAvailabilityTx(client, code, t);
         const reserveQty = Math.min(qtyNum, Math.max(0, avail));
         if (reserveQty > 0) {
           await processInventoryEvent(client, { type: 'reserve', code, jobId: jobIdVal, qty: reserveQty, returnDate: null, notes: 'auto-reserve on check-in', ts: checkin.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+          await changeJobMaterialQtyTx(client, t, jobIdVal, jobMaterialId, 'qtyAllocated', reserveQty);
         }
       }
       return checkin;
@@ -2354,14 +2394,16 @@ app.get('/api/inventory-reserve', async (req, res) => {
 
 app.post('/api/inventory-reserve', async (req, res) => {
   try {
-    const { code, jobId, qty, returnDate, notes, ts } = req.body;
+    const { code, jobId, qty, returnDate, notes, ts, jobMaterialId } = req.body;
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
     const entry = await withTransaction(async (client) => {
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'reserve', jobId, notes, qty });
-      return processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      await changeJobMaterialQtyTx(client, t, normalizeJobId(jobId), jobMaterialId, 'qtyAllocated', Number(qty));
+      return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty, jobId, returnDate } });
     res.status(201).json(entry);
@@ -2386,6 +2428,7 @@ app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) =
         const { rules } = await getItemCategoryRulesTx(client, t, code);
         enforceCategoryRules(rules, { action: 'reserve', jobId, notes, qty });
         const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts: line?.ts || Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+        await changeJobMaterialQtyTx(client, t, normalizeJobId(jobId), line?.jobMaterialId || null, 'qtyAllocated', qty);
         results.push(ev);
       }
     });
@@ -3437,25 +3480,65 @@ app.get('/api/jobs', async (req, res) => {
 
 app.post('/api/jobs', requireRole('admin'), async (req, res) => {
   try {
-    const { code, name, scheduleDate, startDate, endDate, status, location, notes } = req.body;
+    const { code, name, scheduleDate, startDate, endDate, status, location, notes, materials } = req.body;
     if (!code) return res.status(400).json({ error: 'code required' });
     const t = tenantId(req);
     const start = startDate || scheduleDate || null;
     const statusValue = (status || 'planned').toString().trim().toLowerCase();
     const updatedAt = Date.now();
-    await runAsync(`INSERT INTO jobs(code,name,startDate,endDate,status,location,notes,updatedAt,tenantId)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, startDate=EXCLUDED.startDate, endDate=EXCLUDED.endDate, status=EXCLUDED.status, location=EXCLUDED.location, notes=EXCLUDED.notes, updatedAt=EXCLUDED.updatedAt`, [code, name || '', start, endDate || null, statusValue, location || null, notes || null, updatedAt, t]);
-    res.status(201).json({ code, name: name || '', startDate: start || null, endDate: endDate || null, status: statusValue, location: location || null, notes: notes || null, updatedAt, tenantId: t });
+    await withTransaction(async (client) => {
+      await client.query(`INSERT INTO jobs(code,name,startDate,endDate,status,location,notes,updatedAt,tenantId)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, startDate=EXCLUDED.startDate, endDate=EXCLUDED.endDate, status=EXCLUDED.status, location=EXCLUDED.location, notes=EXCLUDED.notes, updatedAt=EXCLUDED.updatedAt`, [code, name || '', start, endDate || null, statusValue, location || null, notes || null, updatedAt, t]);
+      if (Array.isArray(materials)) {
+        await replaceJobMaterialsTx(client, t, code, materials);
+      }
+    });
+    const materialRows = Array.isArray(materials) ? await readJobMaterials(t, code) : [];
+    if (Array.isArray(materials)) {
+      await logAudit({ tenantId: t, userId: currentUserId(req), action: 'projects.materials.update', details: { jobId: code, count: materialRows.length } });
+    }
+    res.status(201).json({ code, name: name || '', startDate: start || null, endDate: endDate || null, status: statusValue, location: location || null, notes: notes || null, updatedAt, tenantId: t, materials: materialRows });
   } catch (e) {
     console.warn('Job save failed', e.message || e);
     res.status(500).json({ error: e.message || 'server error' });
   }
 });
 
+app.get('/api/jobs/:code/materials', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const job = await getAsync('SELECT code FROM jobs WHERE code=$1 AND tenantId=$2', [req.params.code, t]);
+    if (!job) return res.status(404).json({ error: 'project not found' });
+    const materials = await readJobMaterials(t, req.params.code);
+    res.json(materials);
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.put('/api/jobs/:code/materials', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const job = await getAsync('SELECT code FROM jobs WHERE code=$1 AND tenantId=$2', [req.params.code, t]);
+    if (!job) return res.status(404).json({ error: 'project not found' });
+    const materials = Array.isArray(req.body?.materials) ? req.body.materials : [];
+    await withTransaction(async (client) => {
+      await replaceJobMaterialsTx(client, t, req.params.code, materials);
+    });
+    const rows = await readJobMaterials(t, req.params.code);
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'projects.materials.update', details: { jobId: req.params.code, count: rows.length } });
+    res.json({ ok: true, materials: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
 app.delete('/api/jobs/:code', requireRole('admin'), async (req, res) => {
   try {
-    await runAsync('DELETE FROM jobs WHERE code=$1 AND tenantId=$2', [req.params.code, tenantId(req)]);
+    const t = tenantId(req);
+    await runAsync('DELETE FROM job_materials WHERE jobId=$1 AND tenantId=$2', [req.params.code, t]);
+    await runAsync('DELETE FROM jobs WHERE code=$1 AND tenantId=$2', [req.params.code, t]);
     res.status(204).end();
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -3463,7 +3546,7 @@ app.delete('/api/jobs/:code', requireRole('admin'), async (req, res) => {
 // ADMIN ORDERS
 app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
   try {
-    const { code, name, qty, eta, notes, ts, jobId, autoReserve } = req.body;
+    const { code, name, qty, eta, notes, ts, jobId, autoReserve, jobMaterialId } = req.body;
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
@@ -3471,12 +3554,13 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     const jobIdVal = (jobId || '').trim() || null;
     const entry = await withTransaction(async (client) => {
       await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-      const sourceMeta = { autoReserve: autoReserve !== false };
+      const sourceMeta = { autoReserve: autoReserve !== false, jobMaterialId: jobMaterialId || null };
       const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
       ev.sourceId = ev.id;
       ev.sourceMeta.batchId = ev.sourceId;
       await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId, ev.sourceMeta]);
+      await changeJobMaterialQtyTx(client, t, jobIdVal, jobMaterialId, 'qtyOrdered', qtyNum);
       return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta } });
@@ -3495,16 +3579,17 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
     const batchId = newId();
     await withTransaction(async (client) => {
       for (const line of lines) {
-        const { code, name, qty, eta, notes, ts, jobId, autoReserve } = line || {};
+        const { code, name, qty, eta, notes, ts, jobId, autoReserve, jobMaterialId } = line || {};
         const qtyNum = Number(qty);
         if (!code || !qtyNum || qtyNum <= 0) throw new Error(`Invalid order line for code ${code || ''}`);
         const jobIdVal = (jobId || '').trim() || null;
         await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-        const sourceMeta = { autoReserve: autoReserve !== false, batchId };
+        const sourceMeta = { autoReserve: autoReserve !== false, batchId, jobMaterialId: jobMaterialId || null };
         const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
         ev.sourceId = ev.id;
         await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
           [ev.id, ev.code, ev.name, ev.qty, ev.eta, ev.notes, ev.jobId, ev.ts, ev.type, ev.status, ev.userEmail, ev.userName, ev.tenantId, ev.sourceType, ev.sourceId, ev.sourceMeta]);
+        await changeJobMaterialQtyTx(client, t, jobIdVal, jobMaterialId, 'qtyOrdered', qtyNum);
         results.push(ev);
       }
     });
@@ -3622,6 +3707,7 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       await client.query('TRUNCATE items');
       await client.query('TRUNCATE equipment_assets');
       await client.query('TRUNCATE vehicle_assets');
+      await client.query('TRUNCATE job_materials');
       await client.query('TRUNCATE jobs');
       await client.query('TRUNCATE users');
       await client.query('TRUNCATE sessions');
@@ -3715,6 +3801,7 @@ app.post('/api/dev/delete-tenant', requireDev, async (req, res) => {
       await client.query('DELETE FROM equipment_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM vehicle_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM job_materials WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM users WHERE tenantId=$1', [tenant.id]);
@@ -4099,6 +4186,7 @@ function formatAuditMessage(entry) {
     'items.create': 'Item created',
     'items.update': 'Item updated',
     'items.delete': 'Item deleted',
+    'projects.materials.update': 'Project materials updated',
     'ops.pick.start': 'Pick started',
     'ops.pick.finish': 'Pick completed',
     'ops.checkin.start': 'Check-in started',
@@ -4275,6 +4363,7 @@ app.delete('/api/seller/clients/:id', requireDev, async (req, res) => {
       await client.query('DELETE FROM equipment_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM vehicle_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
+      await client.query('DELETE FROM job_materials WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM jobs WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM categories WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM users WHERE tenantId=$1', [tenant.id]);
@@ -4368,6 +4457,111 @@ async function readItems(tenantIdVal) {
 }
 async function readJobs(tenantIdVal) {
   return allAsync('SELECT * FROM jobs WHERE tenantId=$1 ORDER BY code ASC', [tenantIdVal]);
+}
+function numberOrZero(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+function roundQty(value) {
+  return Number(numberOrZero(value).toFixed(2));
+}
+function normalizeJobMaterialRow(row) {
+  const qtyRequired = roundQty(row?.qtyrequired ?? row?.qtyRequired);
+  const qtyOrdered = roundQty(row?.qtyordered ?? row?.qtyOrdered);
+  const qtyAllocated = roundQty(row?.qtyallocated ?? row?.qtyAllocated);
+  const qtyReceived = roundQty(row?.qtyreceived ?? row?.qtyReceived);
+  const outstandingQty = Math.max(0, roundQty(qtyRequired - qtyOrdered - qtyAllocated));
+  let status = 'not_ordered';
+  if (qtyReceived >= qtyRequired && qtyRequired > 0) status = 'ready';
+  else if (qtyReceived > 0) status = 'partially_received';
+  else if (qtyOrdered >= qtyRequired && qtyRequired > 0) status = 'ordered';
+  else if (qtyOrdered > 0 || qtyAllocated > 0) status = 'partially_ordered';
+  return {
+    id: row?.id,
+    tenantId: row?.tenantid || row?.tenantId || '',
+    jobId: row?.jobid || row?.jobId || '',
+    code: row?.code || '',
+    name: row?.name || row?.code || '',
+    qtyRequired,
+    qtyOrdered,
+    qtyAllocated,
+    qtyReceived,
+    outstandingQty,
+    notes: row?.notes || '',
+    sortOrder: Number(row?.sortorder ?? row?.sortOrder ?? 0) || 0,
+    status,
+    createdAt: row?.createdat || row?.createdAt || null,
+    updatedAt: row?.updatedat || row?.updatedAt || null
+  };
+}
+function normalizeJobMaterialInput(raw, index = 0) {
+  const code = String(raw?.code || '').trim();
+  const name = String(raw?.name || '').trim();
+  const qtyRequired = roundQty(raw?.qtyRequired ?? raw?.qty ?? 0);
+  if (!code) throw new Error('material code required');
+  if (!(qtyRequired > 0)) throw new Error(`material qty required for ${code}`);
+  return {
+    id: String(raw?.id || '').trim() || newId(),
+    code,
+    name: name || code,
+    qtyRequired,
+    notes: String(raw?.notes || '').trim(),
+    sortOrder: Number.isFinite(Number(raw?.sortOrder)) ? Math.floor(Number(raw.sortOrder)) : index
+  };
+}
+async function readJobMaterials(tenantIdVal, jobId) {
+  const rows = await allAsync(
+    'SELECT * FROM job_materials WHERE tenantId=$1 AND jobId=$2 ORDER BY sortOrder ASC, createdAt ASC, code ASC',
+    [tenantIdVal, jobId]
+  );
+  return (rows || []).map(normalizeJobMaterialRow);
+}
+async function replaceJobMaterialsTx(client, tenantIdVal, jobId, materials) {
+  const existingRows = await client.query('SELECT * FROM job_materials WHERE tenantId=$1 AND jobId=$2', [tenantIdVal, jobId]);
+  const existingMap = new Map((existingRows.rows || []).map((row) => [row.id, row]));
+  await client.query('DELETE FROM job_materials WHERE tenantId=$1 AND jobId=$2', [tenantIdVal, jobId]);
+  const now = Date.now();
+  const normalized = [];
+  for (let i = 0; i < (materials || []).length; i += 1) {
+    const material = normalizeJobMaterialInput(materials[i], i);
+    const existing = existingMap.get(material.id);
+    await client.query(
+      `INSERT INTO job_materials(id,tenantId,jobId,code,name,qtyRequired,qtyOrdered,qtyAllocated,qtyReceived,notes,sortOrder,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [
+        material.id,
+        tenantIdVal,
+        jobId,
+        material.code,
+        material.name,
+        material.qtyRequired,
+        roundQty(existing?.qtyordered ?? 0),
+        roundQty(existing?.qtyallocated ?? 0),
+        roundQty(existing?.qtyreceived ?? 0),
+        material.notes || null,
+        material.sortOrder,
+        existing?.createdat || existing?.createdAt || now,
+        now
+      ]
+    );
+    normalized.push(material);
+  }
+  return normalized;
+}
+async function changeJobMaterialQtyTx(client, tenantIdVal, jobId, materialId, field, qtyDelta) {
+  if (!materialId || !jobId || !Number.isFinite(Number(qtyDelta)) || Number(qtyDelta) === 0) return;
+  if (!['qtyOrdered', 'qtyAllocated', 'qtyReceived'].includes(field)) return;
+  const columnMap = {
+    qtyOrdered: 'qtyOrdered',
+    qtyAllocated: 'qtyAllocated',
+    qtyReceived: 'qtyReceived'
+  };
+  await client.query(
+    `UPDATE job_materials
+     SET ${columnMap[field]} = GREATEST(0, COALESCE(${columnMap[field]},0) + $1), updatedAt=$2
+     WHERE id=$3 AND tenantId=$4 AND jobId=$5`,
+    [roundQty(qtyDelta), Date.now(), materialId, tenantIdVal, jobId]
+  );
 }
 function setSessionCookie(res, token, maxAgeMs = SESSION_TTL_MS) {
   const options = {

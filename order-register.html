@@ -72,6 +72,17 @@
                 </label>
               </div>
               <div class="form-row">
+                <label>Load Project Materials
+                  <select id="orderMaterialsJob">
+                    <option value="">Select project...</option>
+                  </select>
+                </label>
+                <div style="display:flex;gap:8px;align-items:flex-end;">
+                  <button id="order-loadMaterials" type="button" class="muted">Load Materials</button>
+                  <button id="order-refreshMaterials" type="button" class="muted">Refresh</button>
+                </div>
+              </div>
+              <div class="form-row">
                 <label>Default ETA<input id="orderEta" type="date" class="eta-input"></label>
                 <label class="toggle-inline">
                   <input type="checkbox" id="order-add-catalog" checked> Add new procurement items to catalog

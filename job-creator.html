@@ -75,6 +75,22 @@
             <div class="form-row">
               <label>Notes<textarea id="jobNotes" rows="3" placeholder="Optional project notes, scope, or instructions"></textarea></label>
             </div>
+            <div class="form-row" style="display:block;">
+              <div class="order-lines-header">
+                <strong>Needed Materials</strong>
+                <button id="jobMaterialAddBtn" type="button" class="muted">Add Material</button>
+              </div>
+              <div id="job-material-lines" class="line-items"></div>
+            </div>
+            <div class="form-row bulk-box">
+              <label style="flex:1">Quick bulk paste (code,name,qty,notes)
+                <textarea id="jobMaterialBulk" rows="3" placeholder="ABC123,Connector Pipe 6,4,Roof job&#10;XYZ9,Sealant,2,Optional note"></textarea>
+              </label>
+              <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
+                <button id="jobMaterialBulkLoad" type="button" class="muted" style="margin-top:22px;">Load to list</button>
+                <button id="jobMaterialBulkClear" type="button" class="muted">Clear bulk</button>
+              </div>
+            </div>
             <div class="form-row">
               <button type="submit">Save Project</button>
               <button id="jobClearBtn" type="button" class="muted">Clear</button>
@@ -181,6 +197,22 @@
         </div>
         <div class="form-row">
           <label>Notes<textarea id="jobEditNotes" rows="3" placeholder="Optional project notes, scope, or instructions"></textarea></label>
+        </div>
+        <div class="form-row" style="display:block;">
+          <div class="order-lines-header">
+            <strong>Needed Materials</strong>
+            <button id="jobEditMaterialAddBtn" type="button" class="muted">Add Material</button>
+          </div>
+          <div id="job-edit-material-lines" class="line-items"></div>
+        </div>
+        <div class="form-row bulk-box">
+          <label style="flex:1">Quick bulk paste (code,name,qty,notes)
+            <textarea id="jobEditMaterialBulk" rows="3" placeholder="ABC123,Connector Pipe 6,4,Roof job&#10;XYZ9,Sealant,2,Optional note"></textarea>
+          </label>
+          <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
+            <button id="jobEditMaterialBulkLoad" type="button" class="muted" style="margin-top:22px;">Load to list</button>
+            <button id="jobEditMaterialBulkClear" type="button" class="muted">Clear bulk</button>
+          </div>
         </div>
         <div class="modal-actions">
           <button type="submit">Update Project</button>
