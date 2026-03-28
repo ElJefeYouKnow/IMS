@@ -252,11 +252,11 @@ label{font-size:var(--text-sm);font-weight:600;color:var(--muted)}
 .dark .main{background:#0f1916;color:var(--ink);background-image:none}
 .dark .topbar{
   background:
-    radial-gradient(circle at 18% 0%, rgba(79,178,151,0.22), transparent 40%),
-    radial-gradient(circle at 100% 20%, rgba(18,63,54,0.72), transparent 52%),
-    linear-gradient(125deg,#0b1513 0%,#123028 46%,#1e4a3f 100%);
-  border-color:rgba(97,197,171,0.34);
-  box-shadow:0 14px 34px rgba(0,0,0,0.48), inset 0 1px 0 rgba(226,255,247,0.05);
+    radial-gradient(circle at 18% 0%, rgba(79,178,151,0.12), transparent 34%),
+    radial-gradient(circle at 100% 18%, rgba(12,34,29,0.55), transparent 48%),
+    linear-gradient(125deg,#060b0a 0%,#0a1513 42%,#10211d 100%);
+  border-color:rgba(79,178,151,0.22);
+  box-shadow:0 16px 36px rgba(0,0,0,0.58), inset 0 1px 0 rgba(255,255,255,0.03);
 }
 .dark .topbar h1{color:#f6fbf8}
 .dark .topbar .muted{
