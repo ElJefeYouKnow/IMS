@@ -5,7 +5,6 @@ const COUNT_STALE_DAYS = 30;
 const RECENT_DAYS = 3;
 const CLOSED_JOB_STATUSES = new Set(['complete', 'completed', 'closed', 'archived', 'cancelled', 'canceled']);
 const CACHE_KEY = 'ims.inventory.cache.v1';
-const DRAWER_WIDTH_KEY = 'ims.inventory.drawerWidth';
 const DRAWER_MIN_WIDTH = 420;
 const DRAWER_MAX_WIDTH = 920;
 
@@ -64,6 +63,7 @@ const drawerState = {
   activeTab: 'overview',
   role: 'employee',
   dirty: false,
+  userSized: false,
   cache: {
     overview: null,
     activity: null,
@@ -110,13 +110,25 @@ function applyDrawerWidth(width){
   document.documentElement.style.setProperty('--drawer-width', `${nextWidth}px`);
 }
 
-function loadStoredDrawerWidth(){
-  try{
-    const raw = Number(localStorage.getItem(DRAWER_WIDTH_KEY) || 0);
-    return Number.isFinite(raw) && raw > 0 ? raw : 420;
-  }catch(e){
-    return 420;
+function getDrawerContentWidth(){
+  const els = getItemPanelEls();
+  if(!els) return 560;
+  const header = els.panel.querySelector('.side-panel-header');
+  const widths = [
+    header?.scrollWidth || 0,
+    els.tabs?.scrollWidth || 0,
+    els.body?.scrollWidth || 0
+  ].filter(width => Number.isFinite(width) && width > 0);
+  return clampDrawerWidth(Math.max(560, ...widths, 0) + 8);
+}
+
+function fitDrawerWidthToContent(force = false){
+  if(window.innerWidth <= 720){
+    applyDrawerWidth();
+    return;
   }
+  if(drawerState.userSized && !force) return;
+  applyDrawerWidth(getDrawerContentWidth());
 }
 
 function setPanelOpen(isOpen){
@@ -931,6 +943,7 @@ async function setActiveTab(key){
   else if(nextKey === 'settings') content = renderTabSettings(drawerState.cache.settings);
   els.body.innerHTML = content;
   bindTabEvents(nextKey);
+  fitDrawerWidthToContent();
 }
 
 async function loadActivity(code, filters){
@@ -1104,6 +1117,7 @@ function openItemPanel(item){
   drawerState.itemCode = item.code;
   drawerState.role = role;
   drawerState.dirty = false;
+  drawerState.userSized = false;
   drawerState.activeTab = 'overview';
   drawerState.cache = {
     overview: { item, states, summary, meta, tags: staticTags, threshold, lowStockEnabled },
@@ -1115,7 +1129,7 @@ function openItemPanel(item){
   };
   renderDrawerHeader(item, meta, role, drawerState.cache.overview);
   renderDrawerTabs(role);
-  setActiveTab('overview');
+  setActiveTab('overview').then(()=> fitDrawerWidthToContent(true));
   setPanelOpen(true);
 }
 
@@ -1131,13 +1145,14 @@ function closeItemPanel(){
 function setupItemPanel(){
   const els = getItemPanelEls();
   if(!els) return;
-  applyDrawerWidth(loadStoredDrawerWidth());
+  applyDrawerWidth(560);
   if(els.close) els.close.addEventListener('click', closeItemPanel);
   if(els.backdrop) els.backdrop.addEventListener('click', closeItemPanel);
   if(els.resizer){
     const startResize = (event)=>{
       if(window.innerWidth <= 720) return;
       event.preventDefault();
+      drawerState.userSized = true;
       els.panel.classList.add('resizing');
       const move = (moveEvent)=>{
         const point = moveEvent.touches?.[0] || moveEvent;
@@ -1150,10 +1165,6 @@ function setupItemPanel(){
         window.removeEventListener('mouseup', stop);
         window.removeEventListener('touchmove', move);
         window.removeEventListener('touchend', stop);
-        const widthValue = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-width'), 10);
-        if(Number.isFinite(widthValue)){
-          try{ localStorage.setItem(DRAWER_WIDTH_KEY, String(widthValue)); }catch(e){}
-        }
       };
       window.addEventListener('mousemove', move);
       window.addEventListener('mouseup', stop);
@@ -1175,7 +1186,14 @@ function setupItemPanel(){
       closeItemPanel();
     }
   });
-  window.addEventListener('resize', ()=> applyDrawerWidth(loadStoredDrawerWidth()));
+  window.addEventListener('resize', ()=>{
+    if(drawerState.userSized){
+      const currentWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-width'), 10);
+      applyDrawerWidth(Number.isFinite(currentWidth) ? currentWidth : 560);
+      return;
+    }
+    fitDrawerWidthToContent(true);
+  });
 }
 
 async function loadEntries(){
