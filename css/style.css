@@ -600,7 +600,7 @@ body.panel-open{overflow:hidden}
 .side-panel-resizer::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:4px;height:92px;border-radius:999px;background:rgba(120,140,155,0.3);transition:background .2s ease}
 .side-panel.resizing .side-panel-resizer::after,.side-panel-resizer:hover::after{background:rgba(31,111,92,0.75)}
 .dark .side-panel-resizer::after{background:rgba(170,190,180,0.28)}
-.side-panel-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:1;flex-wrap:wrap;min-width:520px}
+.side-panel-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 64px 20px 20px;border-bottom:1px solid var(--line);background:var(--card);position:sticky;top:0;z-index:1;flex-wrap:wrap;min-width:520px}
 .dark .side-panel-header{background:#16221f;border-color:#22312d}
 .drawer-head{flex:1 1 100%;min-width:0}
 .drawer-title-row{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-top:6px}
@@ -626,6 +626,7 @@ body.panel-open{overflow:hidden}
 .panel-sub{color:var(--muted);font-size:0.9rem;margin-top:4px}
 .icon-btn{border:1px solid var(--line);background:var(--surface-2);color:var(--ink);width:34px;height:34px;border-radius:10px;font-size:18px;font-weight:700;cursor:pointer;display:grid;place-items:center}
 .dark .icon-btn{background:#101b18;border-color:#22312d;color:var(--ink)}
+#itemPanelClose{position:absolute;top:18px;right:18px;z-index:4}
 .side-panel-body{padding:0 0 20px 0;overflow-y:auto;overflow-x:visible;display:flex;flex-direction:column;gap:0;min-width:520px}
 .drawer-tabs{position:sticky;top:0;z-index:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--line);overflow:visible;align-items:stretch}
 .drawer-tab{padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);font-weight:800;font-size:0.88rem;cursor:pointer;color:var(--ink);white-space:nowrap;min-width:0;text-align:center;width:100%}
