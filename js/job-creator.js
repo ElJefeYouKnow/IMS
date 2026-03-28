@@ -3,6 +3,7 @@ let jobCache = [];
 let itemsCache = [];
 let isAdmin = false;
 let editingCode = null;
+let projectMaterialsReportCache = new Map();
 
 function normalizeJobRow(row){
   const safe = row || {};
@@ -262,8 +263,11 @@ function bindMaterialComposer({ containerId, addBtnId, bulkInputId, bulkLoadBtnI
 
 async function loadProjectMaterials(code){
   if(!code) return [];
+  if(projectMaterialsReportCache.has(code)) return projectMaterialsReportCache.get(code) || [];
   try{
-    return await utils.fetchJsonSafe(`/api/jobs/${encodeURIComponent(code)}/materials`, {}, []) || [];
+    const rows = await utils.fetchJsonSafe(`/api/jobs/${encodeURIComponent(code)}/materials`, {}, []) || [];
+    projectMaterialsReportCache.set(code, rows);
+    return rows;
   }catch(e){
     return [];
   }
@@ -295,6 +299,7 @@ async function saveProject(project){
       const data = await r.json().catch(()=>({}));
       return { ok:false, error: data.error || r.statusText || 'Failed to save project' };
     }
+    if(project?.code) projectMaterialsReportCache.delete(project.code);
     return { ok:true };
   }catch(e){
     return { ok:false, error: e.message || 'Failed to save project' };
@@ -603,16 +608,16 @@ function applyReportFilters(projects){
 function updateReportSummary(list){
   const totalProjects = list.length;
   const activeProjects = list.filter(p=> (p.meta.status || '').toLowerCase() === 'active').length;
-  const checkedOut = list.reduce((sum,p)=> sum + getProjectCheckedOut(p), 0);
-  const reserved = list.reduce((sum,p)=> sum + getProjectReserved(p), 0);
+  const outstanding = list.reduce((sum,p)=> sum + Number(p.materialStats?.outstandingLines || 0), 0);
+  const readyProjects = list.filter(p=> Number(p.materialStats?.totalLines || 0) > 0 && Number(p.materialStats?.outstandingLines || 0) === 0).length;
   const setText = (id, val)=>{
     const el = document.getElementById(id);
     if(el) el.textContent = `${val}`;
   };
   setText('reportTotalProjects', totalProjects);
   setText('reportActiveProjects', activeProjects);
-  setText('reportCheckedOut', checkedOut);
-  setText('reportReserved', reserved);
+  setText('reportCheckedOut', outstanding);
+  setText('reportReserved', readyProjects);
 }
 
 function buildReportSummary(items){
@@ -634,6 +639,70 @@ function buildReportSummary(items){
     rec.items.push(item);
   });
   return Array.from(summaryMap.values());
+}
+
+function getMaterialStatusLabel(status){
+  const map = {
+    ready: 'Ready',
+    partially_received: 'Partially Received',
+    ordered: 'Ordered',
+    partially_ordered: 'In Progress',
+    not_ordered: 'Not Ordered'
+  };
+  return map[status] || 'Not Ordered';
+}
+
+function getMaterialStatusClass(status){
+  const map = {
+    ready: 'low',
+    partially_received: 'open',
+    ordered: 'info',
+    partially_ordered: 'warn',
+    not_ordered: 'danger'
+  };
+  return map[status] || 'static';
+}
+
+function summarizeProjectMaterials(materials){
+  const rows = Array.isArray(materials) ? materials : [];
+  const stats = {
+    totalLines: rows.length,
+    totalRequired: 0,
+    totalOrdered: 0,
+    totalAllocated: 0,
+    totalReceived: 0,
+    outstandingLines: 0,
+    readyLines: 0,
+    status: rows.length ? 'not_ordered' : 'none',
+    statusLabel: rows.length ? 'Not Started' : 'No Material Plan'
+  };
+  rows.forEach(row=>{
+    const required = Number(row.qtyRequired || 0) || 0;
+    const ordered = Number(row.qtyOrdered || 0) || 0;
+    const allocated = Number(row.qtyAllocated || 0) || 0;
+    const received = Number(row.qtyReceived || 0) || 0;
+    const outstanding = Number(row.outstandingQty || 0) || 0;
+    stats.totalRequired += required;
+    stats.totalOrdered += ordered;
+    stats.totalAllocated += allocated;
+    stats.totalReceived += received;
+    if(outstanding > 0) stats.outstandingLines += 1;
+    if(String(row.status || '') === 'ready') stats.readyLines += 1;
+  });
+  if(!rows.length){
+    stats.status = 'none';
+    stats.statusLabel = 'No Material Plan';
+  }else if(stats.outstandingLines === 0){
+    stats.status = 'ready';
+    stats.statusLabel = 'Ready';
+  }else if(stats.totalReceived > 0){
+    stats.status = 'partially_received';
+    stats.statusLabel = 'Partially Received';
+  }else if(stats.totalOrdered > 0 || stats.totalAllocated > 0){
+    stats.status = 'partially_ordered';
+    stats.statusLabel = 'In Progress';
+  }
+  return stats;
 }
 
 function buildDetailTable(items){
@@ -659,6 +728,32 @@ function buildDetailTable(items){
   </table>`;
 }
 
+function buildMaterialsTable(materials){
+  if(!materials.length) return '<div style="color:#6b7280;">No material plan for this project.</div>';
+  const rows = materials
+    .slice()
+    .sort((a,b)=> (Number(a.sortOrder || 0) - Number(b.sortOrder || 0)) || String(a.code || '').localeCompare(String(b.code || '')))
+    .map(item=>{
+      const status = String(item.status || '');
+      return `<tr>
+        <td>${escapeHtml(item.code || '')}</td>
+        <td>${escapeHtml(item.name || '')}</td>
+        <td>${Number(item.qtyRequired || 0)}</td>
+        <td>${Number(item.qtyOrdered || 0)}</td>
+        <td>${Number(item.qtyAllocated || 0)}</td>
+        <td>${Number(item.qtyReceived || 0)}</td>
+        <td>${Number(item.outstandingQty || 0)}</td>
+        <td><span class="badge ${getMaterialStatusClass(status)}">${escapeHtml(getMaterialStatusLabel(status))}</span></td>
+        <td title="${escapeHtml(item.notes || '')}">${escapeHtml(formatNotes(item.notes || ''))}</td>
+      </tr>`;
+    })
+    .join('');
+  return `<table class="detail-table">
+    <thead><tr><th>Code</th><th>Name</th><th>Needed</th><th>Ordered</th><th>Allocated</th><th>Received</th><th>Open</th><th>Status</th><th>Notes</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 function closestReportCard(node){
   let cur = node;
   while(cur && cur !== document.body){
@@ -680,7 +775,7 @@ function openProjectDetail(btn){
   if(detail){
     detail.style.display = '';
     card?.classList.add('expanded');
-    btn.textContent = 'Hide Items';
+    btn.textContent = 'Hide Project Detail';
   }
 }
 
@@ -689,7 +784,7 @@ function closeProjectDetail(btn){
   if(detail){
     detail.style.display = 'none';
     card?.classList.remove('expanded');
-    btn.textContent = 'View Items';
+    btn.textContent = 'View Project Detail';
   }
 }
 
@@ -709,12 +804,12 @@ async function renderReport(){
   const list = document.getElementById('reportCards');
   if(!list) return;
   list.innerHTML = '';
+  projectMaterialsReportCache = new Map();
   await loadJobs();
   const entries = await loadEntries();
   const items = aggregateByProject(entries);
   const summary = buildReportSummary(items);
   const filtered = applyReportFilters(summary);
-  updateReportSummary(filtered);
 
   const lastActivityMap = new Map();
   (entries || []).forEach(e=>{
@@ -730,7 +825,14 @@ async function renderReport(){
     return;
   }
 
-  const rows = filtered.sort((a,b)=> a.projectId.localeCompare(b.projectId));
+  const enriched = await Promise.all(filtered.map(async project=>({
+    ...project,
+    materials: isGeneralProject(project.projectId) ? [] : await loadProjectMaterials(project.projectId),
+  })));
+  const rows = enriched
+    .map(project=> ({ ...project, materialStats: summarizeProjectMaterials(project.materials || []) }))
+    .sort((a,b)=> a.projectId.localeCompare(b.projectId));
+  updateReportSummary(rows);
   rows.forEach(project=>{
     const meta = project.meta || {};
     const statusLabel = meta.status ? formatStatus(meta.status) : (isGeneralProject(project.projectId) ? GENERAL_LABEL : FALLBACK);
@@ -751,6 +853,16 @@ async function renderReport(){
     const nameLabel = (meta.name || '').toString().trim();
     const checkedOutQty = getProjectCheckedOut(project);
     const reservedQty = getProjectReserved(project);
+    const materialStats = project.materialStats || summarizeProjectMaterials([]);
+    const materialStatusClass = materialStats.status === 'ready'
+      ? 'low'
+      : materialStats.status === 'partially_received'
+        ? 'open'
+        : materialStats.status === 'partially_ordered'
+          ? 'warn'
+          : materialStats.status === 'none'
+            ? 'static'
+            : 'danger';
     const card = document.createElement('div');
     card.className = 'report-card';
     card.innerHTML = `
@@ -761,6 +873,7 @@ async function renderReport(){
         </div>
         <div class="report-card-controls">
           <span class="badge info">${escapeHtml(statusLabel)}</span>
+          <span class="badge ${materialStatusClass}">${escapeHtml(materialStats.statusLabel)}</span>
           ${actionButton}
         </div>
       </div>
@@ -768,16 +881,24 @@ async function renderReport(){
         <div class="report-chip"><span>Dates</span><strong>${escapeHtml(datesLabel)}</strong></div>
         <div class="report-chip"><span>Location</span><strong>${escapeHtml(locationLabel)}</strong></div>
         <div class="report-chip"><span>Last Activity</span><strong>${escapeHtml(lastActivityLabel)}</strong></div>
+        <div class="report-chip"><span>Material Lines</span><strong>${materialStats.totalLines}</strong></div>
       </div>
       <div class="report-metrics">
         <div class="report-metric"><span>Checked Out</span><strong>${checkedOutQty}</strong></div>
         <div class="report-metric"><span>Reserved</span><strong>${reservedQty}</strong></div>
+        <div class="report-metric"><span>Outstanding Materials</span><strong>${materialStats.outstandingLines}</strong></div>
+        <div class="report-metric"><span>Received / Needed</span><strong>${materialStats.totalReceived} / ${materialStats.totalRequired}</strong></div>
       </div>
       <div class="report-notes"><strong>Notes:</strong> ${escapeHtml(notesLabel || FALLBACK)}</div>
         <div class="report-card-actions">
-          <button type="button" class="action-btn report-toggle" data-project="${key}">View Items</button>
+          <button type="button" class="action-btn report-toggle" data-project="${key}">View Project Detail</button>
         </div>
-      <div class="report-detail" data-project="${key}" style="display:none;">${buildDetailTable(project.items || [])}</div>
+      <div class="report-detail" data-project="${key}" style="display:none;">
+        <div class="subhead">Material Plan</div>
+        ${buildMaterialsTable(project.materials || [])}
+        <div class="subhead">Current Inventory Use</div>
+        ${buildDetailTable(project.items || [])}
+      </div>
     `;
     list.appendChild(card);
   });
@@ -814,24 +935,38 @@ async function renderReport(){
 }
 
 async function exportReportCSV(){
+  projectMaterialsReportCache = new Map();
   await loadJobs();
   const entries = await loadEntries();
   const items = aggregateByProject(entries);
   const summary = buildReportSummary(items);
   const filtered = applyReportFilters(summary);
   if(!filtered.length){alert('No project data to export');return;}
-  const hdr = ['projectId','status','startDate','endDate','location','code','checkedIn','checkedOut','reserved','netUsage'];
+  const enriched = await Promise.all(filtered.map(async project=>({
+    ...project,
+    materials: isGeneralProject(project.projectId) ? [] : await loadProjectMaterials(project.projectId)
+  })));
+  const hdr = ['projectId','status','startDate','endDate','location','materialStatus','materialLines','outstandingMaterialLines','code','checkedIn','checkedOut','reserved','netUsage','qtyRequired','qtyOrdered','qtyAllocated','qtyReceived','qtyOpen'];
   const rows = [];
-  filtered.forEach(p=>{
+  enriched.forEach(p=>{
     const meta = getProjectMeta(p.projectId);
-    if(!p.items || p.items.length === 0){
+    const materialStats = summarizeProjectMaterials(p.materials || []);
+    if((!p.items || p.items.length === 0) && !(p.materials || []).length){
       rows.push([
         p.projectId,
         meta.status || '',
         meta.startDate || '',
         meta.endDate || '',
         meta.location || '',
+        materialStats.statusLabel,
+        materialStats.totalLines,
+        materialStats.outstandingLines,
         '',
+        0,
+        0,
+        0,
+        0,
+        0,
         0,
         0,
         0,
@@ -839,18 +974,31 @@ async function exportReportCSV(){
       ]);
       return;
     }
-    p.items.forEach(r=>{
+    const itemMap = new Map((p.items || []).map(r=> [String(r.code || ''), r]));
+    const materialMap = new Map((p.materials || []).map(m=> [String(m.code || ''), m]));
+    const allCodes = Array.from(new Set([...itemMap.keys(), ...materialMap.keys()])).sort((a,b)=> a.localeCompare(b));
+    allCodes.forEach(code=>{
+      const r = itemMap.get(code) || {};
+      const material = materialMap.get(code) || {};
       rows.push([
         p.projectId,
         meta.status || '',
         meta.startDate || '',
         meta.endDate || '',
         meta.location || '',
-        r.code,
-        r.inQty,
-        r.outQty,
-        r.reserveQty,
-        r.netUsage
+        materialStats.statusLabel,
+        materialStats.totalLines,
+        materialStats.outstandingLines,
+        code,
+        r.inQty || 0,
+        Math.max(0, Number(r.outQty || 0) - Number(r.returnQty || 0)),
+        Math.max(0, Number(r.reserveQty || 0)),
+        r.netUsage || 0,
+        material.qtyRequired || 0,
+        material.qtyOrdered || 0,
+        material.qtyAllocated || 0,
+        material.qtyReceived || 0,
+        material.outstandingQty || 0
       ]);
     });
   });
