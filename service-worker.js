@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ims-cache-v70';
+const CACHE_NAME = 'ims-cache-v71';
 const ASSETS = [
   '/',
   '/index.html',
@@ -84,14 +84,20 @@ self.addEventListener('fetch', (event) => {
   }
   if (/\.(css|js)$/i.test(url.pathname)) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        const networkFetch = fetch(request).then((resp) => {
+      fetch(request).then((resp) => {
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+        return resp;
+      }).catch(() =>
+        caches.match(request).then((cached) => {
+          if (cached) return cached;
+          return fetch(request).then((resp) => {
           const clone = resp.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
           return resp;
-        }).catch(() => cached);
-        return cached || networkFetch;
-      })
+          });
+        })
+      )
     );
     return;
   }
