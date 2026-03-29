@@ -43,7 +43,7 @@
       <header class="topbar">
         <div>
           <h1>Analytics</h1>
-          <div class="analytics-topbar-sub">Functional draft wired to live dashboard, workflow, and audit data.</div>
+          <div class="analytics-topbar-sub">Live reporting across inventory performance, workflow pressure, and audit activity.</div>
         </div>
         <div class="topbar-right">
           <div class="clock-pill"><span class="clock-label">Now</span><span id="analyticsClock" class="clock-value"></span></div>
@@ -56,16 +56,34 @@
           <div>
             <div class="analytics-kicker">Admin Reporting</div>
             <h2 class="analytics-stage-title">Executive overview and audit trail in one place</h2>
-            <p class="muted-text">This page is still a draft, but every section below uses current system data.</p>
+            <p class="muted-text">Use the reporting window below to move from current operating signal into traceable event history.</p>
           </div>
           <div class="analytics-stage-meta">
-            <span class="badge info">Functional Draft</span>
+            <span class="badge info">Live Data</span>
             <span id="analyticsFreshness" class="badge static">Loading</span>
           </div>
         </div>
         <div class="mode-tabs">
           <button class="mode-btn active" data-mode="overview" type="button">Overview</button>
           <button class="mode-btn" data-mode="audit" type="button">Audit</button>
+        </div>
+        <div class="analytics-filter-bar">
+          <div class="analytics-filter-copy">
+            <div class="analytics-filter-kicker">Reporting Window</div>
+            <h3 id="analyticsWindowTitle">30-day reporting window</h3>
+          </div>
+          <div class="analytics-filter-group">
+            <span class="analytics-filter-label">Window</span>
+            <div class="analytics-segmented">
+              <button class="filter-btn analytics-range-btn" data-range="7" type="button">7d</button>
+              <button class="filter-btn analytics-range-btn active" data-range="30" type="button">30d</button>
+              <button class="filter-btn analytics-range-btn" data-range="90" type="button">90d</button>
+            </div>
+          </div>
+          <div class="analytics-filter-status">
+            <button id="analyticsRefreshBtn" class="filter-btn" type="button">Refresh</button>
+            <span id="analyticsRangeMeta" class="badge static">Loading</span>
+          </div>
         </div>
       </section>
 
@@ -75,7 +93,7 @@
             <div class="card-header">
               <div>
                 <h3>Executive Snapshot</h3>
-                <p class="muted-text">Core service, accuracy, and exception metrics for the last 30 days.</p>
+                <p id="analyticsHeroCopy" class="muted-text">Core service, accuracy, and exception metrics for the selected reporting window.</p>
               </div>
               <span id="analyticsHealthBadge" class="badge info">Loading</span>
             </div>
@@ -136,7 +154,7 @@
           <div class="table-card">
             <div class="card-header">
               <h3>Top Usage Items</h3>
-              <span class="badge static">30d</span>
+              <span id="analyticsUsageWindowBadge" class="badge static">30d</span>
             </div>
             <table id="analyticsTopUsageTable">
               <thead><tr><th>Code</th><th>Name</th><th>Issued Qty</th><th>Share</th></tr></thead>
@@ -146,7 +164,7 @@
           <div class="table-card">
             <div class="card-header">
               <h3>Slow Movers</h3>
-              <span class="badge static">30d</span>
+              <span id="analyticsSlowWindowBadge" class="badge static">30d</span>
             </div>
             <table id="analyticsSlowMovingTable">
               <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>Available</th></tr></thead>
@@ -158,7 +176,7 @@
         <section class="page-grid analytics-activity-grid">
           <section class="card">
             <div class="card-header">
-              <h3>Recent Inventory Activity</h3>
+              <h3>Recent Audit Activity</h3>
               <a class="kpi-link" href="#audit">Audit view</a>
             </div>
             <ul id="analyticsActivityList" class="worklist-list">
@@ -182,38 +200,44 @@
           <div class="card-header">
             <div>
               <h3>Audit Summary</h3>
-              <p class="muted-text">Filtered live from inventory transaction history.</p>
+              <p class="muted-text">Live from the system audit trail with reporting-window and action-level filtering.</p>
             </div>
             <span id="auditRangeBadge" class="badge static">All activity</span>
           </div>
           <div class="summary-grid">
-            <div class="summary-item"><span>Total Rows</span><strong id="audit-total">-</strong></div>
-            <div class="summary-item"><span>Check-Out Qty</span><strong id="audit-issued">-</strong></div>
-            <div class="summary-item"><span>Check-In Qty</span><strong id="audit-received">-</strong></div>
-            <div class="summary-item"><span>Returns Qty</span><strong id="audit-returned">-</strong></div>
-            <div class="summary-item"><span>Reserved Qty</span><strong id="audit-reserved">-</strong></div>
-            <div class="summary-item"><span>Adjustments</span><strong id="audit-adjustments">-</strong></div>
+            <div class="summary-item"><span>Total Events</span><strong id="audit-total">-</strong></div>
+            <div class="summary-item"><span>Inventory Events</span><strong id="audit-issued">-</strong></div>
+            <div class="summary-item"><span>Operational Events</span><strong id="audit-received">-</strong></div>
+            <div class="summary-item"><span>Config Changes</span><strong id="audit-returned">-</strong></div>
+            <div class="summary-item"><span>Active Users</span><strong id="audit-reserved">-</strong></div>
+            <div class="summary-item"><span>Touched Items</span><strong id="audit-adjustments">-</strong></div>
+          </div>
+          <div id="auditBreakdown" class="analytics-chip-grid analytics-audit-breakdown">
+            <div class="report-empty">Loading audit breakdown...</div>
           </div>
         </section>
 
         <section class="card">
           <div class="data-toolbar analytics-audit-toolbar">
             <input id="histSearch" type="text" placeholder="Search code, job, notes, or user..." />
-            <select id="histType">
-              <option value="">All types</option>
-              <option value="ordered">Ordered</option>
-              <option value="purchase">Field Purchase</option>
-              <option value="in">Check-In</option>
-              <option value="out">Check-Out</option>
-              <option value="reserve">Reserve</option>
-              <option value="reserve_release">Reserve Release</option>
-              <option value="return">Return</option>
-              <option value="consume">Consume / Write-off</option>
+            <select id="histArea">
+              <option value="">All areas</option>
+              <option value="inventory">Inventory</option>
+              <option value="operations">Operations</option>
+              <option value="procurement">Procurement</option>
+              <option value="catalog">Catalog</option>
+              <option value="suppliers">Suppliers</option>
+              <option value="projects">Projects</option>
+              <option value="access">Access</option>
             </select>
+            <select id="histAction">
+              <option value="">All actions</option>
+            </select>
+            <button id="auditExportBtn" class="filter-btn" type="button">Export CSV</button>
           </div>
           <table id="historyTable">
-            <thead><tr><th>Type</th><th>Status</th><th>Code</th><th>Qty</th><th>Job</th><th>User</th><th>When</th><th>Notes</th></tr></thead>
-            <tbody><tr><td colspan="8" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+            <thead><tr><th>Area</th><th>Action</th><th>Item / Ref</th><th>Qty</th><th>User</th><th>When</th><th>Summary</th></tr></thead>
+            <tbody><tr><td colspan="7" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
           </table>
         </section>
       </div>

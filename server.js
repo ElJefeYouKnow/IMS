@@ -4725,6 +4725,36 @@ app.get('/api/notifications', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
+app.get('/api/analytics/audit', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const parsedDays = Number(req.query.days);
+    const parsedLimit = Number(req.query.limit);
+    const days = Number.isFinite(parsedDays) && parsedDays > 0 ? Math.min(Math.floor(parsedDays), 365) : 30;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(Math.floor(parsedLimit), 2000) : 600;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    const rows = await allAsync(`
+      SELECT a.id, a.action, a.details, a.ts, u.email as userEmail, u.name as userName
+      FROM audit_events a
+      LEFT JOIN users u ON u.id = a.userId
+      WHERE a.tenantId=$1 AND a.ts >= $2
+      ORDER BY a.ts DESC
+      LIMIT $3
+    `, [t, cutoff, limit]);
+    const events = (rows || []).map((row) => auditNormalizeEntry(row));
+    const actions = Array.from(new Set(events.map((row) => row.action).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    res.json({
+      generatedAt: Date.now(),
+      days,
+      total: events.length,
+      actions,
+      events,
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // SUPPORT TICKETS (authenticated)
 app.get('/api/support/tickets', async (req, res) => {
   try {
@@ -4844,44 +4874,200 @@ app.post('/api/support/tickets', async (req, res) => {
 });
 
 // SELLER ADMIN (dev-only)
-function formatAuditMessage(entry) {
-  const action = entry.action || '';
-  let details = entry.details || {};
-  if (typeof details === 'string') {
-    try { details = JSON.parse(details); } catch (e) { details = {}; }
-  }
-  const code = details.code || details.itemCode || '';
-  const qty = details.qty || details.quantity || '';
-  const jobId = details.jobId || details.jobid || '';
+function auditActionArea(action) {
+  const normalized = String(action || '').toLowerCase();
+  if (normalized.startsWith('inventory.')) return { key: 'inventory', label: 'Inventory' };
+  if (normalized.startsWith('ops.')) return { key: 'operations', label: 'Operations' };
+  if (normalized.startsWith('procurement.')) return { key: 'procurement', label: 'Procurement' };
+  if (normalized.startsWith('items.')) return { key: 'catalog', label: 'Catalog' };
+  if (normalized.startsWith('suppliers.')) return { key: 'suppliers', label: 'Suppliers' };
+  if (normalized.startsWith('projects.')) return { key: 'projects', label: 'Projects' };
+  if (normalized.startsWith('auth.')) return { key: 'access', label: 'Access' };
+  return { key: 'system', label: 'System' };
+}
+
+function auditActionLabel(action) {
+  const normalized = String(action || '').toLowerCase();
   const actionMap = {
-    'auth.login': 'User login',
-    'auth.register': 'User registered',
-    'inventory.in': 'Checked in',
-    'inventory.out': 'Checked out',
-    'inventory.adjust': 'Inventory adjusted',
-    'inventory.reserve': 'Reserved',
-    'inventory.return': 'Returned',
-    'inventory.order': 'Ordered',
-    'inventory.order.cancel': 'Incoming order cancelled',
-    'inventory.count': 'Cycle count',
-    'items.create': 'Item created',
-    'items.update': 'Item updated',
-    'items.delete': 'Item deleted',
-    'procurement.vendor_open': 'Vendor site opened',
-    'suppliers.update': 'Supplier updated',
-    'projects.materials.update': 'Project materials updated',
-    'ops.pick.start': 'Pick started',
-    'ops.pick.finish': 'Pick completed',
-    'ops.checkin.start': 'Check-in started',
-    'ops.checkin.finish': 'Check-in completed'
+    'auth.login': 'User Login',
+    'auth.register': 'User Registered',
+    'inventory.in': 'Inventory Check-In',
+    'inventory.out': 'Inventory Check-Out',
+    'inventory.adjust': 'Inventory Adjustment',
+    'inventory.reserve': 'Inventory Reserved',
+    'inventory.return': 'Inventory Returned',
+    'inventory.order': 'Incoming Order Created',
+    'inventory.order.cancel': 'Incoming Order Cancelled',
+    'inventory.count': 'Cycle Count Submitted',
+    'items.create': 'Item Created',
+    'items.update': 'Item Updated',
+    'items.delete': 'Item Deleted',
+    'procurement.vendor_open': 'Vendor Site Opened',
+    'suppliers.update': 'Supplier Updated',
+    'projects.materials.update': 'Project Materials Updated',
+    'ops.pick.start': 'Pick Started',
+    'ops.pick.finish': 'Pick Completed',
+    'ops.checkin.start': 'Check-In Started',
+    'ops.checkin.finish': 'Check-In Completed'
   };
-  const label = actionMap[action] || action.replace('.', ' ');
-  const parts = [label];
-  if (code) parts.push(code);
-  if (qty) parts.push(`x${qty}`);
-  if (jobId) parts.push(`job ${jobId}`);
-  const who = entry.useremail || entry.userEmail;
-  if (who) parts.push(`by ${who}`);
+  if (actionMap[normalized]) return actionMap[normalized];
+  return normalized
+    .split('.')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function auditNormalizeText(value) {
+  return String(value ?? '').trim();
+}
+
+function auditExtractQty(details) {
+  const candidates = [details?.qty, details?.quantity, details?.delta, details?.lines, details?.count, details?.bulk];
+  for (const candidate of candidates) {
+    const num = Number(candidate);
+    if (Number.isFinite(num)) return num;
+  }
+  return null;
+}
+
+function auditFormatDuration(ms) {
+  const duration = Number(ms);
+  if (!Number.isFinite(duration) || duration <= 0) return '';
+  const minutes = Math.round(duration / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function auditBuildSummary(action, details) {
+  const normalized = String(action || '').toLowerCase();
+  const code = auditNormalizeText(details?.code || details?.itemCode);
+  const qty = auditExtractQty(details);
+  const qtyLabel = Number.isFinite(qty) ? `${Math.abs(qty)}` : '';
+  const jobId = auditNormalizeText(details?.jobId || details?.jobid);
+  const fromJobId = auditNormalizeText(details?.fromJobId);
+  const toJobId = auditNormalizeText(details?.toJobId);
+  const reason = auditNormalizeText(details?.reason);
+  const location = auditNormalizeText(details?.location);
+  const sourceType = auditNormalizeText(details?.sourceType);
+  const sourceId = auditNormalizeText(details?.sourceId);
+  const supplierName = auditNormalizeText(details?.supplierName || details?.name || details?.id);
+  const lineCount = Number(details?.lines || details?.count || 0) || 0;
+  const bulkCount = Number(details?.bulk || 0) || 0;
+  const duration = auditFormatDuration(details?.durationMs || details?.duration);
+  const withJob = (text) => jobId ? `${text} for ${jobId}` : text;
+  if (normalized === 'inventory.in') {
+    if (sourceType === 'purchase' && lineCount) return `Recorded field purchase receipt for ${lineCount} lines`;
+    const base = `Checked in ${qtyLabel ? `${qtyLabel} ` : ''}${code || 'inventory'}`.trim();
+    return location ? `${withJob(base)} at ${location}` : withJob(base);
+  }
+  if (normalized === 'inventory.out') {
+    const base = `Checked out ${qtyLabel ? `${qtyLabel} ` : ''}${code || 'inventory'}`.trim();
+    return reason ? `${withJob(base)} | ${reason}` : withJob(base);
+  }
+  if (normalized === 'inventory.reserve') {
+    if (fromJobId || toJobId) {
+      return `Moved reserved ${qtyLabel ? `${qtyLabel} ` : ''}${code || 'inventory'}${fromJobId ? ` from ${fromJobId}` : ''}${toJobId ? ` to ${toJobId}` : ''}`.trim();
+    }
+    if (lineCount && !code) return `Reserved ${lineCount} material lines${jobId ? ` for ${jobId}` : ''}`;
+    const base = `Reserved ${qtyLabel ? `${qtyLabel} ` : ''}${code || 'inventory'}`.trim();
+    return withJob(base);
+  }
+  if (normalized === 'inventory.return') {
+    const base = `Returned ${qtyLabel ? `${qtyLabel} ` : ''}${code || 'inventory'}`.trim();
+    return reason ? `${withJob(base)} | ${reason}` : withJob(base);
+  }
+  if (normalized === 'inventory.count') {
+    return `Submitted ${lineCount || (qtyLabel || '0')} cycle count lines`;
+  }
+  if (normalized === 'inventory.adjust') {
+    const delta = Number(details?.delta);
+    const deltaLabel = Number.isFinite(delta) ? `${delta > 0 ? '+' : ''}${delta}` : (qtyLabel || '');
+    const base = `Adjusted ${code || 'inventory'} by ${deltaLabel}`.trim();
+    if (reason) return `${base} | ${reason}`;
+    if (location) return `${base} at ${location}`;
+    return base;
+  }
+  if (normalized === 'inventory.order') {
+    if (lineCount && !code) return `Created ${lineCount} incoming orders${jobId ? ` for ${jobId}` : ''}`;
+    return `Ordered ${qtyLabel ? `${qtyLabel} ` : ''}${code || 'inventory'}${jobId ? ` for ${jobId}` : ''}`.trim();
+  }
+  if (normalized === 'inventory.order.cancel') {
+    const base = `Cancelled ${qtyLabel ? `${qtyLabel} open ` : ''}${code || 'incoming order'}`.trim();
+    return reason ? `${base} | ${reason}` : `${base}${jobId ? ` for ${jobId}` : ''}`;
+  }
+  if (normalized === 'procurement.vendor_open') {
+    const target = supplierName || sourceId || auditNormalizeText(details?.url) || 'supplier';
+    return `Opened vendor site for ${target}${Number.isFinite(qty) && qty > 0 ? ` | ${qty} lines` : ''}`;
+  }
+  if (normalized === 'projects.materials.update') {
+    return `Updated ${lineCount || Number(details?.count || 0) || 0} material lines${jobId ? ` for ${jobId}` : ''}`;
+  }
+  if (normalized === 'items.create') return `Created item ${code || sourceId || 'record'}`.trim();
+  if (normalized === 'items.update') {
+    if ((lineCount || bulkCount) && !code) return `Updated ${lineCount || bulkCount} item records`;
+    return `Updated item ${code || sourceId || 'record'}`.trim();
+  }
+  if (normalized === 'items.delete') return `Deleted item ${code || sourceId || 'record'}`.trim();
+  if (normalized === 'suppliers.update') {
+    if (details?.deleted) return `Deleted supplier ${supplierName || 'record'}`.trim();
+    return `Updated supplier ${supplierName || 'record'}`.trim();
+  }
+  if (normalized === 'auth.login') return 'User signed in';
+  if (normalized === 'auth.register') return 'User registered';
+  if (normalized === 'ops.pick.start') return 'Pick session started';
+  if (normalized === 'ops.checkin.start') return 'Check-in session started';
+  if (normalized === 'ops.pick.finish' || normalized === 'ops.checkin.finish') {
+    const phase = normalized.includes('pick') ? 'Pick completed' : 'Check-in completed';
+    const parts = [phase];
+    if (duration) parts.push(duration);
+    if (Number.isFinite(qty) && qty > 0) parts.push(`${qty} units`);
+    if (lineCount > 0) parts.push(`${lineCount} lines`);
+    return parts.join(' | ');
+  }
+  return auditActionLabel(action);
+}
+
+function auditNormalizeEntry(entry) {
+  const action = auditNormalizeText(entry?.action).toLowerCase();
+  const details = dashboardParseDetails(entry?.details);
+  const area = auditActionArea(action);
+  const code = auditNormalizeText(details?.code || details?.itemCode);
+  const userEmail = auditNormalizeText(entry?.userEmail || entry?.useremail || details?.email);
+  const userName = auditNormalizeText(entry?.userName || entry?.username);
+  const reference = auditNormalizeText(
+    details?.jobId
+    || details?.jobid
+    || details?.fromJobId
+    || details?.toJobId
+    || details?.sourceId
+    || details?.supplierName
+    || details?.id
+    || details?.url
+    || details?.email
+  );
+  return {
+    id: entry?.id || '',
+    action,
+    label: auditActionLabel(action),
+    area: area.label,
+    areaKey: area.key,
+    code,
+    qty: auditExtractQty(details),
+    reference,
+    jobId: auditNormalizeText(details?.jobId || details?.jobid),
+    userEmail,
+    userName,
+    summary: auditBuildSummary(action, details),
+    ts: Number(entry?.ts || 0) || 0
+  };
+}
+
+function formatAuditMessage(entry) {
+  const normalized = auditNormalizeEntry(entry);
+  const parts = [normalized.summary || auditActionLabel(normalized.action)];
+  if (normalized.userEmail) parts.push(`by ${normalized.userEmail}`);
   const tenantCode = entry.tenantcode || entry.tenantCode || 'default';
   return `${tenantCode}: ${parts.join(' ')}`;
 }
