@@ -1907,6 +1907,47 @@ body.role-manager .admin-only{display:none}
   text-align:center;
 }
 
+[data-page="dashboard"] #adminProcurementSuggestions{
+  gap:8px;
+}
+
+[data-page="dashboard"] #adminProcurementSuggestions .workflow-row{
+  gap:10px;
+  padding:10px 12px;
+  border-radius:12px;
+  align-items:center;
+}
+
+[data-page="dashboard"] #adminProcurementSuggestions .workflow-main{
+  gap:4px;
+}
+
+[data-page="dashboard"] #adminProcurementSuggestions .workflow-title-row{
+  gap:8px;
+}
+
+[data-page="dashboard"] #adminProcurementSuggestions .workflow-sub{
+  font-size:0.84rem;
+  line-height:1.35;
+}
+
+[data-page="dashboard"] #adminProcurementSuggestions .workflow-metrics{
+  gap:6px 12px;
+  font-size:0.8rem;
+}
+
+[data-page="dashboard"] #adminProcurementSuggestions .workflow-actions{
+  gap:6px;
+}
+
+[data-page="dashboard"] #adminProcurementSuggestions .workflow-actions .action-btn,
+[data-page="dashboard"] #adminProcurementSuggestions .workflow-actions a.action-btn{
+  min-width:96px;
+  min-height:36px;
+  padding:8px 12px;
+  font-size:0.78rem;
+}
+
 @media (max-width: 900px){
   .workflow-row{
     flex-direction:column;

@@ -104,7 +104,7 @@ function renderAdminInbox(workflow){
 
   const suggestionBox = document.getElementById('adminProcurementSuggestions');
   if(suggestionBox){
-    const rows = (workflow?.procurementSuggestions || []).slice(0, 6);
+    const rows = workflow?.procurementSuggestions || [];
     suggestionBox.innerHTML = rows.length
       ? rows.map((row)=> `
         <article class="workflow-row compact">
