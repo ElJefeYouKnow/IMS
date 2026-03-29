@@ -45,6 +45,7 @@
       <header class="topbar">
         <h1>Fleet &amp; Equipment</h1>
         <div class="topbar-right">
+          <div class="clock-pill"><span class="clock-label">Now</span><span id="fleetClock" class="clock-value"></span></div>
           <button id="logoutBtn" class="muted">Logout</button>
         </div>
       </header>
@@ -54,12 +55,35 @@
           <button class="mode-btn active" data-tab="equipment" type="button">Equipment</button>
           <button class="mode-btn" data-tab="vehicles" type="button">Vehicles</button>
         </div>
-        <div class="inventory-toolbar">
-          <input id="fleetSearch" type="text" placeholder="Search by name, code, location, or project...">
+        <div class="summary-grid fleet-summary-grid">
+          <div class="summary-item"><span>Total Assets</span><strong id="fleetSummaryTotal">-</strong></div>
+          <div class="summary-item"><span>Active</span><strong id="fleetSummaryActive">-</strong></div>
+          <div class="summary-item"><span>Due Service</span><strong id="fleetSummaryDue">-</strong></div>
+          <div class="summary-item"><span>Assigned</span><strong id="fleetSummaryAssigned">-</strong></div>
         </div>
+        <div class="inventory-toolbar fleet-toolbar">
+          <input id="fleetSearch" type="text" placeholder="Search by name, code, location, or project...">
+          <select id="fleetStatusFilter">
+            <option value="">All statuses</option>
+          </select>
+          <select id="fleetServiceFilter">
+            <option value="">All service states</option>
+            <option value="due">Due now</option>
+            <option value="soon">Due in 30 days</option>
+            <option value="current">Current</option>
+            <option value="untracked">No service date</option>
+          </select>
+          <button id="fleetRefreshBtn" class="filter-btn" type="button">Refresh</button>
+          <button id="fleetCreateBtn" class="filter-btn" type="button">Add Equipment</button>
+        </div>
+        <div id="fleetStatus" class="muted-text fleet-status-copy"></div>
       </section>
 
       <section class="card table-card" id="equipmentSection">
+        <div class="card-header">
+          <h3>Equipment Register</h3>
+          <span id="equipmentCountBadge" class="badge static">0 assets</span>
+        </div>
         <div class="panel-table-wrap">
           <table class="fleet-table">
             <thead>
@@ -69,8 +93,9 @@
                 <th>Category</th>
                 <th>Location</th>
                 <th>Status</th>
+                <th>Project</th>
                 <th>Hours</th>
-                <th>Last Service</th>
+                <th>Next Service</th>
                 <th>Recent Activity</th>
               </tr>
             </thead>
@@ -80,6 +105,10 @@
       </section>
 
       <section class="card table-card" id="vehicleSection" style="display:none;">
+        <div class="card-header">
+          <h3>Vehicle Register</h3>
+          <span id="vehicleCountBadge" class="badge static">0 assets</span>
+        </div>
         <div class="panel-table-wrap">
           <table class="fleet-table">
             <thead>
@@ -89,8 +118,9 @@
                 <th>Plate</th>
                 <th>Location</th>
                 <th>Status</th>
+                <th>Project</th>
                 <th>Mileage</th>
-                <th>Last Service</th>
+                <th>Next Service</th>
                 <th>Recent Activity</th>
               </tr>
             </thead>
@@ -113,11 +143,14 @@
         <div class="panel-sub" id="fleetPanelSub"></div>
       </div>
       <div class="drawer-actions">
+        <button id="fleetPanelSummaryTab" class="drawer-tab active" type="button">Summary</button>
+        <button id="fleetPanelEditTab" class="drawer-tab" type="button">Edit</button>
         <button id="fleetPanelClose" class="action-btn">Close</button>
       </div>
     </div>
     <div class="side-panel-body">
       <div class="drawer-body" id="fleetPanelBody"></div>
+      <div class="drawer-body" id="fleetEditorBody" hidden></div>
     </div>
   </aside>
 

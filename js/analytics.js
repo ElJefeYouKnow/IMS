@@ -416,6 +416,7 @@
     const cards = [
       { key: 'inventory', label: 'Inventory', tone: 'info' },
       { key: 'operations', label: 'Operations', tone: 'static' },
+      { key: 'fleet', label: 'Fleet', tone: 'info' },
       { key: 'procurement', label: 'Procurement', tone: 'warn' },
       { key: 'catalog', label: 'Catalog', tone: 'static' },
       { key: 'suppliers', label: 'Suppliers', tone: 'static' },
@@ -453,7 +454,7 @@
 
   function auditAreaTagClass(areaKey){
     const key = String(areaKey || '').toLowerCase();
-    if(['inventory', 'operations', 'procurement', 'catalog', 'suppliers', 'projects', 'access'].includes(key)) return key;
+    if(['inventory', 'operations', 'fleet', 'procurement', 'catalog', 'suppliers', 'projects', 'access'].includes(key)) return key;
     return 'system';
   }
 

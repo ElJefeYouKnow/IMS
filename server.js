@@ -81,6 +81,12 @@ const AUDIT_ACTIONS = [
   'procurement.vendor_open',
   'suppliers.update',
   'projects.materials.update',
+  'fleet.equipment.create',
+  'fleet.equipment.update',
+  'fleet.equipment.delete',
+  'fleet.vehicle.create',
+  'fleet.vehicle.update',
+  'fleet.vehicle.delete',
   'ops.pick.start',
   'ops.pick.finish',
   'ops.checkin.start',
@@ -4783,6 +4789,92 @@ app.get('/api/capabilities', requireRole('admin'), async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
+function fleetTrimText(value) {
+  return String(value ?? '').trim();
+}
+
+function fleetOptionalText(value) {
+  const text = fleetTrimText(value);
+  return text || null;
+}
+
+function fleetParseInt(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.round(num) : null;
+}
+
+function fleetParseTsInput(value) {
+  const text = fleetTrimText(value);
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return Date.parse(`${text}T12:00:00Z`);
+  const ts = Date.parse(text);
+  return Number.isFinite(ts) ? ts : null;
+}
+
+function fleetNormalizeTags(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((tag) => fleetTrimText(tag)).filter(Boolean);
+  return String(value)
+    .split(/[,;|]/)
+    .map((tag) => fleetTrimText(tag))
+    .filter(Boolean);
+}
+
+function fleetNormalizeEquipmentPayload(body = {}) {
+  const code = fleetTrimText(body.code);
+  const name = fleetTrimText(body.name);
+  if (!code || !name) return { error: 'code and name required' };
+  return {
+    code,
+    name,
+    category: fleetOptionalText(body.category),
+    location: fleetOptionalText(body.location),
+    status: fleetOptionalText(body.status) || 'active',
+    serial: fleetOptionalText(body.serial),
+    model: fleetOptionalText(body.model),
+    manufacturer: fleetOptionalText(body.manufacturer),
+    purchaseDate: fleetOptionalText(body.purchaseDate),
+    warrantyEnd: fleetOptionalText(body.warrantyEnd),
+    usageHours: fleetParseInt(body.usageHours),
+    lastServiceAt: fleetParseTsInput(body.lastServiceAt),
+    nextServiceAt: fleetParseTsInput(body.nextServiceAt),
+    lastActivityAt: fleetParseTsInput(body.lastActivityAt),
+    assignedProject: fleetOptionalText(body.assignedProject),
+    notes: fleetOptionalText(body.notes),
+    tags: fleetNormalizeTags(body.tags)
+  };
+}
+
+function fleetNormalizeVehiclePayload(body = {}) {
+  const code = fleetTrimText(body.code);
+  const name = fleetTrimText(body.name);
+  if (!code || !name) return { error: 'code and name required' };
+  return {
+    code,
+    name,
+    make: fleetOptionalText(body.make),
+    model: fleetOptionalText(body.model),
+    year: fleetParseInt(body.year),
+    vin: fleetOptionalText(body.vin),
+    plate: fleetOptionalText(body.plate),
+    location: fleetOptionalText(body.location),
+    status: fleetOptionalText(body.status) || 'active',
+    mileage: fleetParseInt(body.mileage),
+    lastServiceAt: fleetParseTsInput(body.lastServiceAt),
+    nextServiceAt: fleetParseTsInput(body.nextServiceAt),
+    lastActivityAt: fleetParseTsInput(body.lastActivityAt),
+    assignedProject: fleetOptionalText(body.assignedProject),
+    notes: fleetOptionalText(body.notes),
+    tags: fleetNormalizeTags(body.tags)
+  };
+}
+
+function fleetConflictMessage(err, fallback) {
+  if (err?.code === '23505') return fallback;
+  return err?.message || 'server error';
+}
+
 app.get('/api/fleet/equipment', async (req, res) => {
   try {
     const rows = await allAsync(
@@ -4793,6 +4885,122 @@ app.get('/api/fleet/equipment', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
+app.post('/api/fleet/equipment', requireRole('admin'), async (req, res) => {
+  try {
+    const payload = fleetNormalizeEquipmentPayload(req.body || {});
+    if (payload.error) return res.status(400).json({ error: payload.error });
+    const t = tenantId(req);
+    const id = newId();
+    const row = {
+      id,
+      tenantId: t,
+      ...payload
+    };
+    await runAsync(
+      `INSERT INTO equipment_assets(
+        id, code, name, category, location, status, serial, model, manufacturer,
+        purchaseDate, warrantyEnd, usageHours, lastServiceAt, nextServiceAt, lastActivityAt,
+        assignedProject, notes, tags, tenantId
+      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+      [
+        row.id,
+        row.code,
+        row.name,
+        row.category,
+        row.location,
+        row.status,
+        row.serial,
+        row.model,
+        row.manufacturer,
+        row.purchaseDate,
+        row.warrantyEnd,
+        row.usageHours,
+        row.lastServiceAt,
+        row.nextServiceAt,
+        row.lastActivityAt,
+        row.assignedProject,
+        row.notes,
+        row.tags,
+        row.tenantId
+      ]
+    );
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'fleet.equipment.create',
+      details: { code: row.code, name: row.name, status: row.status, location: row.location || '' }
+    });
+    res.status(201).json(row);
+  } catch (e) {
+    res.status(e?.code === '23505' ? 409 : 500).json({ error: fleetConflictMessage(e, 'equipment code already exists') });
+  }
+});
+
+app.put('/api/fleet/equipment/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const payload = fleetNormalizeEquipmentPayload(req.body || {});
+    if (payload.error) return res.status(400).json({ error: payload.error });
+    const t = tenantId(req);
+    const existing = await getAsync('SELECT id, code FROM equipment_assets WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    if (!existing) return res.status(404).json({ error: 'equipment not found' });
+    await runAsync(
+      `UPDATE equipment_assets SET
+        code=$1, name=$2, category=$3, location=$4, status=$5, serial=$6, model=$7, manufacturer=$8,
+        purchaseDate=$9, warrantyEnd=$10, usageHours=$11, lastServiceAt=$12, nextServiceAt=$13,
+        lastActivityAt=$14, assignedProject=$15, notes=$16, tags=$17
+       WHERE id=$18 AND tenantId=$19`,
+      [
+        payload.code,
+        payload.name,
+        payload.category,
+        payload.location,
+        payload.status,
+        payload.serial,
+        payload.model,
+        payload.manufacturer,
+        payload.purchaseDate,
+        payload.warrantyEnd,
+        payload.usageHours,
+        payload.lastServiceAt,
+        payload.nextServiceAt,
+        payload.lastActivityAt,
+        payload.assignedProject,
+        payload.notes,
+        payload.tags,
+        req.params.id,
+        t
+      ]
+    );
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'fleet.equipment.update',
+      details: { code: payload.code, name: payload.name, status: payload.status, location: payload.location || '' }
+    });
+    res.json({ id: req.params.id, tenantId: t, ...payload });
+  } catch (e) {
+    res.status(e?.code === '23505' ? 409 : 500).json({ error: fleetConflictMessage(e, 'equipment code already exists') });
+  }
+});
+
+app.delete('/api/fleet/equipment/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getAsync('SELECT id, code, name FROM equipment_assets WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    if (!existing) return res.status(404).json({ error: 'equipment not found' });
+    await runAsync('DELETE FROM equipment_assets WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'fleet.equipment.delete',
+      details: { code: existing.code || '', name: existing.name || '' }
+    });
+    res.json({ ok: true, id: req.params.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
 app.get('/api/fleet/vehicles', async (req, res) => {
   try {
     const rows = await allAsync(
@@ -4801,6 +5009,118 @@ app.get('/api/fleet/vehicles', async (req, res) => {
     );
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/fleet/vehicles', requireRole('admin'), async (req, res) => {
+  try {
+    const payload = fleetNormalizeVehiclePayload(req.body || {});
+    if (payload.error) return res.status(400).json({ error: payload.error });
+    const t = tenantId(req);
+    const id = newId();
+    const row = {
+      id,
+      tenantId: t,
+      ...payload
+    };
+    await runAsync(
+      `INSERT INTO vehicle_assets(
+        id, code, name, make, model, year, vin, plate, location, status, mileage,
+        lastServiceAt, nextServiceAt, lastActivityAt, assignedProject, notes, tags, tenantId
+      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      [
+        row.id,
+        row.code,
+        row.name,
+        row.make,
+        row.model,
+        row.year,
+        row.vin,
+        row.plate,
+        row.location,
+        row.status,
+        row.mileage,
+        row.lastServiceAt,
+        row.nextServiceAt,
+        row.lastActivityAt,
+        row.assignedProject,
+        row.notes,
+        row.tags,
+        row.tenantId
+      ]
+    );
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'fleet.vehicle.create',
+      details: { code: row.code, name: row.name, status: row.status, location: row.location || '' }
+    });
+    res.status(201).json(row);
+  } catch (e) {
+    res.status(e?.code === '23505' ? 409 : 500).json({ error: fleetConflictMessage(e, 'vehicle code already exists') });
+  }
+});
+
+app.put('/api/fleet/vehicles/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const payload = fleetNormalizeVehiclePayload(req.body || {});
+    if (payload.error) return res.status(400).json({ error: payload.error });
+    const t = tenantId(req);
+    const existing = await getAsync('SELECT id, code FROM vehicle_assets WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    if (!existing) return res.status(404).json({ error: 'vehicle not found' });
+    await runAsync(
+      `UPDATE vehicle_assets SET
+        code=$1, name=$2, make=$3, model=$4, year=$5, vin=$6, plate=$7, location=$8, status=$9,
+        mileage=$10, lastServiceAt=$11, nextServiceAt=$12, lastActivityAt=$13, assignedProject=$14, notes=$15, tags=$16
+       WHERE id=$17 AND tenantId=$18`,
+      [
+        payload.code,
+        payload.name,
+        payload.make,
+        payload.model,
+        payload.year,
+        payload.vin,
+        payload.plate,
+        payload.location,
+        payload.status,
+        payload.mileage,
+        payload.lastServiceAt,
+        payload.nextServiceAt,
+        payload.lastActivityAt,
+        payload.assignedProject,
+        payload.notes,
+        payload.tags,
+        req.params.id,
+        t
+      ]
+    );
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'fleet.vehicle.update',
+      details: { code: payload.code, name: payload.name, status: payload.status, location: payload.location || '' }
+    });
+    res.json({ id: req.params.id, tenantId: t, ...payload });
+  } catch (e) {
+    res.status(e?.code === '23505' ? 409 : 500).json({ error: fleetConflictMessage(e, 'vehicle code already exists') });
+  }
+});
+
+app.delete('/api/fleet/vehicles/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getAsync('SELECT id, code, name FROM vehicle_assets WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    if (!existing) return res.status(404).json({ error: 'vehicle not found' });
+    await runAsync('DELETE FROM vehicle_assets WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'fleet.vehicle.delete',
+      details: { code: existing.code || '', name: existing.name || '' }
+    });
+    res.json({ ok: true, id: req.params.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
 });
 
 app.post('/api/support/tickets', async (req, res) => {
@@ -4879,6 +5199,7 @@ function auditActionArea(action) {
   if (normalized.startsWith('inventory.')) return { key: 'inventory', label: 'Inventory' };
   if (normalized.startsWith('ops.')) return { key: 'operations', label: 'Operations' };
   if (normalized.startsWith('procurement.')) return { key: 'procurement', label: 'Procurement' };
+  if (normalized.startsWith('fleet.')) return { key: 'fleet', label: 'Fleet' };
   if (normalized.startsWith('items.')) return { key: 'catalog', label: 'Catalog' };
   if (normalized.startsWith('suppliers.')) return { key: 'suppliers', label: 'Suppliers' };
   if (normalized.startsWith('projects.')) return { key: 'projects', label: 'Projects' };
@@ -4899,6 +5220,12 @@ function auditActionLabel(action) {
     'inventory.order': 'Incoming Order Created',
     'inventory.order.cancel': 'Incoming Order Cancelled',
     'inventory.count': 'Cycle Count Submitted',
+    'fleet.equipment.create': 'Equipment Created',
+    'fleet.equipment.update': 'Equipment Updated',
+    'fleet.equipment.delete': 'Equipment Deleted',
+    'fleet.vehicle.create': 'Vehicle Created',
+    'fleet.vehicle.update': 'Vehicle Updated',
+    'fleet.vehicle.delete': 'Vehicle Deleted',
     'items.create': 'Item Created',
     'items.update': 'Item Updated',
     'items.delete': 'Item Deleted',
@@ -5000,6 +5327,13 @@ function auditBuildSummary(action, details) {
   if (normalized === 'procurement.vendor_open') {
     const target = supplierName || sourceId || auditNormalizeText(details?.url) || 'supplier';
     return `Opened vendor site for ${target}${Number.isFinite(qty) && qty > 0 ? ` | ${qty} lines` : ''}`;
+  }
+  if (normalized.startsWith('fleet.')) {
+    const assetName = auditNormalizeText(details?.name);
+    const assetLabel = code || assetName || 'asset';
+    if (normalized.endsWith('.create')) return `Created fleet asset ${assetLabel}${location ? ` at ${location}` : ''}`;
+    if (normalized.endsWith('.update')) return `Updated fleet asset ${assetLabel}${location ? ` at ${location}` : ''}`;
+    if (normalized.endsWith('.delete')) return `Deleted fleet asset ${assetLabel}`;
   }
   if (normalized === 'projects.materials.update') {
     return `Updated ${lineCount || Number(details?.count || 0) || 0} material lines${jobId ? ` for ${jobId}` : ''}`;

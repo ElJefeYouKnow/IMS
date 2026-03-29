@@ -716,8 +716,20 @@ body:not(.panel-open) .drawer-floating-close{display:none}
 .panel-row strong{font-weight:700;text-align:right}
 .panel-section h3{margin:0 0 8px 0;font-size:0.86rem}
 .panel-note{margin:0;color:var(--muted);font-size:0.81rem;line-height:1.5}
+.fleet-summary-grid{margin-bottom:4px}
+.fleet-toolbar select{min-width:170px;flex:0 0 auto}
+.fleet-toolbar .filter-btn{min-height:40px}
+.fleet-status-copy{min-height:20px}
+.fleet-table td{vertical-align:top}
+.fleet-service-cell{display:flex;flex-direction:column;gap:6px}
+.fleet-service-cell strong{font-size:0.85rem}
+.fleet-service-cell .badge{align-self:flex-start}
+.drawer-actions .drawer-tab{min-width:84px}
+.drawer-actions .drawer-tab:not(.active){background:var(--surface-2)}
+.dark .drawer-actions .drawer-tab:not(.active){background:#101b18;border-color:#22312d;color:var(--ink)}
 .fleet-table tbody tr{cursor:pointer}
 .fleet-table tbody tr:hover{background:rgba(31,111,92,0.08)}
+.dark .fleet-table tbody tr:hover{background:rgba(31,111,92,0.16)}
 .mobile-quickbar{display:none}
 .mobile-sheet-backdrop{position:fixed;inset:0;background:rgba(6,18,29,0.42);opacity:0;pointer-events:none;transition:opacity .2s ease;z-index:85}
 .mobile-sheet-backdrop.active{opacity:1;pointer-events:auto}
@@ -747,6 +759,8 @@ body:not(.panel-open) .drawer-floating-close{display:none}
   .drawer-floating-close{right:16px;top:16px}
   .side-panel-header,.side-panel-body,.drawer-body{min-width:480px}
   .panel-metrics{grid-template-columns:1fr}
+  .fleet-toolbar select,
+  .fleet-toolbar .filter-btn{width:100%;flex:1 1 100%}
 }
 .stale{color:#b45309;font-weight:800}
 .discrepancy-badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:0.75rem;font-weight:800}
@@ -1551,6 +1565,11 @@ body.role-manager .admin-only{display:none}
   color:#0f766e;
   border-color:rgba(14,116,144,0.24);
 }
+[data-page="analytics"] .audit-area-tag.fleet{
+  background:rgba(8,145,178,0.12);
+  color:#0f766e;
+  border-color:rgba(8,145,178,0.24);
+}
 [data-page="analytics"] .audit-area-tag.procurement{
   background:rgba(217,119,6,0.12);
   color:#b45309;
@@ -1697,6 +1716,11 @@ body.role-manager .admin-only{display:none}
   background:rgba(15,73,92,0.38);
   color:#7dd3fc;
   border-color:rgba(125,211,252,0.22);
+}
+.dark [data-page="analytics"] .audit-area-tag.fleet{
+  background:rgba(8,69,92,0.38);
+  color:#67e8f9;
+  border-color:rgba(103,232,249,0.22);
 }
 .dark [data-page="analytics"] .audit-area-tag.procurement{
   background:rgba(120,53,15,0.4);
