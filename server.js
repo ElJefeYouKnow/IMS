@@ -824,13 +824,31 @@ function dashboardBuildCategoryRules(categories) {
   return new Map((categories || []).filter((cat) => cat?.name).map((cat) => [String(cat.name).toLowerCase(), normalizeCategoryRules(cat.rules)]));
 }
 
-function dashboardComputeManagerMetrics({ inventory, counts, items, categories, pickEvents, checkinEvents }) {
-  const now = Date.now();
+function dashboardComputeManagerMetrics({ inventory, counts, items, categories, pickEvents, checkinEvents }, options = {}) {
+  const parsedNow = Number(options.nowTs);
+  const now = Number.isFinite(parsedNow) && parsedNow > 0 ? parsedNow : Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
-  const windowDays = 30;
-  const recentDays = 7;
+  const parsedWindow = Number(options.windowDays);
+  const windowDays = Number.isFinite(parsedWindow) && parsedWindow > 0 ? parsedWindow : 30;
+  const recentDays = Math.min(windowDays, 7);
   const windowStart = now - windowDays * dayMs;
   const recentStart = now - recentDays * dayMs;
+  inventory = (inventory || []).filter((entry) => {
+    const ts = dashboardParseTs(entry.ts);
+    return !ts || ts <= now;
+  });
+  counts = (counts || []).filter((row) => {
+    const ts = dashboardParseTs(row.countedAt || row.countedat || row.ts);
+    return !ts || ts <= now;
+  });
+  pickEvents = (pickEvents || []).filter((row) => {
+    const ts = dashboardParseTs(row.ts);
+    return !ts || ts <= now;
+  });
+  checkinEvents = (checkinEvents || []).filter((row) => {
+    const ts = dashboardParseTs(row.ts);
+    return !ts || ts <= now;
+  });
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStart = today.getTime();
@@ -4532,6 +4550,11 @@ app.get('/api/dashboard/admin', async (req, res) => {
 app.get('/api/dashboard/manager', async (req, res) => {
   try {
     const t = tenantId(req);
+    const parsedDays = Number(req.query.days);
+    const parsedUntil = Number(req.query.until);
+    const windowDays = Number.isFinite(parsedDays) && parsedDays > 0 ? Math.floor(parsedDays) : 30;
+    const untilTs = Number.isFinite(parsedUntil) && parsedUntil > 0 ? parsedUntil : Date.now();
+    const eventStart = untilTs - windowDays * 24 * 60 * 60 * 1000;
     const [inventory, counts, items, categories, pickEvents, checkinEvents] = await Promise.all([
       allAsync('SELECT code, qty, jobId, ts, type, status, reason, returnDate, sourceType, sourceId, userEmail, userName FROM inventory WHERE tenantId=$1 ORDER BY ts DESC', [t]),
       allAsync('SELECT code, qty, countedAt, ts FROM inventory_counts WHERE tenantId=$1', [t]),
@@ -4540,16 +4563,16 @@ app.get('/api/dashboard/manager', async (req, res) => {
       allAsync(
         `SELECT id, action, details, ts
          FROM audit_events
-         WHERE tenantId=$1 AND action='ops.pick.finish' AND ts >= $2
+         WHERE tenantId=$1 AND action='ops.pick.finish' AND ts >= $2 AND ts <= $3
          ORDER BY ts DESC`,
-        [t, Date.now() - 30 * 24 * 60 * 60 * 1000]
+        [t, eventStart, untilTs]
       ),
       allAsync(
         `SELECT id, action, details, ts
          FROM audit_events
-         WHERE tenantId=$1 AND action='ops.checkin.finish' AND ts >= $2
+         WHERE tenantId=$1 AND action='ops.checkin.finish' AND ts >= $2 AND ts <= $3
          ORDER BY ts DESC`,
-        [t, Date.now() - 30 * 24 * 60 * 60 * 1000]
+        [t, eventStart, untilTs]
       ),
     ]);
     const metrics = dashboardComputeManagerMetrics({
@@ -4559,6 +4582,9 @@ app.get('/api/dashboard/manager', async (req, res) => {
       categories: categories || [],
       pickEvents: pickEvents || [],
       checkinEvents: checkinEvents || [],
+    }, {
+      windowDays,
+      nowTs: untilTs,
     });
     res.json(metrics);
   } catch (e) {

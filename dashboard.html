@@ -89,116 +89,183 @@
         </section>
       </section>
 
-      <section class="dashboard-grid worklist-grid">
-        <div class="card worklist-card">
+      <section class="card admin-filter-bar">
+        <div class="admin-filter-copy">
+          <p class="admin-filter-kicker">Admin View</p>
+          <h3>Focus the dashboard without losing the command picture.</h3>
+        </div>
+        <div class="admin-filter-groups">
+          <div class="admin-filter-group" role="group" aria-label="Time range">
+            <span class="admin-filter-label">Range</span>
+            <div class="admin-segmented">
+              <button class="filter-btn admin-range-btn active" type="button" data-range="7">7d</button>
+              <button class="filter-btn admin-range-btn" type="button" data-range="30">30d</button>
+              <button class="filter-btn admin-range-btn" type="button" data-range="90">90d</button>
+            </div>
+          </div>
+          <div class="admin-filter-group" role="group" aria-label="Focus area">
+            <span class="admin-filter-label">Focus</span>
+            <div class="admin-segmented">
+              <button class="filter-btn admin-focus-btn active" type="button" data-focus="overview">Overview</button>
+              <button class="filter-btn admin-focus-btn" type="button" data-focus="control">Control</button>
+              <button class="filter-btn admin-focus-btn" type="button" data-focus="supply">Supply</button>
+              <button class="filter-btn admin-focus-btn" type="button" data-focus="activity">Activity</button>
+            </div>
+          </div>
+        </div>
+        <div class="admin-filter-status">
+          <span id="adminRangeBadge" class="sync-chip">7 day view</span>
+          <span id="adminLastRefresh" class="sync-chip">Refreshing...</span>
+        </div>
+      </section>
+
+      <div class="kpi-tabs admin-tabs">
+        <button class="kpi-tab active" type="button" data-tab="overview">Overview</button>
+        <button class="kpi-tab" type="button" data-tab="control">Control</button>
+        <button class="kpi-tab" type="button" data-tab="supply">Supply</button>
+        <button class="kpi-tab" type="button" data-tab="activity">Activity</button>
+      </div>
+
+      <div id="overview-panel" class="kpi-panel active">
+        <section class="dashboard-grid worklist-grid">
+          <div class="card worklist-card">
+            <div class="card-header">
+              <h3>Admin Inbox</h3>
+              <a class="kpi-link" href="settings.html">Open settings</a>
+            </div>
+            <ul id="adminInboxList" class="worklist-list">
+              <li class="muted">Loading...</li>
+            </ul>
+          </div>
+          <div class="card worklist-card">
+            <div class="card-header">
+              <h3>Critical Exceptions</h3>
+              <a class="kpi-link" href="inventory-list.html">Review</a>
+            </div>
+            <ul id="adminExceptionList" class="worklist-list">
+              <li class="muted">Loading...</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="card workflow-card">
           <div class="card-header">
-            <h3>Admin Inbox</h3>
-            <a class="kpi-link" href="settings.html">Open settings</a>
+            <h3>Procurement Suggestions</h3>
+            <a class="kpi-link" href="order-register.html">Open procurement</a>
           </div>
-          <ul id="adminInboxList" class="worklist-list">
-            <li class="muted">Loading...</li>
-          </ul>
-        </div>
-        <div class="card worklist-card">
-          <div class="card-header">
-            <h3>Critical Exceptions</h3>
-            <a class="kpi-link" href="inventory-list.html">Review</a>
+          <div id="adminProcurementSuggestions" class="workflow-list">
+            <div class="report-empty">Loading suggestions...</div>
           </div>
-          <ul id="adminExceptionList" class="worklist-list">
-            <li class="muted">Loading...</li>
-          </ul>
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <section class="card workflow-card">
-        <div class="card-header">
-          <h3>Procurement Suggestions</h3>
-          <a class="kpi-link" href="order-register.html">Open procurement</a>
-        </div>
-        <div id="adminProcurementSuggestions" class="workflow-list">
-          <div class="report-empty">Loading suggestions...</div>
-        </div>
-      </section>
+      <div id="control-panel" class="kpi-panel">
+        <section class="dashboard-grid">
+          <div class="card collapsible">
+            <div class="card-head">
+              <h3>Accuracy &amp; Control</h3>
+              <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="summary-grid">
+              <div class="summary-item"><span>Inventory Accuracy</span><strong id="kpi-accuracy">-</strong></div>
+              <div class="summary-item"><span>Adjustment Rate</span><strong id="kpi-adjustment">-</strong></div>
+              <div class="summary-item"><span>Discrepancy Value</span><strong id="kpi-discrepancy">-</strong></div>
+              <div class="summary-item"><span>Not Counted</span><strong id="kpi-not-counted">-</strong></div>
+            </div>
+          </div>
+          <div class="card collapsible">
+            <div class="card-head">
+              <h3>Waste &amp; Leakage</h3>
+              <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="summary-grid">
+              <div class="summary-item"><span>Shrinkage</span><strong id="kpi-shrinkage">-</strong></div>
+              <div class="summary-item"><span>Damaged</span><strong id="kpi-damaged">-</strong></div>
+              <div class="summary-item"><span>Write-offs</span><strong id="kpi-writeoffs">-</strong></div>
+              <div class="summary-item"><span>Lost Value</span><strong id="kpi-lost-value">-</strong></div>
+            </div>
+          </div>
+        </section>
+      </div>
 
-      <section class="dashboard-grid admin-insight-grid">
-        <div class="card worklist-card">
-          <div class="card-header">
-            <h3>Immediate Priorities</h3>
-            <a class="kpi-link" href="analytics.html">Open analytics</a>
+      <div id="supply-panel" class="kpi-panel">
+        <section class="dashboard-grid">
+          <div class="card collapsible">
+            <div class="card-head">
+              <h3>Demand Intelligence</h3>
+              <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="summary-grid">
+              <div class="summary-item"><span>Top Usage Qty</span><strong id="kpi-usage-trend">-</strong></div>
+              <div class="summary-item"><span>80/20 SKUs</span><strong id="kpi-8020">-</strong></div>
+              <div class="summary-item"><span>Dead Stock</span><strong id="kpi-dead-stock">-</strong></div>
+              <div class="summary-item"><span>Slow Moving</span><strong id="kpi-slow-moving">-</strong></div>
+            </div>
           </div>
-          <div id="adminPriorityList" class="workflow-list">
-            <div class="report-empty">Loading priorities...</div>
+          <div class="card collapsible">
+            <div class="card-head">
+              <h3>Supply Chain Health</h3>
+              <button class="collapse-toggle" type="button" aria-expanded="true">Collapse</button>
+            </div>
+            <div class="summary-grid">
+              <div class="summary-item"><span>Fill Rate</span><strong id="kpi-fill-rate">-</strong></div>
+              <div class="summary-item"><span>Service Level</span><strong id="kpi-service-level">-</strong></div>
+              <div class="summary-item"><span>Avg Lead Time</span><strong id="kpi-lead-time">-</strong></div>
+              <div class="summary-item"><span>On-Time Delivery</span><strong id="kpi-on-time">-</strong></div>
+            </div>
           </div>
-        </div>
-        <div class="card worklist-card">
-          <div class="card-header">
-            <h3>Recent Activity</h3>
-            <a class="kpi-link" href="analytics.html#audit">Audit trail</a>
-          </div>
-          <ul id="adminActivityList" class="worklist-list">
-            <li class="muted">Loading...</li>
-          </ul>
-        </div>
-      </section>
+        </section>
 
-      <section class="dashboard-grid">
-        <div class="card">
-          <h3>Accuracy &amp; Control</h3>
-          <div class="summary-grid">
-            <div class="summary-item"><span>Inventory Accuracy</span><strong id="kpi-accuracy">-</strong></div>
-            <div class="summary-item"><span>Adjustment Rate</span><strong id="kpi-adjustment">-</strong></div>
-            <div class="summary-item"><span>Discrepancy Value</span><strong id="kpi-discrepancy">-</strong></div>
-            <div class="summary-item"><span>Not Counted (30d)</span><strong id="kpi-not-counted">-</strong></div>
+        <section class="dashboard-grid">
+          <div class="table-card">
+            <div class="card-head">
+              <h3 id="slowMovingTitle">Slow Moving Inventory</h3>
+              <button class="collapse-toggle" type="button" data-collapse-table="slowMovingTableWrap" aria-expanded="true">Collapse</button>
+            </div>
+            <div id="slowMovingTableWrap">
+              <table id="slowMovingTable">
+                <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>Available</th></tr></thead>
+                <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+              </table>
+            </div>
           </div>
-        </div>
-        <div class="card">
-          <h3>Waste &amp; Leakage</h3>
-          <div class="summary-grid">
-            <div class="summary-item"><span>Shrinkage %</span><strong id="kpi-shrinkage">-</strong></div>
-            <div class="summary-item"><span>Damaged %</span><strong id="kpi-damaged">-</strong></div>
-            <div class="summary-item"><span>Write-offs</span><strong id="kpi-writeoffs">-</strong></div>
-            <div class="summary-item"><span>Lost Value</span><strong id="kpi-lost-value">-</strong></div>
+          <div class="table-card">
+            <div class="card-head">
+              <h3 id="topUsageTitle">Top Usage Items</h3>
+              <button class="collapse-toggle" type="button" data-collapse-table="topUsageTableWrap" aria-expanded="true">Collapse</button>
+            </div>
+            <div id="topUsageTableWrap">
+              <table id="topUsageTable">
+                <thead><tr><th>Code</th><th>Name</th><th>Issued Qty</th><th>Share</th></tr></thead>
+                <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <section class="dashboard-grid">
-        <div class="card">
-          <h3>Demand Intelligence</h3>
-          <div class="summary-grid">
-            <div class="summary-item"><span>Top Usage Qty</span><strong id="kpi-usage-trend">-</strong></div>
-            <div class="summary-item"><span>80/20 SKUs</span><strong id="kpi-8020">-</strong></div>
-            <div class="summary-item"><span>Dead Stock %</span><strong id="kpi-dead-stock">-</strong></div>
-            <div class="summary-item"><span>Slow Moving</span><strong id="kpi-slow-moving">-</strong></div>
+      <div id="activity-panel" class="kpi-panel">
+        <section class="dashboard-grid admin-insight-grid">
+          <div class="card worklist-card">
+            <div class="card-header">
+              <h3>Immediate Priorities</h3>
+              <a class="kpi-link" href="analytics.html">Open analytics</a>
+            </div>
+            <div id="adminPriorityList" class="workflow-list">
+              <div class="report-empty">Loading priorities...</div>
+            </div>
           </div>
-        </div>
-        <div class="card">
-          <h3>Supply Chain Health</h3>
-          <div class="summary-grid">
-            <div class="summary-item"><span>Fill Rate</span><strong id="kpi-fill-rate">-</strong></div>
-            <div class="summary-item"><span>Service Level</span><strong id="kpi-service-level">-</strong></div>
-            <div class="summary-item"><span>Avg Lead Time</span><strong id="kpi-lead-time">-</strong></div>
-            <div class="summary-item"><span>On-Time Delivery</span><strong id="kpi-on-time">-</strong></div>
+          <div class="card worklist-card">
+            <div class="card-header">
+              <h3>Recent Activity</h3>
+              <a class="kpi-link" href="analytics.html#audit">Audit trail</a>
+            </div>
+            <ul id="adminActivityList" class="worklist-list">
+              <li class="muted">Loading...</li>
+            </ul>
           </div>
-        </div>
-      </section>
-
-      <section class="dashboard-grid">
-        <div class="table-card">
-          <h3>Slow Moving Inventory (30d)</h3>
-          <table id="slowMovingTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Moves</th><th>Available</th></tr></thead>
-            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-          </table>
-        </div>
-        <div class="table-card">
-          <h3>Top Usage Items (30d)</h3>
-          <table id="topUsageTable">
-            <thead><tr><th>Code</th><th>Name</th><th>Issued Qty</th><th>Share</th></tr></thead>
-            <tbody><tr><td colspan="4" style="text-align:center;color:#6b7280;">Loading...</td></tr></tbody>
-          </table>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   </div>
 
