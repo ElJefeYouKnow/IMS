@@ -10,8 +10,6 @@ function renderEmployeeList(id, rows, emptyText){
 async function renderEmployeeDashboard(){
   const workflow = await utils.fetchJsonSafe('/api/workflows/overview', { cacheTtlMs: 5000 }, {}) || {};
   const inbox = workflow?.inbox?.employee || {};
-  renderEmployeeList('employeePickList', inbox.picks, 'No picks queued.');
-  renderEmployeeList('employeeReturnList', inbox.returns, 'No returns due.');
   renderEmployeeList('employeeInboundList', inbox.inbound, 'No inbound work assigned.');
 }
 
