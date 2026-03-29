@@ -1908,14 +1908,27 @@ body.role-manager .admin-only{display:none}
 }
 
 [data-page="dashboard"] #adminProcurementSuggestions{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
   gap:8px;
+  max-height:none;
+  overflow:visible;
+}
+
+[data-page="dashboard"] .workflow-card{
+  min-height:0;
+  height:auto;
+  overflow:visible;
 }
 
 [data-page="dashboard"] #adminProcurementSuggestions .workflow-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
   gap:10px;
   padding:10px 12px;
   border-radius:12px;
-  align-items:center;
+  align-items:start;
+  min-height:0;
 }
 
 [data-page="dashboard"] #adminProcurementSuggestions .workflow-main{
@@ -1938,6 +1951,7 @@ body.role-manager .admin-only{display:none}
 
 [data-page="dashboard"] #adminProcurementSuggestions .workflow-actions{
   gap:6px;
+  justify-content:flex-start;
 }
 
 [data-page="dashboard"] #adminProcurementSuggestions .workflow-actions .action-btn,
@@ -1946,6 +1960,16 @@ body.role-manager .admin-only{display:none}
   min-height:36px;
   padding:8px 12px;
   font-size:0.78rem;
+}
+
+@media (max-width: 900px){
+  [data-page="dashboard"] #adminProcurementSuggestions{
+    grid-template-columns:1fr;
+  }
+
+  [data-page="dashboard"] #adminProcurementSuggestions .workflow-row{
+    grid-template-columns:1fr;
+  }
 }
 
 @media (max-width: 900px){
