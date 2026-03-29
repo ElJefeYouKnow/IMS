@@ -345,6 +345,11 @@ body[data-page="contact"] .hero {
   margin-top: 24px;
 }
 
+.home-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 28px;
+}
+
 .hero-proof {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -901,7 +906,8 @@ body[data-page="contact"] .hero {
   }
 
   .hero-proof,
-  .signal-strip {
+  .signal-strip,
+  .home-facts {
     grid-template-columns: 1fr;
   }
 }
