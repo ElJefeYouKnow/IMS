@@ -378,6 +378,32 @@ function buildAppLink(pathname, params) {
   return url.toString();
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatRoleLabel(role) {
+  const normalized = normalizeUserRole(role);
+  if (normalized === 'dev') return 'Developer';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function formatDurationLabel(ms) {
+  const dayMs = 1000 * 60 * 60 * 24;
+  const hourMs = 1000 * 60 * 60;
+  if (ms >= dayMs) {
+    const days = Math.round(ms / dayMs);
+    return `${days} day${days === 1 ? '' : 's'}`;
+  }
+  const hours = Math.max(1, Math.round(ms / hourMs));
+  return `${hours} hour${hours === 1 ? '' : 's'}`;
+}
+
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
@@ -435,9 +461,47 @@ async function sendResetEmail(user) {
     ttlMs: RESET_TOKEN_TTL_MS
   });
   const link = buildAppLink('reset.html', { token });
+  const recipientName = (user.name || '').trim();
+  const expiresIn = formatDurationLabel(RESET_TOKEN_TTL_MS);
   const subject = 'Reset your Modulr password';
-  const text = `Reset your password: ${link}`;
-  const html = `<p>Reset your password:</p><p><a href="${link}">Set a new password</a></p><p>If the button doesn't work, copy this link: ${link}</p>`;
+  const text = [
+    recipientName ? `Hi ${recipientName},` : 'Hello,',
+    '',
+    'We received a request to reset your Modulr password.',
+    'Use the link below to choose a new password and regain access to your account.',
+    '',
+    link,
+    '',
+    `This reset link expires in ${expiresIn}.`,
+    'If you did not request a password reset, you can ignore this email.'
+  ].join('\n');
+  const html = `
+    <div style="margin:0;padding:24px;background:#f4f7f6;font-family:Arial,sans-serif;color:#173229;">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #d7e4de;border-radius:18px;overflow:hidden;">
+        <div style="padding:28px 32px 22px;background:linear-gradient(135deg,#10372d 0%,#1d5a48 100%);color:#ffffff;">
+          <div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;opacity:0.78;">Modulr</div>
+          <h1 style="margin:12px 0 0;font-size:28px;line-height:1.2;font-weight:700;">Reset your password</h1>
+        </div>
+        <div style="padding:28px 32px 32px;">
+          <p style="margin:0 0 12px;font-size:16px;line-height:1.6;">${recipientName ? `Hi ${escapeHtml(recipientName)},` : 'Hello,'}</p>
+          <p style="margin:0 0 12px;font-size:16px;line-height:1.6;">We received a request to reset your Modulr password.</p>
+          <p style="margin:0 0 20px;font-size:16px;line-height:1.6;">Use the button below to choose a new password and sign back in.</p>
+          <div style="margin:0 0 22px;padding:18px 20px;background:#f7fbf9;border:1px solid #d7e4de;border-radius:14px;">
+            <div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;">
+              <span style="font-size:13px;line-height:1.4;color:#5b746a;">Reset link expires</span>
+              <span style="font-size:14px;line-height:1.4;color:#173229;font-weight:600;text-align:right;">${escapeHtml(expiresIn)}</span>
+            </div>
+          </div>
+          <div style="margin:0 0 18px;">
+            <a href="${link}" style="display:inline-block;padding:14px 22px;background:#173f33;border-radius:12px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;">Set new password</a>
+          </div>
+          <p style="margin:0 0 8px;font-size:13px;line-height:1.6;color:#5b746a;">If the button does not open, use this link:</p>
+          <p style="margin:0 0 20px;font-size:13px;line-height:1.7;word-break:break-all;"><a href="${link}" style="color:#1d5a48;text-decoration:underline;">${link}</a></p>
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#5b746a;">If you did not request a password reset, you can ignore this email.</p>
+        </div>
+      </div>
+    </div>
+  `;
   const result = await sendEmail({ to: user.email, subject, text, html });
   if (!result.ok && result.skipped && !IS_PROD) {
     console.log('Reset link:', link);
@@ -455,9 +519,67 @@ async function sendInviteEmail(user, inviter) {
     meta: { inviter: inviter || '' }
   });
   const link = buildAppLink('invite.html', { token });
-  const subject = 'You have been invited to Modulr';
-  const text = `You're invited to Modulr. Set your password here: ${link}`;
-  const html = `<p>You're invited to Modulr.</p><p><a href="${link}">Set your password</a></p><p>If the button doesn't work, copy this link: ${link}</p>`;
+  const tenant = user.tenantid || user.tenantId
+    ? await getAsync('SELECT name FROM tenants WHERE id=$1', [user.tenantid || user.tenantId])
+    : null;
+  const tenantName = (tenant?.name || '').trim();
+  const recipientName = (user.name || '').trim();
+  const inviterName = (inviter || '').trim();
+  const roleLabel = formatRoleLabel(user.role);
+  const expiresIn = formatDurationLabel(INVITE_TOKEN_TTL_MS);
+  const subject = tenantName
+    ? `You're invited to ${tenantName} on Modulr`
+    : "You're invited to Modulr";
+  const introLine = tenantName
+    ? `${inviterName ? `${inviterName} invited you to join ${tenantName}` : `You've been invited to join ${tenantName}`} in Modulr.`
+    : `${inviterName ? `${inviterName} invited you to join Modulr.` : `You've been invited to join Modulr.`}`;
+  const detailRows = [
+    tenantName ? ['Workspace', tenantName] : null,
+    ['Access', roleLabel],
+    inviterName ? ['Invited by', inviterName] : null,
+    ['Invite expires', expiresIn]
+  ].filter(Boolean);
+  const text = [
+    recipientName ? `Hi ${recipientName},` : 'Hello,',
+    '',
+    introLine,
+    `Your access is set up as ${roleLabel}.`,
+    'Create your password to finish setup and sign in.',
+    '',
+    link,
+    '',
+    `This invite expires in ${expiresIn}.`,
+    'If you were not expecting this email, you can ignore it.'
+  ].join('\n');
+  const html = `
+    <div style="margin:0;padding:24px;background:#f4f7f6;font-family:Arial,sans-serif;color:#173229;">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #d7e4de;border-radius:18px;overflow:hidden;">
+        <div style="padding:28px 32px 22px;background:linear-gradient(135deg,#10372d 0%,#1d5a48 100%);color:#ffffff;">
+          <div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;opacity:0.78;">Modulr</div>
+          <h1 style="margin:12px 0 0;font-size:28px;line-height:1.2;font-weight:700;">Your account invitation</h1>
+        </div>
+        <div style="padding:28px 32px 32px;">
+          <p style="margin:0 0 12px;font-size:16px;line-height:1.6;">${recipientName ? `Hi ${escapeHtml(recipientName)},` : 'Hello,'}</p>
+          <p style="margin:0 0 12px;font-size:16px;line-height:1.6;">${escapeHtml(introLine)}</p>
+          <p style="margin:0 0 20px;font-size:16px;line-height:1.6;">Create your password to finish setup and access the live Inventory Management System.</p>
+          <div style="margin:0 0 22px;padding:18px 20px;background:#f7fbf9;border:1px solid #d7e4de;border-radius:14px;">
+            ${detailRows.map(([label, value]) => `
+              <div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;padding:6px 0;border-bottom:${label === 'Invite expires' ? '0' : '1px solid #e3ece8'};">
+                <span style="font-size:13px;line-height:1.4;color:#5b746a;">${escapeHtml(label)}</span>
+                <span style="font-size:14px;line-height:1.4;color:#173229;font-weight:600;text-align:right;">${escapeHtml(value)}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div style="margin:0 0 18px;">
+            <a href="${link}" style="display:inline-block;padding:14px 22px;background:#173f33;border-radius:12px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;">Create password</a>
+          </div>
+          <p style="margin:0 0 8px;font-size:13px;line-height:1.6;color:#5b746a;">If the button does not open, use this link:</p>
+          <p style="margin:0 0 20px;font-size:13px;line-height:1.7;word-break:break-all;"><a href="${link}" style="color:#1d5a48;text-decoration:underline;">${link}</a></p>
+          <p style="margin:0;font-size:13px;line-height:1.6;color:#5b746a;">If you were not expecting this email, you can ignore it.</p>
+        </div>
+      </div>
+    </div>
+  `;
   const result = await sendEmail({ to: user.email, subject, text, html });
   if (!result.ok && result.skipped && !IS_PROD) {
     console.log('Invite link:', link);
