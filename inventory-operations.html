@@ -40,24 +40,49 @@
       </nav>
   </aside>
     <main class="main">
-      <header class="topbar">
-        <h1>Inventory Operations</h1>
+      <header class="topbar ops-topbar">
+        <div>
+          <div class="panel-kicker">Warehouse Flow</div>
+          <h1>Inventory Operations</h1>
+        </div>
         <div class="topbar-right">
+          <button id="opsRefreshBtn" class="muted">Refresh</button>
           <button id="devResetBtn" class="muted" style="display:none;background:#b91c1c;color:#fff;border-color:rgba(255,255,255,0.3);">Dev Reset</button>
           <button id="logoutBtn" class="muted">Logout</button>
         </div>
       </header>
 
       <div class="ops-hero">
-        <section class="card">
-          <h3 style="margin-bottom:8px;">Operations Control</h3>
-          <ul class="ops-list">
-            <li>Receive Orders: check-in must reference an incoming order or field purchase.</li>
-            <li>Pick (Check-Out): draws from available; auto-sets 5-day due for the project.</li>
-            <li>Return: allowed within 5 days of checkout; enforces outstanding limits.</li>
-          </ul>
+        <section class="card ops-intro-card">
+          <div class="panel-kicker">Control Center</div>
+          <h2>Receive, pick, and return inventory without losing the trail.</h2>
+          <p class="ops-intro-copy">Use one workspace for inbound receiving, project picks, and stock returns, with live counts and recent movement always visible.</p>
+          <div class="ops-rule-grid">
+            <div class="ops-rule">
+              <strong>Receive against live orders</strong>
+              <span>Check-in lines stay tied to open incoming orders and remaining quantities.</span>
+            </div>
+            <div class="ops-rule">
+              <strong>Pick against active projects</strong>
+              <span>Upcoming jobs and reserved material can fill pick lines faster.</span>
+            </div>
+            <div class="ops-rule">
+              <strong>Return against outstanding stock</strong>
+              <span>Returns respect open checkout balances and recent project windows.</span>
+            </div>
+          </div>
         </section>
-        <section class="card">
+        <section class="card ops-metrics-card">
+          <div class="ops-metrics-head">
+            <div>
+              <div class="panel-kicker">Live Snapshot</div>
+              <h3>Inventory State</h3>
+            </div>
+            <div class="ops-sync">
+              <span>Last refresh</span>
+              <strong id="opsSyncStamp">Loading...</strong>
+            </div>
+          </div>
           <div class="ops-metrics">
             <div class="ops-metric"><div class="label">Available</div><div id="ops-available" class="value">-</div></div>
             <div class="ops-metric"><div class="label">Reserved</div><div id="ops-reserved" class="value">-</div></div>
@@ -67,7 +92,18 @@
         </section>
       </div>
 
-      <section class="card">
+      <section class="card ops-mode-shell">
+        <div class="ops-mode-header">
+          <div class="ops-mode-copy">
+            <div class="panel-kicker">Workflow</div>
+            <h3 id="opsModeTitle">Pick Items</h3>
+            <p id="opsModeSummary" class="muted-text">Pull inventory for active projects and load reserved material when it is already planned.</p>
+          </div>
+          <div class="ops-mode-state">
+            <strong id="opsModeBadge" class="ops-mode-badge">Check-Out</strong>
+            <small id="opsModeHelper">Best for project issue, allocation, and outbound movement.</small>
+          </div>
+        </div>
         <div class="mode-tabs">
           <button class="mode-btn active" data-mode="checkout">Pick Items (Check-Out)</button>
           <button class="mode-btn" data-mode="checkin">Receive Orders</button>
@@ -77,22 +113,31 @@
 
       
       <div id="checkin-mode" class="mode-content">
-        <section class="card inventory-card">
+        <section class="card inventory-card ops-flow-card">
+          <div class="ops-section-head">
+            <div class="ops-section-copy">
+              <h3>Receive Orders</h3>
+              <p>Bring incoming material into inventory from open orders and record where it landed.</p>
+            </div>
+            <div class="ops-section-side">
+              <span id="checkinLineCount" class="badge info">0 lines</span>
+            </div>
+          </div>
           <form id="checkinForm" class="inventory-form" autocomplete="off">
             <div>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <div class="ops-subhead">
                 <strong>Line Items</strong>
               </div>
               <div id="checkin-lines" class="line-items"></div>
             </div>
-            <div class="form-row">
+            <div class="form-row ops-inline-actions">
               <label style="flex:1">Incoming Orders
                 <select id="checkin-orderSelect"></select>
               </label>
               <button id="checkin-addOrderBtn" type="button" class="muted" style="margin-top:22px;">Add Order</button>
               <button id="checkin-refreshOrders" type="button" class="muted" style="margin-top:22px;">Refresh</button>
             </div>
-            <div style="font-size:12px;color:#6b7280;margin-bottom:8px;">Check-in lines must be added from incoming orders.</div>
+            <div class="ops-inline-note">Check-in lines must be added from incoming orders.</div>
             <div class="form-row">
               <div class="timer-box">
                 <span>Check-In Timer</span>
@@ -107,7 +152,7 @@
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="checkin-notes" rows="2" placeholder="Optional notes"></textarea></label>
             </div>
-            <div class="form-row sticky-actions">
+            <div class="form-row sticky-actions ops-action-row">
               <button id="checkinBtn" type="submit">Receive to Inventory</button>
               <button id="checkin-clearBtn" type="button" class="muted">Clear All</button>
               <button id="checkin-exportBtn" type="button" class="muted">Export CSV</button>
@@ -115,26 +160,40 @@
           </form>
         </section>
 
-        <section class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <h3 style="margin:0;">Recent Check-Ins</h3>
-            <div style="display:flex;gap:8px;">
+        <section class="card ops-history-card">
+          <div class="ops-section-head">
+            <div class="ops-section-copy">
+              <h3>Recent Check-Ins</h3>
+              <p>This week’s received inventory activity.</p>
+            </div>
+            <div class="ops-section-side">
+              <span id="checkinHistoryCount" class="badge info">0 rows</span>
               <button id="checkin-export-selected" class="muted" type="button">Export Selected</button>
             </div>
           </div>
-          <table id="checkinTable">
-            <thead><tr><th><input type="checkbox" data-select-all="checkinTable"></th><th>Code</th><th>Name</th><th>Qty</th><th>Location</th><th>Project ID</th><th>When</th></tr></thead>
-            <tbody></tbody>
-          </table>
+          <div class="ops-table-wrap">
+            <table id="checkinTable">
+              <thead><tr><th><input type="checkbox" data-select-all="checkinTable"></th><th>Code</th><th>Name</th><th>Qty</th><th>Location</th><th>Project ID</th><th>When</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </section>
       </div>
 
       <!-- CHECK-OUT MODE -->
       <div id="checkout-mode" class="mode-content active">
-        <section class="card inventory-card">
-          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Pick items from inventory for a project. Track the project and notes.</p>
+        <section class="card inventory-card ops-flow-card">
+          <div class="ops-section-head">
+            <div class="ops-section-copy">
+              <h3>Pick Items</h3>
+              <p>Issue inventory to projects, using reserved material when the job is already planned.</p>
+            </div>
+            <div class="ops-section-side">
+              <span id="checkoutLineCount" class="badge info">0 lines</span>
+            </div>
+          </div>
           <form id="checkoutForm" class="inventory-form" autocomplete="off">
-            <div class="form-row">
+            <div class="form-row ops-inline-actions">
               <label style="flex:1">Upcoming Projects (closest dates first)
                 <select id="checkout-upcomingJob">
                   <option value="">Select upcoming project...</option>
@@ -142,13 +201,13 @@
               </label>
               <button id="checkout-loadReserved" type="button" class="muted" style="margin-top:22px;">Load Reserved Items</button>
             </div>
-            <div id="checkout-upcomingMeta" style="font-size:12px;color:#6b7280;margin-top:-6px;">Choose a project to auto-fill reserved pick lists.</div>
+            <div id="checkout-upcomingMeta" class="ops-inline-note">Choose a project to auto-fill reserved pick lists.</div>
             <div>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <div class="ops-subhead">
                 <strong>Pick Items</strong>
               </div>
               <div id="checkout-lines" class="line-items"></div>
-              <div class="form-row" style="justify-content:flex-end;margin-top:8px;">
+              <div class="form-row ops-inline-actions ops-inline-actions-end">
                 <button id="checkout-addLine" type="button" class="muted">Add Line</button>
               </div>
             </div>
@@ -170,7 +229,7 @@
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="checkout-notes" rows="2" placeholder="Optional notes about usage"></textarea></label>
             </div>
-            <div class="form-row sticky-actions">
+            <div class="form-row sticky-actions ops-action-row">
               <button id="checkoutBtn" type="submit">Take from Inventory</button>
               <button id="checkout-clearBtn" type="button" class="muted">Clear All</button>
               <button id="checkout-exportBtn" type="button" class="muted">Export CSV</button>
@@ -178,26 +237,40 @@
           </form>
         </section>
 
-        <section class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <h3 style="margin:0;">Recent Checkouts</h3>
-            <div style="display:flex;gap:8px;">
+        <section class="card ops-history-card">
+          <div class="ops-section-head">
+            <div class="ops-section-copy">
+              <h3>Recent Checkouts</h3>
+              <p>This week’s outbound inventory movement.</p>
+            </div>
+            <div class="ops-section-side">
+              <span id="checkoutHistoryCount" class="badge info">0 rows</span>
               <button id="checkout-export-selected" class="muted" type="button">Export Selected</button>
             </div>
           </div>
-          <table id="checkoutTable">
-            <thead><tr><th><input type="checkbox" data-select-all="checkoutTable"></th><th>Code</th><th>Name</th><th>Project ID</th><th>Qty</th><th class="mobile-hide">When</th></tr></thead>
-            <tbody></tbody>
-          </table>
+          <div class="ops-table-wrap">
+            <table id="checkoutTable">
+              <thead><tr><th><input type="checkbox" data-select-all="checkoutTable"></th><th>Code</th><th>Name</th><th>Project ID</th><th>Qty</th><th class="mobile-hide">When</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </section>
       </div>
 
       <!-- RETURN MODE -->
       <div id="return-mode" class="mode-content">
-        <section class="card inventory-card">
-          <p style="color: #6b7280; margin: 0 0 16px 0; font-size: 14px;">Return inventory that was previously checked out back to general stock.</p>
+        <section class="card inventory-card ops-flow-card">
+          <div class="ops-section-head">
+            <div class="ops-section-copy">
+              <h3>Return Inventory</h3>
+              <p>Bring issued material back into available stock and capture the reason and location.</p>
+            </div>
+            <div class="ops-section-side">
+              <span id="returnLineCount" class="badge info">0 lines</span>
+            </div>
+          </div>
           <form id="returnForm" class="inventory-form" autocomplete="off">
-            <div class="form-row" style="align-items: center; gap: 8px;">
+            <div class="form-row ops-inline-actions" style="align-items: center; gap: 8px;">
               <label style="flex: 1;">Select from Recent Checkouts
                 <select id="return-fromCheckout" style="width: 100%;">
                   <option value="">-- Manual Entry --</option>
@@ -205,14 +278,14 @@
               </label>
               <button id="return-loadCheckoutBtn" type="button" class="muted" style="margin-top: 24px;">Load</button>
             </div>
-            <div style="border-top: 1px solid #e5e7eb; margin: 16px 0; padding-top: 16px;">
-              <p style="color: #6b7280; font-size: 12px; margin: 0 0 12px 0;">Or enter manually:</p>
-            <div>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div class="ops-manual-shell">
+              <p class="ops-inline-note" style="margin:0 0 12px 0;">Or enter manually:</p>
+              <div>
+              <div class="ops-subhead">
                 <strong>Line Items</strong>
               </div>
               <div id="return-lines" class="line-items"></div>
-              <div class="form-row" style="justify-content:flex-end;margin-top:8px;">
+              <div class="form-row ops-inline-actions ops-inline-actions-end">
                 <button id="return-addLine" type="button" class="muted">Add Line</button>
               </div>
             </div>
@@ -239,25 +312,32 @@
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="return-notes" rows="2" placeholder="Optional notes"></textarea></label>
             </div>
-            <div class="form-row sticky-actions">
+            <div class="form-row sticky-actions ops-action-row">
               <button id="returnBtn" type="submit">Return to Inventory</button>
               <button id="return-clearBtn" type="button" class="muted">Clear All</button>
               <button id="return-exportBtn" type="button" class="muted">Export CSV</button>
             </div>
+            </div>
           </form>
         </section>
 
-        <section class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <h3 style="margin:0;">Recent Returns</h3>
-            <div style="display:flex;gap:8px;">
+        <section class="card ops-history-card">
+          <div class="ops-section-head">
+            <div class="ops-section-copy">
+              <h3>Recent Returns</h3>
+              <p>This week’s stock coming back into inventory.</p>
+            </div>
+            <div class="ops-section-side">
+              <span id="returnHistoryCount" class="badge info">0 rows</span>
               <button id="return-export-selected" class="muted" type="button">Export Selected</button>
             </div>
           </div>
-          <table id="returnTable">
-            <thead><tr><th><input type="checkbox" data-select-all="returnTable"></th><th>Code</th><th>Qty</th><th>From Project</th><th>Reason</th><th class="mobile-hide">Location</th><th class="mobile-hide">When</th></tr></thead>
-            <tbody></tbody>
-          </table>
+          <div class="ops-table-wrap">
+            <table id="returnTable">
+              <thead><tr><th><input type="checkbox" data-select-all="returnTable"></th><th>Code</th><th>Qty</th><th>From Project</th><th>Reason</th><th class="mobile-hide">Location</th><th class="mobile-hide">When</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </section>
       </div>
 

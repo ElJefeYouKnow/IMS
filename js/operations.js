@@ -8,11 +8,32 @@ let openOrdersMap = new Map();
 let openOrderGroups = [];
 let openOrderGroupsMap = new Map();
 let pendingCheckout = null;
+let opsRefreshInFlight = null;
 const FALLBACK = 'N/A';
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const MIN_LINES = 1;
 const SESSION_KEY = 'sessionUser';
 let categoriesCache = [];
+const OPS_MODE_META = {
+  checkout: {
+    title: 'Pick Items',
+    summary: 'Pull inventory for active projects and load reserved material when it is already planned.',
+    helper: 'Best for project issue, allocation, and outbound movement.',
+    badge: 'Check-Out'
+  },
+  checkin: {
+    title: 'Receive Orders',
+    summary: 'Bring incoming material into inventory from open orders and keep each line tied to its source.',
+    helper: 'Best for warehouse receiving, delivery intake, and staged put-away.',
+    badge: 'Check-In'
+  },
+  return: {
+    title: 'Return Inventory',
+    summary: 'Move issued inventory back into available stock with the return reason and destination captured.',
+    helper: 'Best for unused material, overstock, and project closeout recovery.',
+    badge: 'Returns'
+  }
+};
 
 function uid(){ return Math.random().toString(16).slice(2,8); }
 function getSessionUser(){
@@ -243,6 +264,57 @@ function timerLabel(state){
   return mins ? `Running ${mins}m` : 'Running';
 }
 
+function updateSyncStamp(label){
+  const el = document.getElementById('opsSyncStamp');
+  if(el) el.textContent = label || fmtDT(Date.now());
+}
+
+function updateLineBadge(prefix){
+  const badge = document.getElementById(`${prefix}LineCount`);
+  if(!badge) return;
+  const container = document.getElementById(`${prefix}-lines`);
+  const rowCount = container ? container.querySelectorAll('.line-row').length : 0;
+  const lines = gatherLines(prefix);
+  const qty = lines.reduce((sum, line)=> sum + (Number(line.qty) || 0), 0);
+  if(!rowCount){
+    badge.textContent = '0 lines';
+  } else if(!lines.length){
+    badge.textContent = `${rowCount} line${rowCount === 1 ? '' : 's'}`;
+  } else {
+    badge.textContent = `${lines.length} line${lines.length === 1 ? '' : 's'} · ${qty} units`;
+  }
+}
+
+function updateHistoryCount(id, total){
+  const badge = document.getElementById(id);
+  if(badge) badge.textContent = `${total} row${total === 1 ? '' : 's'}`;
+}
+
+function updateOpsModeState(mode){
+  const meta = OPS_MODE_META[mode] || OPS_MODE_META.checkout;
+  const title = document.getElementById('opsModeTitle');
+  const summary = document.getElementById('opsModeSummary');
+  const helper = document.getElementById('opsModeHelper');
+  const badge = document.getElementById('opsModeBadge');
+  if(title) title.textContent = meta.title;
+  if(summary) summary.textContent = meta.summary;
+  if(helper) helper.textContent = meta.helper;
+  if(badge) badge.textContent = meta.badge;
+  document.body.dataset.opsMode = mode;
+}
+
+function normalizeOpsCopy(){
+  const labels = [
+    ['#checkin-mode .ops-history-card .ops-section-copy p', "This week's received inventory activity."],
+    ['#checkout-mode .ops-history-card .ops-section-copy p', "This week's outbound inventory movement."],
+    ['#return-mode .ops-history-card .ops-section-copy p', "This week's stock coming back into inventory."]
+  ];
+  labels.forEach(([selector, text])=>{
+    const el = document.querySelector(selector);
+    if(el) el.textContent = text;
+  });
+}
+
 async function logOpsEvent(type, stage, payload = {}){
   try{
     await fetch('/api/ops-events', {
@@ -326,6 +398,7 @@ function addLine(prefix){
   row.querySelector('.remove-line').addEventListener('click', ()=>{
     if(container.querySelectorAll('.line-row').length > MIN_LINES){
       row.remove();
+      updateLineBadge(prefix);
     }
   });
   utils.attachItemLookup({
@@ -335,6 +408,7 @@ function addLine(prefix){
     categoryInputId: categoryId,
     suggestionsId: suggId
   });
+  updateLineBadge(prefix);
 }
 
 function resetLines(prefix){
@@ -342,6 +416,7 @@ function resetLines(prefix){
   if(!container) return;
   container.innerHTML = '';
   if(prefix !== 'checkin') addLine(prefix);
+  updateLineBadge(prefix);
 }
 
 function gatherLines(prefix){
@@ -551,6 +626,7 @@ async function loadOpenOrders(){
 async function renderCheckinTable(){
   const tbody=document.querySelector('#checkinTable tbody');tbody.innerHTML='';
   const entries = filterToCurrentWeek(await loadCheckins());
+  updateHistoryCount('checkinHistoryCount', entries.length);
   if(!entries.length){
     const tr=document.createElement('tr');
     tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No check-ins this week</td>`;
@@ -614,6 +690,7 @@ function addOrderLine(sourceId){
   row.dataset.openQty = String(order.openQty);
   row.querySelector('input[name="code"]').readOnly = true;
   row.querySelector('input[name="name"]').readOnly = true;
+  updateLineBadge('checkin');
 }
 
 function addOrderGroup(batchId){
@@ -660,6 +737,7 @@ async function loadCheckouts(){
 async function renderCheckoutTable(){
   const tbody=document.querySelector('#checkoutTable tbody');tbody.innerHTML='';
   const entries = filterToCurrentWeek(await loadCheckouts());
+  updateHistoryCount('checkoutHistoryCount', entries.length);
   if(!entries.length){
     const tr=document.createElement('tr');
     tr.innerHTML=`<td colspan="6" style="text-align:center;color:#6b7280;">No check-outs this week</td>`;
@@ -723,6 +801,7 @@ function fillCheckoutLines(items, { force } = {}){
     row.querySelector('select[name="category"]').value = meta?.category || DEFAULT_CATEGORY_NAME;
     row.querySelector('input[name="qty"]').value = item.qty;
   });
+  updateLineBadge('checkout');
 }
 async function loadReservedForJob(jobId, { force } = {}){
   if(!jobId) return [];
@@ -901,6 +980,7 @@ async function loadReturns(){
 async function renderReturnTable(){
   const tbody=document.querySelector('#returnTable tbody');tbody.innerHTML='';
   const entries = filterToCurrentWeek(await loadReturns());
+  updateHistoryCount('returnHistoryCount', entries.length);
   if(!entries.length){
     const tr=document.createElement('tr');
     tr.innerHTML=`<td colspan="7" style="text-align:center;color:#6b7280;">No returns this week</td>`;
@@ -1024,26 +1104,53 @@ function switchMode(mode){
   if(target) target.classList.add('active');
   const btn = document.querySelector(`[data-mode="${mode}"]`);
   if(btn) btn.classList.add('active');
+  updateOpsModeState(mode);
+  const url = new URL(window.location.href);
+  url.searchParams.set('mode', mode);
+  window.history.replaceState({}, '', url);
+}
+
+async function refreshOperationsWorkspace(){
+  if(opsRefreshInFlight) return opsRefreshInFlight;
+  const refreshBtn = document.getElementById('opsRefreshBtn');
+  opsRefreshInFlight = (async ()=>{
+    try{
+      if(refreshBtn){
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'Refreshing...';
+      }
+      await loadItems();
+      await loadCategories();
+      await loadJobOptions();
+      await loadOpenOrders();
+      populateOrderSelect();
+      await updateOpsMetrics();
+      await renderCheckinTable();
+      await renderCheckoutTable();
+      await renderReserveTable();
+      await renderReturnTable();
+      const returnSelect = document.getElementById('return-fromCheckout');
+      if(returnSelect) await refreshReturnDropdown(returnSelect);
+      ['checkin', 'checkout', 'return'].forEach(updateLineBadge);
+      updateSyncStamp(fmtDT(Date.now()));
+    }finally{
+      if(refreshBtn){
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = 'Refresh';
+      }
+      opsRefreshInFlight = null;
+    }
+  })();
+  return opsRefreshInFlight;
 }
 
 // ===== DOM READY =====
 document.addEventListener('DOMContentLoaded', async ()=>{
-  await loadItems();
-  await loadCategories();
-  await loadJobOptions();
-  await loadOpenOrders();
-  populateOrderSelect();
-  updateOpsMetrics();
   const initialMode = new URLSearchParams(window.location.search).get('mode') || 'checkout';
   if(window.utils && utils.setupLogout) utils.setupLogout();
+  normalizeOpsCopy();
   // adjust available modes based on DOM
   const availableModes = ['checkin','checkout','return'].filter(m=> document.getElementById(`${m}-mode`));
-  
-  // Load all tables initially
-  await renderCheckinTable();
-  await renderCheckoutTable();
-  await renderReserveTable();
-  await renderReturnTable();
   // Initialize line items
   resetLines('checkin');
   resetLines('checkout');
@@ -1051,10 +1158,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   ['checkin','checkout','return'].forEach(prefix=>{
     const btn = document.getElementById(`${prefix}-addLine`);
     if(btn) btn.addEventListener('click', ()=> addLine(prefix));
+    document.getElementById(`${prefix}-lines`)?.addEventListener('input', ()=> updateLineBadge(prefix));
+    document.getElementById(`${prefix}-lines`)?.addEventListener('change', ()=> updateLineBadge(prefix));
   });
-  switchMode(initialMode);
+  switchMode(availableModes.includes(initialMode) ? initialMode : 'checkout');
   initTimerControls('checkin', { startBtnId: 'checkinStartBtn', finishBtnId: 'checkinFinishBtn', valueId: 'checkinTimerValue', prefix: 'checkin' });
   initTimerControls('pick', { startBtnId: 'pickStartBtn', finishBtnId: 'pickFinishBtn', valueId: 'pickTimerValue', prefix: 'checkout' });
+  document.getElementById('opsRefreshBtn')?.addEventListener('click', refreshOperationsWorkspace);
+  await refreshOperationsWorkspace();
 
   const upcomingSelect = document.getElementById('checkout-upcomingJob');
   const upcomingLoadBtn = document.getElementById('checkout-loadReserved');
@@ -1090,6 +1201,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       if(!sel || !sel.value) return;
       addOrderGroup(sel.value);
       sel.value = '';
+      updateLineBadge('checkin');
     });
   }
   const refreshOrdersBtn = document.getElementById('checkin-refreshOrders');
@@ -1097,6 +1209,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     refreshOrdersBtn.addEventListener('click', async ()=>{
       await loadOpenOrders();
       populateOrderSelect();
+      updateSyncStamp(fmtDT(Date.now()));
     });
   }
 
@@ -1176,6 +1289,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     await loadOpenOrders();
     populateOrderSelect();
     await updateOpsMetrics();
+    updateSyncStamp(fmtDT(Date.now()));
   });
   
   document.getElementById('checkin-clearBtn').addEventListener('click', async ()=>{
@@ -1201,6 +1315,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     resetLines('checkout');
     ensureJobOption(jobId);
     await updateOpsMetrics();
+    updateSyncStamp(fmtDT(Date.now()));
     return okAll;
   };
 
@@ -1321,6 +1436,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       if(select) await refreshReturnDropdown(select);
       ensureJobOption(jobId);
       await updateOpsMetrics();
+      updateSyncStamp(fmtDT(Date.now()));
     });
   }
   
