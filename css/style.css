@@ -2282,6 +2282,288 @@ body.role-manager .admin-only{display:none}
   font-size:0.78rem;
 }
 
+[data-page="seller-admin"] .seller-admin-topbar h1{
+  margin:4px 0 0;
+}
+
+[data-page="seller-admin"] .seller-admin-hero{
+  display:grid;
+  grid-template-columns:minmax(0,1.5fr) minmax(300px,420px);
+  gap:18px;
+  align-items:stretch;
+  background:
+    radial-gradient(circle at top right, rgba(33, 120, 91, 0.18), transparent 38%),
+    linear-gradient(135deg, rgba(18, 53, 43, 0.98) 0%, rgba(23, 63, 51, 0.96) 52%, rgba(244, 248, 246, 0.96) 52%, rgba(244, 248, 246, 0.98) 100%);
+}
+
+[data-page="seller-admin"] .seller-admin-hero-copy{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:10px;
+}
+
+[data-page="seller-admin"] .seller-admin-hero-copy .panel-kicker{
+  color:#cfe8dc;
+}
+
+[data-page="seller-admin"] .seller-admin-hero-copy h2{
+  margin:0;
+  max-width:14ch;
+  font-size:2rem;
+  line-height:1.05;
+  color:#ffffff;
+}
+
+[data-page="seller-admin"] .seller-admin-hero-copy .muted-text{
+  max-width:56ch;
+  margin:0;
+  color:rgba(228, 240, 234, 0.9);
+}
+
+[data-page="seller-admin"] .seller-admin-anchor-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:4px;
+}
+
+[data-page="seller-admin"] .seller-admin-anchor-row a{
+  display:inline-flex;
+  align-items:center;
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid rgba(228, 240, 234, 0.18);
+  background:rgba(255, 255, 255, 0.08);
+  color:#ffffff;
+  text-decoration:none;
+  font-weight:700;
+}
+
+[data-page="seller-admin"] .seller-admin-hero-side{
+  display:grid;
+  gap:12px;
+}
+
+[data-page="seller-admin"] .seller-admin-health{
+  padding:18px;
+  border-radius:18px;
+  border:1px solid rgba(24, 67, 54, 0.08);
+  background:rgba(255, 255, 255, 0.9);
+  box-shadow:0 18px 32px rgba(12, 27, 22, 0.08);
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+[data-page="seller-admin"] .seller-admin-health span{
+  font-size:0.74rem;
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  color:#547066;
+  font-weight:700;
+}
+
+[data-page="seller-admin"] .seller-admin-health small{
+  color:#547066;
+  font-size:0.84rem;
+  line-height:1.45;
+}
+
+[data-page="seller-admin"] .seller-health-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:max-content;
+  min-height:36px;
+  padding:8px 14px;
+  border-radius:999px;
+  font-size:0.82rem;
+  letter-spacing:0.04em;
+  text-transform:uppercase;
+  border:1px solid transparent;
+}
+
+[data-page="seller-admin"] .seller-health-badge.good{
+  background:rgba(16, 185, 129, 0.14);
+  color:#065f46;
+  border-color:rgba(16, 185, 129, 0.28);
+}
+
+[data-page="seller-admin"] .seller-health-badge.warn{
+  background:rgba(234, 179, 8, 0.16);
+  color:#854d0e;
+  border-color:rgba(234, 179, 8, 0.3);
+}
+
+[data-page="seller-admin"] .seller-health-badge.danger{
+  background:rgba(239, 68, 68, 0.14);
+  color:#991b1b;
+  border-color:rgba(239, 68, 68, 0.28);
+}
+
+[data-page="seller-admin"] .seller-health-badge.neutral{
+  background:rgba(148, 163, 184, 0.16);
+  color:#475569;
+  border-color:rgba(148, 163, 184, 0.26);
+}
+
+[data-page="seller-admin"] .seller-admin-mini-grid{
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:10px;
+}
+
+[data-page="seller-admin"] .seller-admin-mini-card{
+  padding:14px 16px;
+  border-radius:16px;
+  background:rgba(255, 255, 255, 0.86);
+  border:1px solid rgba(24, 67, 54, 0.08);
+  box-shadow:0 12px 24px rgba(12, 27, 22, 0.06);
+}
+
+[data-page="seller-admin"] .seller-admin-mini-card span{
+  display:block;
+  font-size:0.75rem;
+  color:#547066;
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  font-weight:700;
+}
+
+[data-page="seller-admin"] .seller-admin-mini-card strong{
+  display:block;
+  margin-top:8px;
+  font-size:1.5rem;
+  color:#173f33;
+}
+
+[data-page="seller-admin"] .seller-admin-section-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:16px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+
+[data-page="seller-admin"] .seller-admin-section-head h3{
+  margin:4px 0 0;
+}
+
+[data-page="seller-admin"] .seller-admin-section-head .muted-text{
+  margin:6px 0 0;
+}
+
+[data-page="seller-admin"] .seller-admin-toolbar{
+  margin:0;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+}
+
+[data-page="seller-admin"] .seller-admin-toolbar input,
+[data-page="seller-admin"] .seller-admin-toolbar select{
+  min-width:150px;
+  max-width:none;
+}
+
+[data-page="seller-admin"] .seller-admin-form-shell{
+  margin-bottom:14px;
+  padding:16px;
+  border-radius:16px;
+  border:1px solid var(--line);
+  background:var(--surface-2);
+}
+
+[data-page="seller-admin"] .seller-admin-form-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+
+[data-page="seller-admin"] .seller-admin-form-head strong{
+  display:block;
+  font-size:0.95rem;
+}
+
+[data-page="seller-admin"] #clientTable td:last-child,
+[data-page="seller-admin"] #ticketTable td:last-child{
+  white-space:nowrap;
+}
+
+[data-page="seller-admin"] #clientTable td:last-child button,
+[data-page="seller-admin"] #ticketTable td:last-child button{
+  min-width:76px;
+}
+
+.dark [data-page="seller-admin"] .seller-admin-hero{
+  background:
+    radial-gradient(circle at top right, rgba(39, 135, 102, 0.2), transparent 34%),
+    linear-gradient(135deg, rgba(9, 26, 22, 0.98) 0%, rgba(14, 36, 30, 0.98) 52%, rgba(17, 27, 24, 0.98) 52%, rgba(17, 27, 24, 0.98) 100%);
+}
+
+.dark [data-page="seller-admin"] .seller-admin-hero-copy .panel-kicker{
+  color:#9fc8b7;
+}
+
+.dark [data-page="seller-admin"] .seller-admin-hero-copy .muted-text{
+  color:#b9ccc4;
+}
+
+.dark [data-page="seller-admin"] .seller-admin-anchor-row a{
+  border-color:rgba(185, 204, 196, 0.16);
+  background:rgba(255, 255, 255, 0.05);
+}
+
+.dark [data-page="seller-admin"] .seller-admin-health,
+.dark [data-page="seller-admin"] .seller-admin-mini-card{
+  background:rgba(16, 27, 24, 0.9);
+  border-color:#24332d;
+  box-shadow:none;
+}
+
+.dark [data-page="seller-admin"] .seller-admin-health span,
+.dark [data-page="seller-admin"] .seller-admin-health small,
+.dark [data-page="seller-admin"] .seller-admin-mini-card span{
+  color:#9db8ae;
+}
+
+.dark [data-page="seller-admin"] .seller-admin-mini-card strong{
+  color:#eef7f2;
+}
+
+.dark [data-page="seller-admin"] .seller-admin-form-shell{
+  background:#101b18;
+  border-color:#24332d;
+}
+
+.dark [data-page="seller-admin"] .seller-health-badge.good{
+  background:rgba(16, 185, 129, 0.2);
+  color:#d1fae5;
+  border-color:rgba(16, 185, 129, 0.34);
+}
+
+.dark [data-page="seller-admin"] .seller-health-badge.warn{
+  background:rgba(234, 179, 8, 0.22);
+  color:#fef3c7;
+  border-color:rgba(234, 179, 8, 0.35);
+}
+
+.dark [data-page="seller-admin"] .seller-health-badge.danger{
+  background:rgba(239, 68, 68, 0.22);
+  color:#fee2e2;
+  border-color:rgba(239, 68, 68, 0.34);
+}
+
+.dark [data-page="seller-admin"] .seller-health-badge.neutral{
+  background:rgba(148, 163, 184, 0.24);
+  color:#d7e0da;
+  border-color:rgba(148, 163, 184, 0.3);
+}
+
 @media (max-width: 900px){
   [data-page="dashboard"] #adminProcurementSuggestions{
     grid-template-columns:1fr;
@@ -2289,6 +2571,29 @@ body.role-manager .admin-only{display:none}
 
   [data-page="dashboard"] #adminProcurementSuggestions .workflow-row{
     grid-template-columns:1fr;
+  }
+
+  [data-page="seller-admin"] .seller-admin-hero{
+    grid-template-columns:1fr;
+  }
+
+  [data-page="seller-admin"] .seller-admin-hero-copy h2{
+    max-width:none;
+    font-size:1.65rem;
+  }
+
+  [data-page="seller-admin"] .seller-admin-mini-grid{
+    grid-template-columns:1fr 1fr;
+  }
+
+  [data-page="seller-admin"] .seller-admin-toolbar{
+    width:100%;
+    justify-content:flex-start;
+  }
+
+  [data-page="seller-admin"] .seller-admin-toolbar input,
+  [data-page="seller-admin"] .seller-admin-toolbar select{
+    width:100%;
   }
 }
 

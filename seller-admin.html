@@ -6,7 +6,7 @@
   <title>Seller Admin</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
-<body data-ds="pro">
+<body data-ds="pro" data-page="seller-admin">
   <div class="app">
     <aside class="sidebar">
       <div>
@@ -39,15 +39,64 @@
     </aside>
 
     <main class="main">
-      <header class="topbar">
-        <h1>Seller Admin</h1>
+      <header class="topbar seller-admin-topbar">
+        <div>
+          <div class="panel-kicker">Revenue Ops</div>
+          <h1>Seller Admin</h1>
+        </div>
         <div class="topbar-right">
+          <button id="refreshSellerBtn" class="muted">Refresh</button>
           <button id="logoutBtn" class="muted">Logout</button>
         </div>
       </header>
 
-      <section class="card">
-        <h3>Usage Dashboard</h3>
+      <section class="card seller-admin-hero" id="sellerOverview">
+        <div class="seller-admin-hero-copy">
+          <div class="panel-kicker">Client Operations</div>
+          <h2>Keep account health, support load, and plan movement in one place.</h2>
+          <p class="muted-text">Review active tenants, renewal pressure, support volume, and the next actions that need attention without hopping between raw tables.</p>
+          <div class="seller-admin-anchor-row">
+            <a href="#sellerClientsSection">Clients</a>
+            <a href="#sellerSubscriptionsSection">Subscriptions</a>
+            <a href="#sellerSupportSection">Support</a>
+            <a href="#sellerDevSection">Dev</a>
+          </div>
+        </div>
+        <div class="seller-admin-hero-side">
+          <div class="seller-admin-health">
+            <span>Workspace health</span>
+            <strong id="sellerHealthBadge" class="seller-health-badge neutral">-</strong>
+            <small id="sellerHealthNote">Loading overview...</small>
+          </div>
+          <div class="seller-admin-mini-grid">
+            <div class="seller-admin-mini-card">
+              <span>Trials</span>
+              <strong id="metricTrials">-</strong>
+            </div>
+            <div class="seller-admin-mini-card">
+              <span>Past Due</span>
+              <strong id="metricPastDue">-</strong>
+            </div>
+            <div class="seller-admin-mini-card">
+              <span>Pending Tickets</span>
+              <strong id="metricPendingTickets">-</strong>
+            </div>
+            <div class="seller-admin-mini-card">
+              <span>Enterprise</span>
+              <strong id="metricEnterprise">-</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="sellerOpsSection">
+        <div class="seller-admin-section-head">
+          <div>
+            <div class="panel-kicker">Overview</div>
+            <h3>Usage Dashboard</h3>
+            <p class="muted-text">Core client volume, user load, recent movement, and current ticket pressure.</p>
+          </div>
+        </div>
         <div class="summary-grid">
           <div class="summary-item">
             <span>Active Clients</span>
@@ -72,19 +121,45 @@
             <div id="activityList" class="summary-items"></div>
           </div>
           <div class="card" style="margin:0;">
-            <h3>Alerts</h3>
+            <h3>Attention Queue</h3>
             <div id="alertList" class="summary-items"></div>
           </div>
         </div>
       </section>
 
-      <section class="card">
-        <div class="data-toolbar">
-          <input id="clientFilter" placeholder="Search clients" />
-          <span class="badge info">Clients</span>
+      <section class="card" id="sellerClientsSection">
+        <div class="seller-admin-section-head">
+          <div>
+            <div class="panel-kicker">Clients</div>
+            <h3>Client Management</h3>
+            <p class="muted-text">Provision tenants, adjust plans, and track account health.</p>
+          </div>
+          <div class="data-toolbar seller-admin-toolbar">
+            <input id="clientFilter" placeholder="Search clients" />
+            <select id="clientStatusFilter">
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="trial">Trial</option>
+              <option value="past_due">Past Due</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <select id="clientPlanFilter">
+              <option value="">All plans</option>
+              <option value="starter">Starter</option>
+              <option value="growth">Growth</option>
+              <option value="enterprise">Enterprise</option>
+            </select>
+            <span id="clientCountBadge" class="badge info">0 shown</span>
+          </div>
         </div>
-        <h3>Client Management</h3>
-        <form id="clientForm" class="inventory-form" autocomplete="off">
+        <div class="seller-admin-form-shell">
+          <div class="seller-admin-form-head">
+            <div>
+              <strong>Create or edit client</strong>
+              <p class="muted-text">Use this form for new tenant setup and account updates.</p>
+            </div>
+          </div>
+          <form id="clientForm" class="inventory-form" autocomplete="off">
           <input type="hidden" id="client-id" />
           <div class="form-row">
             <label>Tenant Code<input id="client-code" required placeholder="acme"></label>
@@ -120,7 +195,8 @@
             <button id="clientClearBtn" type="button" class="muted">Clear</button>
           </div>
           <div id="clientMsg" class="settings-msg"></div>
-        </form>
+          </form>
+        </div>
 
         <table id="clientTable">
           <thead>
@@ -130,24 +206,54 @@
         </table>
       </section>
 
-      <section class="card">
-        <h3>Subscription Management</h3>
-        <p class="muted-text">Front-end ready. Wiring to billing provider can come next.</p>
+      <section class="card" id="sellerSubscriptionsSection">
+        <div class="seller-admin-section-head">
+          <div>
+            <div class="panel-kicker">Subscriptions</div>
+            <h3>Subscription Management</h3>
+            <p class="muted-text">Priority guidance for follow-ups, expansion, and billing recovery.</p>
+          </div>
+        </div>
         <table id="subscriptionTable">
           <thead>
-            <tr><th>Client</th><th>Plan</th><th>Status</th><th>Next Step</th></tr>
+            <tr><th>Client</th><th>Plan</th><th>Status</th><th>Next Step</th><th>Priority</th></tr>
           </thead>
           <tbody></tbody>
         </table>
       </section>
 
-      <section class="card">
-        <div class="data-toolbar">
-          <input id="ticketFilter" placeholder="Search tickets" />
-          <span class="badge warn">Support</span>
+      <section class="card" id="sellerSupportSection">
+        <div class="seller-admin-section-head">
+          <div>
+            <div class="panel-kicker">Support</div>
+            <h3>Support Tools</h3>
+            <p class="muted-text">Track workload, ticket severity, and client-facing follow-ups.</p>
+          </div>
+          <div class="data-toolbar seller-admin-toolbar">
+            <input id="ticketFilter" placeholder="Search tickets" />
+            <select id="ticketStatusFilter">
+              <option value="">All statuses</option>
+              <option value="open">Open</option>
+              <option value="pending">Pending</option>
+              <option value="closed">Closed</option>
+            </select>
+            <select id="ticketPriorityFilter">
+              <option value="">All priorities</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <span id="ticketCountBadge" class="badge warn">0 shown</span>
+          </div>
         </div>
-        <h3>Support Tools</h3>
-        <form id="ticketForm" class="inventory-form" autocomplete="off">
+        <div class="seller-admin-form-shell">
+          <div class="seller-admin-form-head">
+            <div>
+              <strong>Create or update ticket</strong>
+              <p class="muted-text">Log internal follow-up items or adjust live support tickets.</p>
+            </div>
+          </div>
+          <form id="ticketForm" class="inventory-form" autocomplete="off">
           <input type="hidden" id="ticket-id" />
           <div class="form-row">
             <label>Tenant
@@ -176,7 +282,8 @@
             <button id="ticketClearBtn" type="button" class="muted">Clear</button>
           </div>
           <div id="ticketMsg" class="settings-msg"></div>
-        </form>
+          </form>
+        </div>
 
         <table id="ticketTable">
           <thead>
@@ -186,7 +293,7 @@
         </table>
       </section>
 
-      <section class="card" id="devControls">
+      <section class="card" id="sellerDevSection">
         <div class="data-toolbar">
           <span class="badge warn">Dev Controls</span>
         </div>

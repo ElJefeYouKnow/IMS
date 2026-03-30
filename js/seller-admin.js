@@ -35,8 +35,91 @@ function fmtTime(ts){
 }
 
 function statusPill(status){
-  const label = (status || '').replace('_', ' ');
+  const label = (status || '').replace(/_/g, ' ');
   return `<span class="status-pill ${status}">${label}</span>`;
+}
+
+function getFilteredClients(){
+  const search = (document.getElementById('clientFilter')?.value || '').trim().toLowerCase();
+  const status = document.getElementById('clientStatusFilter')?.value || '';
+  const plan = document.getElementById('clientPlanFilter')?.value || '';
+  return clients.filter((client)=>{
+    const matchesSearch = !search
+      || (client.name || '').toLowerCase().includes(search)
+      || (client.email || '').toLowerCase().includes(search)
+      || (client.code || '').toLowerCase().includes(search);
+    const matchesStatus = !status || client.status === status;
+    const matchesPlan = !plan || client.plan === plan;
+    return matchesSearch && matchesStatus && matchesPlan;
+  });
+}
+
+function getFilteredTickets(){
+  const search = (document.getElementById('ticketFilter')?.value || '').trim().toLowerCase();
+  const status = document.getElementById('ticketStatusFilter')?.value || '';
+  const priority = document.getElementById('ticketPriorityFilter')?.value || '';
+  return tickets.filter((ticket)=>{
+    const tenantId = ticket.tenantId || ticket.clientId;
+    const client = clients.find(c=> c.id === tenantId);
+    const clientName = client?.name || '';
+    const matchesSearch = !search
+      || clientName.toLowerCase().includes(search)
+      || (ticket.subject || '').toLowerCase().includes(search);
+    const matchesStatus = !status || ticket.status === status;
+    const matchesPriority = !priority || ticket.priority === priority;
+    return matchesSearch && matchesStatus && matchesPriority;
+  });
+}
+
+function describeSubscriptionAction(client){
+  const activeUsers = Number(client.activeUsers) || 0;
+  const seatLimit = Number(client.seatLimit) || 0;
+  if(client.status === 'past_due'){
+    return { nextStep: 'Resolve billing hold', priority: 'Urgent' };
+  }
+  if(client.status === 'trial'){
+    return { nextStep: 'Run conversion follow-up', priority: 'This week' };
+  }
+  if(client.status === 'cancelled'){
+    return { nextStep: 'Confirm offboarding', priority: 'Review' };
+  }
+  if(seatLimit && activeUsers >= seatLimit){
+    return { nextStep: 'Offer additional seats', priority: 'Expansion' };
+  }
+  if(client.plan === 'starter' && activeUsers >= 8){
+    return { nextStep: 'Review Growth plan', priority: 'Expansion' };
+  }
+  if(client.plan === 'growth' && activeUsers >= 20){
+    return { nextStep: 'Review Enterprise plan', priority: 'Expansion' };
+  }
+  return { nextStep: 'Healthy account', priority: 'Monitor' };
+}
+
+function computeHealthSnapshot(){
+  const activeClients = clients.filter(c=> c.status === 'active').length;
+  const trials = clients.filter(c=> c.status === 'trial').length;
+  const pastDue = clients.filter(c=> c.status === 'past_due').length;
+  const pendingTickets = tickets.filter(t=> t.status === 'pending').length;
+  const enterprise = clients.filter(c=> c.plan === 'enterprise').length;
+  let label = 'Healthy';
+  let tone = 'good';
+  let note = `${activeClients} active clients with no immediate billing pressure.`;
+  if(pastDue > 0){
+    label = 'Attention needed';
+    tone = 'danger';
+    note = `${pastDue} client${pastDue === 1 ? '' : 's'} currently past due.`;
+  }else if(pendingTickets >= 3 || trials >= 2){
+    label = 'Watch list';
+    tone = 'warn';
+    note = pendingTickets >= 3
+      ? `${pendingTickets} pending tickets need follow-up.`
+      : `${trials} trial accounts need conversion follow-up.`;
+  }else if(!clients.length){
+    label = 'No data';
+    tone = 'neutral';
+    note = 'Seller data will appear here once clients are created.';
+  }
+  return { trials, pastDue, pendingTickets, enterprise, label, tone, note };
 }
 
 function renderMetrics(){
@@ -44,6 +127,7 @@ function renderMetrics(){
   const activeUsers = clients.reduce((sum,c)=> sum + (Number(c.activeUsers) || 0), 0);
   const recentActivity = activities.filter(a=> (Date.now() - a.ts) <= 7 * 86400000).length;
   const openTickets = tickets.filter(t=> t.status !== 'closed').length;
+  const snapshot = computeHealthSnapshot();
 
   const metricClients = document.getElementById('metricClients');
   const metricUsers = document.getElementById('metricUsers');
@@ -53,6 +137,21 @@ function renderMetrics(){
   if(metricUsers) metricUsers.textContent = activeUsers;
   if(metricActivity) metricActivity.textContent = recentActivity;
   if(metricTickets) metricTickets.textContent = openTickets;
+  const metricTrials = document.getElementById('metricTrials');
+  const metricPastDue = document.getElementById('metricPastDue');
+  const metricPendingTickets = document.getElementById('metricPendingTickets');
+  const metricEnterprise = document.getElementById('metricEnterprise');
+  if(metricTrials) metricTrials.textContent = snapshot.trials;
+  if(metricPastDue) metricPastDue.textContent = snapshot.pastDue;
+  if(metricPendingTickets) metricPendingTickets.textContent = snapshot.pendingTickets;
+  if(metricEnterprise) metricEnterprise.textContent = snapshot.enterprise;
+  const sellerHealthBadge = document.getElementById('sellerHealthBadge');
+  const sellerHealthNote = document.getElementById('sellerHealthNote');
+  if(sellerHealthBadge){
+    sellerHealthBadge.textContent = snapshot.label;
+    sellerHealthBadge.className = `seller-health-badge ${snapshot.tone}`;
+  }
+  if(sellerHealthNote) sellerHealthNote.textContent = snapshot.note;
 
   const activityList = document.getElementById('activityList');
   if(activityList){
@@ -74,16 +173,26 @@ function renderMetrics(){
     alertList.innerHTML = '';
     const alerts = [];
     clients.forEach(c=>{
-      if(c.status === 'past_due') alerts.push(`${c.name} is past due`);
-      if(c.status === 'trial') alerts.push(`${c.name} trial ending soon`);
+      if(c.status === 'past_due') alerts.push({ message: `${c.name} is past due`, tag: 'Billing' });
+      if(c.status === 'trial') alerts.push({ message: `${c.name} needs trial follow-up`, tag: 'Conversion' });
+    });
+    tickets.forEach(ticket=>{
+      if(ticket.status === 'pending' || ticket.priority === 'high'){
+        const tenantId = ticket.tenantId || ticket.clientId;
+        const client = clients.find(c=> c.id === tenantId);
+        alerts.push({
+          message: `${client?.name || 'Unknown client'}: ${ticket.subject}`,
+          tag: ticket.priority === 'high' ? 'High priority' : 'Pending'
+        });
+      }
     });
     if(!alerts.length){
-      alertList.textContent = 'No alerts.';
+      alertList.textContent = 'No follow-ups waiting.';
     }else{
-      alerts.slice(0, 6).forEach(msg=>{
+      alerts.slice(0, 6).forEach((item)=>{
         const row = document.createElement('div');
         row.className = 'summary-row';
-        row.innerHTML = `<span>${msg}</span><span>Action</span>`;
+        row.innerHTML = `<span>${item.message}</span><span>${item.tag}</span>`;
         alertList.appendChild(row);
       });
     }
@@ -93,12 +202,10 @@ function renderMetrics(){
 function renderClientTable(){
   const tbody = document.querySelector('#clientTable tbody');
   if(!tbody) return;
-  const filter = (document.getElementById('clientFilter')?.value || '').toLowerCase();
   tbody.innerHTML = '';
-  const rows = clients.filter(c=>{
-    if(!filter) return true;
-    return c.name.toLowerCase().includes(filter) || c.email.toLowerCase().includes(filter) || (c.code || '').toLowerCase().includes(filter);
-  });
+  const rows = getFilteredClients();
+  const clientCountBadge = document.getElementById('clientCountBadge');
+  if(clientCountBadge) clientCountBadge.textContent = `${rows.length} shown`;
   if(!rows.length){
     const tr = document.createElement('tr');
     tr.innerHTML = `<td colspan="8" style="text-align:center;color:#6b7280;">No clients</td>`;
@@ -130,19 +237,22 @@ function renderSubscriptionTable(){
   const tbody = document.querySelector('#subscriptionTable tbody');
   if(!tbody) return;
   tbody.innerHTML = '';
-  clients.forEach(client=>{
+  const rows = getFilteredClients();
+  if(!rows.length){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="5" style="text-align:center;color:#6b7280;">No subscriptions</td>`;
+    tbody.appendChild(tr);
+    return;
+  }
+  rows.forEach(client=>{
+    const guidance = describeSubscriptionAction(client);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${client.name}</td>
       <td>${client.plan}</td>
       <td>${statusPill(client.status)}</td>
-      <td>
-        <select disabled>
-          <option>Upgrade (soon)</option>
-          <option>Downgrade (soon)</option>
-          <option>Cancel (soon)</option>
-        </select>
-      </td>
+      <td>${guidance.nextStep}</td>
+      <td>${guidance.priority}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -151,14 +261,10 @@ function renderSubscriptionTable(){
 function renderTicketTable(){
   const tbody = document.querySelector('#ticketTable tbody');
   if(!tbody) return;
-  const filter = (document.getElementById('ticketFilter')?.value || '').toLowerCase();
   tbody.innerHTML = '';
-  const rows = tickets.filter(t=>{
-    const tenantId = t.tenantId || t.clientId;
-    const client = clients.find(c=> c.id === tenantId);
-    const clientName = client?.name || '';
-    return !filter || clientName.toLowerCase().includes(filter) || t.subject.toLowerCase().includes(filter);
-  });
+  const rows = getFilteredTickets();
+  const ticketCountBadge = document.getElementById('ticketCountBadge');
+  if(ticketCountBadge) ticketCountBadge.textContent = `${rows.length} shown`;
   if(!rows.length){
     const tr = document.createElement('tr');
     tr.innerHTML = `<td colspan="6" style="text-align:center;color:#6b7280;">No tickets</td>`;
@@ -518,7 +624,12 @@ function initDevControls(){
 }
 
 async function refreshData(){
+  const refreshBtn = document.getElementById('refreshSellerBtn');
   try{
+    if(refreshBtn){
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'Refreshing...';
+    }
     await loadData();
     refreshTicketClientOptions();
     renderAll();
@@ -532,6 +643,11 @@ async function refreshData(){
     }else{
       alert(e.message || 'Failed to load seller data');
     }
+  }finally{
+    if(refreshBtn){
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = 'Refresh';
+    }
   }
 }
 
@@ -541,6 +657,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   attachTableHandlers();
   initDevControls();
   await refreshData();
-  document.getElementById('clientFilter')?.addEventListener('input', renderAll);
-  document.getElementById('ticketFilter')?.addEventListener('input', renderAll);
+  document.getElementById('refreshSellerBtn')?.addEventListener('click', refreshData);
+  ['clientFilter', 'clientStatusFilter', 'clientPlanFilter', 'ticketFilter', 'ticketStatusFilter', 'ticketPriorityFilter']
+    .forEach((id)=> document.getElementById(id)?.addEventListener('input', renderAll));
+  ['clientStatusFilter', 'clientPlanFilter', 'ticketStatusFilter', 'ticketPriorityFilter']
+    .forEach((id)=> document.getElementById(id)?.addEventListener('change', renderAll));
 });
