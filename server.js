@@ -732,7 +732,7 @@ async function collectLowStockTransitionsTx(client, tenantIdVal, codes) {
        LEFT JOIN categories c ON c.tenantId = i.tenantId AND LOWER(c.name)=LOWER(COALESCE(NULLIF(i.category,''), $3))
        WHERE i.code=$1 AND i.tenantId=$2
        LIMIT 1
-       FOR UPDATE`,
+       FOR UPDATE OF i`,
       [code, tenantIdVal, DEFAULT_CATEGORY_NAME]
     );
     const item = itemResult.rows?.[0];
