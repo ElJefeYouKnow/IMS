@@ -190,6 +190,9 @@
               </div>
               <div class="form-row">
                 <label>Expected Return Date<input id="reserve-returnDate" type="date"></label>
+                <label>Reserve From
+                  <select id="reserve-location"></select>
+                </label>
               </div>
               <div class="form-row">
                 <label style="flex:1">Notes<textarea id="reserve-notes" rows="2" placeholder="Optional notes"></textarea></label>
@@ -209,7 +212,7 @@
             </div>
             <h3>Active Project Reservations</h3>
             <table id="reserveTable">
-              <thead><tr><th>Code</th><th>Project</th><th>Qty</th><th class="mobile-hide">Expected Return</th><th class="mobile-hide">Reserved On</th></tr></thead>
+              <thead><tr><th>Code</th><th>Project</th><th>Qty</th><th class="mobile-hide">Location</th><th class="mobile-hide">Expected Return</th><th class="mobile-hide">Reserved On</th></tr></thead>
               <tbody></tbody>
             </table>
           </section>

@@ -7,6 +7,15 @@ const CLOSED_JOB_STATUSES = new Set(['complete', 'completed', 'closed', 'archive
 const CACHE_KEY = 'ims.inventory.cache.v1';
 const DRAWER_MIN_WIDTH = 420;
 const DRAWER_MAX_WIDTH = 920;
+const UNKNOWN_LOCATION_LABEL = 'Unspecified';
+const INVENTORY_LOCATION_TYPE_LABELS = {
+  warehouse: 'Warehouse',
+  bin: 'Bin / Shelf / Zone',
+  staging: 'Staging Area',
+  vehicle: 'Vehicle',
+  field: 'Field',
+  writeoff: 'Lost / Write-off'
+};
 
 let incomingBaseRows = [];
 let onhandBaseRows = [];
@@ -18,6 +27,7 @@ let categoryRulesByName = new Map();
 let closedJobIds = new Set();
 let itemPanelEls = null;
 let lastSyncTs = null;
+let inventoryEventCache = [];
 
 function haptic(kind){
   if(!navigator.vibrate) return;
@@ -269,6 +279,107 @@ function formatStorageLocation(meta, item){
   return item?.location || '—';
 }
 
+function escapeHtml(value){
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeInventoryLocationType(type, label){
+  const raw = String(type || '').trim().toLowerCase();
+  if(['warehouse', 'wh'].includes(raw)) return 'warehouse';
+  if(['bin', 'shelf', 'zone', 'rack', 'storage'].includes(raw)) return 'bin';
+  if(['staging', 'staging-area', 'receiving'].includes(raw)) return 'staging';
+  if(['vehicle', 'truck', 'van'].includes(raw)) return 'vehicle';
+  if(['field', 'site'].includes(raw)) return 'field';
+  if(['writeoff', 'write-off', 'lost', 'lost-writeoff', 'lost/write-off'].includes(raw)) return 'writeoff';
+  const normalizedLabel = String(label || '').trim().toLowerCase();
+  if(!normalizedLabel) return '';
+  if(normalizedLabel.includes('warehouse')) return 'warehouse';
+  if(normalizedLabel.includes('bin') || normalizedLabel.includes('shelf') || normalizedLabel.includes('zone') || normalizedLabel.includes('rack')) return 'bin';
+  if(normalizedLabel.includes('staging') || normalizedLabel.includes('receiving')) return 'staging';
+  if(normalizedLabel.includes('truck') || normalizedLabel.includes('vehicle') || normalizedLabel.includes('van')) return 'vehicle';
+  if(normalizedLabel.includes('field') || normalizedLabel.includes('site')) return 'field';
+  if(normalizedLabel.includes('lost') || normalizedLabel.includes('write-off') || normalizedLabel.includes('writeoff')) return 'writeoff';
+  return '';
+}
+
+function buildLocationKey(entry){
+  const label = String(entry?.location || '').trim() || UNKNOWN_LOCATION_LABEL;
+  const type = normalizeInventoryLocationType(entry?.locationType || entry?.locationtype, label);
+  const ref = String(entry?.locationRef || entry?.locationref || '').trim() || label.toLowerCase();
+  return `${type || 'unknown'}|${ref}`;
+}
+
+function getLocationTypeLabel(type){
+  return INVENTORY_LOCATION_TYPE_LABELS[type] || 'Location';
+}
+
+function createLocationBucket(entry){
+  const name = String(entry?.location || '').trim() || UNKNOWN_LOCATION_LABEL;
+  const type = normalizeInventoryLocationType(entry?.locationType || entry?.locationtype, name);
+  const ref = String(entry?.locationRef || entry?.locationref || '').trim() || name.toLowerCase();
+  return {
+    key: `${type || 'unknown'}|${ref}`,
+    name,
+    type,
+    typeLabel: getLocationTypeLabel(type),
+    ref,
+    inQty: 0,
+    outQty: 0,
+    reserveQty: 0,
+    consumeQty: 0,
+    lastTs: 0
+  };
+}
+
+function formatLocationSummary(locations){
+  if(!locations?.length) return FALLBACK;
+  const primary = locations[0];
+  const suffix = locations.length > 1 ? ` +${locations.length - 1}` : '';
+  return `${primary.name} (${primary.available} avail)${suffix}`;
+}
+
+function renderLocationBreakdown(locations){
+  const rows = Array.isArray(locations) ? locations : [];
+  const locationBreakdown = renderLocationBreakdown(summary.locations || item.locations || []);
+  return `
+    <div class="panel-section">
+      <div class="drawer-section-head">
+        <h3>Location Balances</h3>
+        <span class="panel-kicker">${rows.length || 0} tracked</span>
+      </div>
+      <div class="panel-table-wrap">
+        <table class="drawer-table location-balance-table">
+          <thead>
+            <tr><th>Location</th><th>Type</th><th>On Hand</th><th>Available</th><th>Reserved</th></tr>
+          </thead>
+          <tbody>
+            ${rows.length ? rows.map((location)=>{
+              const tone = location.available <= 0 ? 'danger' : (location.available <= 2 ? 'warn' : 'success');
+              return `
+                <tr>
+                  <td>
+                    <div class="location-name">${escapeHtml(location.name)}</div>
+                    <div class="location-meta">${escapeHtml(location.summaryLabel || '')}</div>
+                  </td>
+                  <td><span class="location-type-pill">${escapeHtml(location.typeLabel)}</span></td>
+                  <td>${location.onHand}</td>
+                  <td><span class="status-chip ${tone}"><span class="dot"></span><span class="label">${location.available}</span></span></td>
+                  <td>${location.reserved}</td>
+                </tr>
+              `;
+            }).join('') : '<tr><td colspan="5" class="muted-text">No location-tracked stock yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function renderTabOverview(data){
   const item = data?.item || {};
   const states = data?.states || {};
@@ -379,6 +490,7 @@ function renderTabOverview(data){
       </div>
       ${qtyGrid}
     </div>
+    ${locationBreakdown}
     ${adminAdjustPanel}
     <div class="panel-section">
       <div class="drawer-section-head">
@@ -1109,7 +1221,8 @@ function openItemPanel(item){
     lastCount: item.countedAt ? { date: item.countedAt, user: item.countedBy } : null,
     discrepancyUnits: item.discrepancy ?? null,
     discrepancyValue: item.discrepancyValue ?? null,
-    avgDailyUsage: meta.avgDailyUsage ?? null
+    avgDailyUsage: meta.avgDailyUsage ?? null,
+    locations: item.locations || []
   };
   const role = getUserRole();
   drawerState.itemCode = item.code;
@@ -1481,7 +1594,7 @@ function aggregateStock(entries){
   const stock = {};
   entries.forEach(e=>{
     if(!e.code) return;
-    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, consumeQty: 0, lastTs: 0, lastLocation: '', lastLocationTs: 0, jobs: new Map() };
+    if(!stock[e.code]) stock[e.code] = { code: e.code, name: e.name || '', inQty: 0, outQty: 0, returnQty: 0, reserveQty: 0, consumeQty: 0, lastTs: 0, lastLocation: '', lastLocationTs: 0, jobs: new Map(), locations: new Map() };
     const item = stock[e.code];
     if(!item.name && e.name) item.name = e.name;
     const qty = Number(e.qty)||0;
@@ -1502,6 +1615,17 @@ function aggregateStock(entries){
       else if(e.type === 'reserve') job.reserve += qty;
       else if(e.type === 'reserve_release') job.reserve -= qty;
     }
+    if(['in','return','out','reserve','reserve_release','consume'].includes(e.type)){
+      const key = buildLocationKey(e);
+      if(!item.locations.has(key)) item.locations.set(key, createLocationBucket(e));
+      const bucket = item.locations.get(key);
+      if(e.type === 'in' || e.type === 'return') bucket.inQty += qty;
+      else if(e.type === 'out') bucket.outQty += qty;
+      else if(e.type === 'reserve') bucket.reserveQty += qty;
+      else if(e.type === 'reserve_release') bucket.reserveQty -= qty;
+      else if(e.type === 'consume') bucket.consumeQty += qty;
+      bucket.lastTs = Math.max(bucket.lastTs, e.ts || 0);
+    }
     item.lastTs = Math.max(item.lastTs, e.ts || 0);
     if(e.location){
       const locTs = e.ts || 0;
@@ -1519,6 +1643,22 @@ function aggregateStock(entries){
     const checkedOut = Math.max(0, s.outQty - s.returnQty);
     const available = Math.max(0, s.inQty - s.outQty - s.reserveQty - s.consumeQty);
     const onHand = Math.max(0, s.inQty - s.outQty - s.consumeQty);
+    const locations = Array.from(s.locations.values())
+      .map((location)=>{
+        const onHandQty = Math.max(0, location.inQty - location.outQty - location.consumeQty);
+        const reservedQty = Math.max(0, location.reserveQty);
+        const availableQty = Math.max(0, onHandQty - reservedQty);
+        return {
+          ...location,
+          onHand: onHandQty,
+          reserved: reservedQty,
+          available: availableQty,
+          summaryLabel: `${onHandQty} on hand • ${reservedQty} reserved`
+        };
+      })
+      .filter((location)=> location.onHand > 0 || location.reserved > 0)
+      .sort((a, b)=> (b.available - a.available) || (b.onHand - a.onHand) || a.name.localeCompare(b.name));
+    const primaryLocation = locations[0] || null;
     const { threshold, enabled } = getLowStockConfigForCode(s.code);
     return {
       ...s,
@@ -1530,7 +1670,10 @@ function aggregateStock(entries){
       lowStockThreshold: threshold,
       lowStockEnabled: enabled,
       lastDate: s.lastTs ? fmtDT(s.lastTs) : FALLBACK,
-      location: s.lastLocation || FALLBACK
+      location: primaryLocation?.name || s.lastLocation || FALLBACK,
+      locationSummary: locations.length ? formatLocationSummary(locations) : (s.lastLocation || FALLBACK),
+      locationCount: locations.length,
+      locations
     };
   });
 }
@@ -1801,7 +1944,7 @@ function renderOnhand(){
       statusLabel = 'Low stock';
       statusClass = 'status-warn';
     }
-    const location = item.location || FALLBACK;
+    const location = item.locationSummary || item.location || FALLBACK;
     tr.innerHTML=`
       <td class="mobile-only">
         <div class="mobile-item-card">
@@ -2240,6 +2383,7 @@ async function refreshAll(){
   setClosedJobsFromRows(jobs);
 
   window.__cachedInventory = inventory;
+  inventoryEventCache = inventory;
   incomingBaseRows = buildIncomingRows(orders, inventory);
   onhandBaseRows = computeOnhandRows(inventory);
   overdueRows = buildOverdueRows(inventory);

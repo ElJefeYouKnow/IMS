@@ -18,6 +18,14 @@ let projectMaterialsCache = new Map();
 let orderRangeFilter = 'all';
 let pendingSubmit = null;
 let currentShoppingPlan = null;
+let inventoryLocationOptions = [];
+const FALLBACK_LOCATION_OPTIONS = [
+  { id: 'loc:warehouse:main', name: 'Main Warehouse', label: 'Main Warehouse', type: 'warehouse', ref: 'main' },
+  { id: 'loc:bin:primary', name: 'Primary Bin', label: 'Primary Bin', type: 'bin', ref: 'primary' },
+  { id: 'loc:staging:default', name: 'Staging Area', label: 'Staging Area', type: 'staging', ref: 'default' },
+  { id: 'loc:field:default', name: 'Field Stock', label: 'Field Stock', type: 'field', ref: 'default' },
+  { id: 'loc:writeoff:default', name: 'Lost / Write-off', label: 'Lost / Write-off', type: 'writeoff', ref: 'default' }
+];
 
 function normalizeJobId(value){
   const val = (value || '').toString().trim();
@@ -29,6 +37,52 @@ function normalizeJobId(value){
 
 function getEntryJobId(entry){
   return normalizeJobId(entry?.jobId || entry?.jobid || '');
+}
+
+async function loadInventoryLocations(force = false){
+  if(inventoryLocationOptions.length && !force) return inventoryLocationOptions;
+  const rows = await utils.fetchJsonSafe('/api/inventory-locations', {}, []) || [];
+  inventoryLocationOptions = (rows.length ? rows : FALLBACK_LOCATION_OPTIONS).map((row)=>({
+    id: row.id || row.ref || row.name,
+    name: row.name || row.label || 'Location',
+    label: row.label || row.name || 'Location',
+    type: row.type || '',
+    ref: row.ref || row.id || ''
+  }));
+  return inventoryLocationOptions;
+}
+
+function populateInventoryLocationSelect(selectId, preferredId){
+  const select = document.getElementById(selectId);
+  if(!select) return;
+  const current = select.value || preferredId || '';
+  select.innerHTML = '<option value="">Select location...</option>';
+  inventoryLocationOptions.forEach((option)=>{
+    const el = document.createElement('option');
+    el.value = option.id;
+    el.textContent = option.label || option.name;
+    el.dataset.locationName = option.name || option.label || '';
+    el.dataset.locationType = option.type || '';
+    el.dataset.locationRef = option.ref || '';
+    select.appendChild(el);
+  });
+  if(current && [...select.options].some((option)=> option.value === current)){
+    select.value = current;
+  }else if(preferredId && [...select.options].some((option)=> option.value === preferredId)){
+    select.value = preferredId;
+  }else if(select.options.length > 1){
+    select.selectedIndex = 1;
+  }
+}
+
+function getInventoryLocationPayload(selectId){
+  const select = document.getElementById(selectId);
+  const option = select?.selectedOptions?.[0];
+  return {
+    location: option?.dataset.locationName || '',
+    locationType: option?.dataset.locationType || '',
+    locationRef: option?.dataset.locationRef || ''
+  };
 }
 
 function buildOrderBalance(orders, inventory){
@@ -1292,6 +1346,7 @@ async function refreshInventoryAvailability(){
 function initReserve(){
   const reserveLines = document.getElementById('reserve-lines');
   if(!reserveLines) return;
+  populateInventoryLocationSelect('reserve-location', 'loc:bin:primary');
 
   function addReserveLine(prefill = {}){
     const codeId = `reserve-code-${uid()}`;
@@ -1376,13 +1431,13 @@ function initReserve(){
     });
     if(!filtered.length){
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td colspan="5" class="ds-table-empty">No reservations</td>`;
+      tr.innerHTML=`<td colspan="6" class="ds-table-empty">No reservations</td>`;
       reserveTable.appendChild(tr);
       return;
     }
     filtered.slice().reverse().forEach(e=>{
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${e.code}</td><td>${e.jobId||''}</td><td>${e.qty}</td><td class="mobile-hide">${e.returnDate||''}</td><td class="mobile-hide">${utils.formatDateTime?.(e.ts) || ''}</td>`;
+      tr.innerHTML=`<td>${e.code}</td><td>${e.jobId||''}</td><td>${e.qty}</td><td class="mobile-hide">${e.location || FALLBACK}</td><td class="mobile-hide">${e.returnDate||''}</td><td class="mobile-hide">${utils.formatDateTime?.(e.ts) || ''}</td>`;
       reserveTable.appendChild(tr);
     });
   }
@@ -1400,13 +1455,14 @@ function initReserve(){
     if(!lines.length){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'Add at least one line'; return; }
     const missing = lines.find(line=> !itemsCache.find(i=> i.code.toLowerCase() === line.code.toLowerCase()));
     if(missing){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = `Unknown item code: ${missing.code}`; return; }
+    const locationPayload = getInventoryLocationPayload('reserve-location');
 
     let okAll = true;
     for(const line of lines){
       const r = await fetch('/api/inventory-reserve',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ code: line.code, jobId, qty: line.qty, returnDate, notes, userEmail: session.email, userName: session.name })
+        body: JSON.stringify({ code: line.code, jobId, qty: line.qty, returnDate, notes, ...locationPayload, userEmail: session.email, userName: session.name })
       });
       if(!r.ok){
         const data = await r.json().catch(()=>({ error: 'Failed' }));
@@ -1454,6 +1510,7 @@ function initReserve(){
       if(!jobId){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'Project is required'; return; }
       const returnDate = document.getElementById('reserve-returnDate').value;
       const notes = document.getElementById('reserve-notes').value.trim();
+      const locationPayload = getInventoryLocationPayload('reserve-location');
       const text = reserveBulkArea.value.trim();
       if(!text){ reserveMsg.textContent = ''; return; }
       const lines = text.split('\n').map(l=> l.split(','));
@@ -1468,7 +1525,7 @@ function initReserve(){
         const r = await fetch('/api/inventory-reserve/bulk',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ jobId, returnDate, notes, lines: payload, userEmail: session.email, userName: session.name })
+          body: JSON.stringify({ jobId, returnDate, notes, lines: payload, ...locationPayload, userEmail: session.email, userName: session.name })
         });
         const data = await r.json().catch(()=>({}));
         if(!r.ok){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = data.error || 'Bulk reserve failed'; return; }
@@ -1557,6 +1614,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   (async ()=>{
     await loadJobs();
     await loadItems();
+    await loadInventoryLocations();
     await loadSuppliers();
     await renderRecentOrders();
     initTabs();

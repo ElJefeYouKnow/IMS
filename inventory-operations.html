@@ -147,7 +147,9 @@
               <button id="checkinFinishBtn" type="button" class="muted">Finish</button>
             </div>
             <div class="form-row">
-              <label>Location<input id="checkin-location" placeholder="Warehouse / Shelf"></label>
+              <label>Receive To
+                <select id="checkin-location"></select>
+              </label>
             </div>
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="checkin-notes" rows="2" placeholder="Optional notes"></textarea></label>
@@ -216,6 +218,9 @@
                 <select id="checkout-jobId" required>
                   <option value="">Select project...</option>
                 </select>
+              </label>
+              <label>Pick From
+                <select id="checkout-location"></select>
               </label>
             </div>
             <div class="form-row">
@@ -307,7 +312,9 @@
               </select></label>
             </div>
             <div class="form-row">
-              <label>Return Location<input id="return-location" placeholder="Warehouse / Shelf"></label>
+              <label>Return To
+                <select id="return-location"></select>
+              </label>
             </div>
             <div class="form-row">
               <label style="flex:1">Notes<textarea id="return-notes" rows="2" placeholder="Optional notes"></textarea></label>

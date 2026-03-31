@@ -113,6 +113,21 @@ const DEFAULT_CATEGORY_RULES = {
   lowStockThreshold: 5,
   lowStockEnabled: false
 };
+const INVENTORY_LOCATION_TYPE_LABELS = {
+  warehouse: 'Warehouse',
+  bin: 'Bin / Shelf / Zone',
+  staging: 'Staging Area',
+  vehicle: 'Vehicle',
+  field: 'Field',
+  writeoff: 'Lost / Write-off'
+};
+const SYSTEM_INVENTORY_LOCATIONS = [
+  { id: 'loc:warehouse:main', ref: 'main', name: 'Main Warehouse', type: 'warehouse', system: true, sortOrder: 10 },
+  { id: 'loc:bin:primary', ref: 'primary', name: 'Primary Bin', type: 'bin', system: true, sortOrder: 20 },
+  { id: 'loc:staging:default', ref: 'default', name: 'Staging Area', type: 'staging', system: true, sortOrder: 30 },
+  { id: 'loc:field:default', ref: 'default', name: 'Field Stock', type: 'field', system: true, sortOrder: 40 },
+  { id: 'loc:writeoff:default', ref: 'default', name: 'Lost / Write-off', type: 'writeoff', system: true, sortOrder: 90 }
+];
 const CLOSED_PROJECT_STATUSES = new Set(['complete', 'completed', 'closed', 'archived', 'cancelled', 'canceled']);
 let sellerStore = { clients: [], tickets: [], activities: [] };
 
@@ -2100,6 +2115,62 @@ function normalizeOptionalBool(input) {
   if (['true', '1', 'yes', 'on', 'enabled'].includes(value)) return true;
   return null;
 }
+function normalizeInventoryLocationType(input) {
+  const raw = String(input || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (['warehouse', 'wh'].includes(raw)) return 'warehouse';
+  if (['bin', 'shelf', 'zone', 'rack', 'storage'].includes(raw)) return 'bin';
+  if (['staging', 'staging-area', 'receiving'].includes(raw)) return 'staging';
+  if (['vehicle', 'truck', 'van'].includes(raw)) return 'vehicle';
+  if (['field', 'site'].includes(raw)) return 'field';
+  if (['writeoff', 'write-off', 'lost', 'lost-writeoff', 'lost/write-off'].includes(raw)) return 'writeoff';
+  return '';
+}
+function inferInventoryLocationType(label) {
+  const raw = String(label || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw.includes('warehouse')) return 'warehouse';
+  if (raw.includes('bin') || raw.includes('shelf') || raw.includes('zone') || raw.includes('rack')) return 'bin';
+  if (raw.includes('staging') || raw.includes('receiving')) return 'staging';
+  if (raw.includes('truck') || raw.includes('vehicle') || raw.includes('van')) return 'vehicle';
+  if (raw.includes('field') || raw.includes('site')) return 'field';
+  if (raw.includes('lost') || raw.includes('write-off') || raw.includes('writeoff')) return 'writeoff';
+  return '';
+}
+function normalizeInventoryLocationLabel(location, locationType) {
+  const label = String(location || '').trim();
+  if (label) return label;
+  const type = normalizeInventoryLocationType(locationType);
+  const system = SYSTEM_INVENTORY_LOCATIONS.find((entry) => entry.type === type);
+  return system?.name || '';
+}
+async function listInventoryLocations(tenantIdVal) {
+  const vehicles = await allAsync(
+    'SELECT id, code, name, location FROM vehicle_assets WHERE tenantId=$1 ORDER BY name ASC NULLS LAST, code ASC',
+    [tenantIdVal]
+  );
+  const vehicleRows = (vehicles || []).map((row, index) => {
+    const name = (row.name || row.code || '').trim();
+    return {
+      id: `vehicle:${row.id}`,
+      ref: row.id,
+      name,
+      label: `Vehicle: ${name}${row.location ? ` (${row.location})` : ''}`,
+      type: 'vehicle',
+      typeLabel: INVENTORY_LOCATION_TYPE_LABELS.vehicle,
+      system: false,
+      sortOrder: 200 + index
+    };
+  });
+  return [
+    ...SYSTEM_INVENTORY_LOCATIONS.map((entry) => ({
+      ...entry,
+      label: entry.name,
+      typeLabel: INVENTORY_LOCATION_TYPE_LABELS[entry.type] || entry.type
+    })),
+    ...vehicleRows
+  ];
+}
 function getReturnWindowMs(rules) {
   const days = Number(rules?.returnWindowDays);
   const safeDays = Number.isFinite(days) && days > 0 ? days : DEFAULT_CATEGORY_RULES.returnWindowDays;
@@ -2446,6 +2517,8 @@ async function initDb() {
     name TEXT,
     qty INTEGER NOT NULL,
     location TEXT,
+    locationType TEXT,
+    locationRef TEXT,
     jobId TEXT,
     notes TEXT,
     ts BIGINT,
@@ -2616,6 +2689,19 @@ async function initDb() {
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceType TEXT`);
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceId TEXT`);
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceMeta JSONB`);
+  await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS locationType TEXT`);
+  await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS locationRef TEXT`);
+  await runAsync(`UPDATE inventory
+    SET locationType = CASE
+      WHEN LOWER(COALESCE(location, '')) LIKE '%warehouse%' THEN 'warehouse'
+      WHEN LOWER(COALESCE(location, '')) LIKE '%bin%' OR LOWER(COALESCE(location, '')) LIKE '%shelf%' OR LOWER(COALESCE(location, '')) LIKE '%zone%' OR LOWER(COALESCE(location, '')) LIKE '%rack%' THEN 'bin'
+      WHEN LOWER(COALESCE(location, '')) LIKE '%staging%' OR LOWER(COALESCE(location, '')) LIKE '%receiving%' THEN 'staging'
+      WHEN LOWER(COALESCE(location, '')) LIKE '%truck%' OR LOWER(COALESCE(location, '')) LIKE '%vehicle%' OR LOWER(COALESCE(location, '')) LIKE '%van%' THEN 'vehicle'
+      WHEN LOWER(COALESCE(location, '')) LIKE '%field%' OR LOWER(COALESCE(location, '')) LIKE '%site%' THEN 'field'
+      WHEN LOWER(COALESCE(location, '')) LIKE '%lost%' OR LOWER(COALESCE(location, '')) LIKE '%write-off%' OR LOWER(COALESCE(location, '')) LIKE '%writeoff%' THEN 'writeoff'
+      ELSE locationType
+    END
+    WHERE (locationType IS NULL OR locationType = '') AND COALESCE(location, '') <> ''`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS startDate TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS endDate TEXT`);
@@ -2896,6 +2982,33 @@ async function calcReservedOutstandingTx(client, code, jobId, tenantIdVal) {
   },0);
   return Math.max(0, reserved);
 }
+async function calcPrimaryReservedLocationTx(client, code, jobId, tenantIdVal) {
+  if (!jobId) return { location: null, locationType: null, locationRef: null };
+  const rows = await client.query(
+    `SELECT location, locationType, locationRef, type, qty, ts
+     FROM inventory
+     WHERE code=$1 AND tenantId=$2 AND jobId=$3 AND type IN ('reserve','reserve_release')
+     ORDER BY ts DESC`,
+    [code, tenantIdVal, jobId]
+  );
+  const totals = new Map();
+  for (const row of rows.rows || []) {
+    const key = [row.location || '', row.locationtype || row.locationType || '', row.locationref || row.locationRef || ''].join('|');
+    const current = totals.get(key) || {
+      location: row.location || null,
+      locationType: row.locationtype || row.locationType || null,
+      locationRef: row.locationref || row.locationRef || null,
+      qty: 0
+    };
+    const qty = Number(row.qty || 0) || 0;
+    current.qty += row.type === 'reserve' ? qty : -qty;
+    totals.set(key, current);
+  }
+  const active = Array.from(totals.values())
+    .filter((entry) => entry.qty > 0)
+    .sort((a, b) => b.qty - a.qty);
+  return active[0] || { location: null, locationType: null, locationRef: null };
+}
 
 async function calcOutstandingCheckout(code, jobId, tenantIdVal) {
   const params = [code, tenantIdVal];
@@ -3060,13 +3173,16 @@ async function ensureDevAccount() {
     [newId(), normalizeEmail(DEV_EMAIL), 'Dev', 'dev', salt, hash, Date.now(), true, Date.now(), tenantId]);
 }
 
-async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn, returnWindowDays, sourceType, sourceId, sourceMeta, consumeAgainstOnHand }) {
+async function processInventoryEvent(client, { type, code, name, category, unitPrice, qty, location, locationType, locationRef, jobId, notes, reason, ts, returnDate, userEmail, userName, tenantIdVal, requireRecentReturn, returnWindowDays, sourceType, sourceId, sourceMeta, consumeAgainstOnHand }) {
   const qtyNum = Number(qty);
   if (!code || !qtyNum || qtyNum <= 0) throw new Error('code and positive qty required');
   const jobIdVal = (jobId || '').trim() || null;
   const item = await ensureItem(client, { code, name, category, unitPrice, tenantIdVal });
   const nowTs = ts || Date.now();
   let status = statusForType(type);
+  const normalizedLocationType = normalizeInventoryLocationType(locationType) || inferInventoryLocationType(location);
+  const normalizedLocation = normalizeInventoryLocationLabel(location, normalizedLocationType);
+  const normalizedLocationRef = String(locationRef || '').trim() || null;
 
   if (type === 'reserve') {
     if (!jobIdVal) throw new Error('jobId required');
@@ -3084,9 +3200,32 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
     if (jobIdVal) {
       const releaseQty = Math.min(qtyNum, reserved);
       if (releaseQty > 0) {
-        await client.query(`INSERT INTO inventory(id,code,name,qty,jobId,notes,ts,type,status,userEmail,userName,tenantId)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-          [newId(), code, item?.name || name || code, releaseQty, jobIdVal, 'auto-release on checkout', nowTs, 'reserve_release', statusForType('reserve_release'), userEmail, userName, tenantIdVal]);
+        const releaseLocation = normalizedLocation
+          ? {
+              location: normalizedLocation,
+              locationType: normalizedLocationType || null,
+              locationRef: normalizedLocationRef
+            }
+          : await calcPrimaryReservedLocationTx(client, code, jobIdVal, tenantIdVal);
+        await client.query(`INSERT INTO inventory(id,code,name,qty,location,locationType,locationRef,jobId,notes,ts,type,status,userEmail,userName,tenantId)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          [
+            newId(),
+            code,
+            item?.name || name || code,
+            releaseQty,
+            releaseLocation.location || null,
+            releaseLocation.locationType || null,
+            releaseLocation.locationRef || null,
+            jobIdVal,
+            'auto-release on checkout',
+            nowTs,
+            'reserve_release',
+            statusForType('reserve_release'),
+            userEmail,
+            userName,
+            tenantIdVal
+          ]);
       }
     }
   }
@@ -3117,7 +3256,9 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
     code,
     name: item?.name || name,
     qty: qtyNum,
-    location,
+    location: normalizedLocation || null,
+    locationType: normalizedLocationType || null,
+    locationRef: normalizedLocationRef,
     jobId: jobIdVal,
     notes,
     reason,
@@ -3132,9 +3273,9 @@ async function processInventoryEvent(client, { type, code, name, category, unitP
     sourceId: sourceId || null,
     sourceMeta: sourceMeta || null
   };
-  await client.query(`INSERT INTO inventory(id,code,name,qty,location,jobId,notes,reason,returnDate,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
-    [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.jobId, entry.notes, entry.reason, entry.returnDate, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId, entry.sourceType, entry.sourceId, entry.sourceMeta]);
+  await client.query(`INSERT INTO inventory(id,code,name,qty,location,locationType,locationRef,jobId,notes,reason,returnDate,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+    [entry.id, entry.code, entry.name, entry.qty, entry.location, entry.locationType, entry.locationRef, entry.jobId, entry.notes, entry.reason, entry.returnDate, entry.ts, entry.type, entry.status, entry.userEmail, entry.userName, entry.tenantId, entry.sourceType, entry.sourceId, entry.sourceMeta]);
   return entry;
 }
 
@@ -3148,9 +3289,18 @@ app.get('/api/inventory', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
+app.get('/api/inventory-locations', async (req, res) => {
+  try {
+    const rows = await listInventoryLocations(tenantId(req));
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 app.post('/api/inventory', async (req, res) => {
   try {
-    const { code, name, category, unitPrice, qty, location, jobId, notes, ts, sourceType, sourceId, reassignReason } = req.body;
+    const { code, name, category, unitPrice, qty, location, locationType, locationRef, jobId, notes, ts, sourceType, sourceId, reassignReason } = req.body;
     const qtyNum = Number(qty);
     if (!sourceType || !sourceId) return res.status(400).json({ error: 'sourceType and sourceId required' });
     if (!['order','purchase'].includes(sourceType)) return res.status(400).json({ error: 'invalid sourceType' });
@@ -3186,6 +3336,8 @@ app.post('/api/inventory', async (req, res) => {
         unitPrice,
         qty,
         location,
+        locationType,
+        locationRef,
         jobId: jobIdVal,
         notes,
         ts,
@@ -3201,7 +3353,7 @@ app.post('/api/inventory', async (req, res) => {
         const avail = await calcAvailabilityTx(client, code, t);
         const reserveQty = Math.min(qtyNum, Math.max(0, avail));
         if (reserveQty > 0) {
-          await processInventoryEvent(client, { type: 'reserve', code, jobId: jobIdVal, qty: reserveQty, returnDate: null, notes: 'auto-reserve on check-in', ts: checkin.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+          await processInventoryEvent(client, { type: 'reserve', code, jobId: jobIdVal, qty: reserveQty, location, locationType, locationRef, returnDate: null, notes: 'auto-reserve on check-in', ts: checkin.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
           await changeJobMaterialQtyTx(client, t, jobIdVal, jobMaterialId, 'qtyAllocated', reserveQty);
         }
       }
@@ -3218,7 +3370,7 @@ app.post('/api/inventory', async (req, res) => {
 
 app.post('/api/inventory-checkout', async (req, res) => {
   try {
-    const { code, jobId, qty, reason, notes, ts } = req.body;
+    const { code, jobId, qty, reason, notes, ts, location, locationType, locationRef } = req.body;
     const t = tenantId(req);
     const actor = actorInfo(req);
     let lowStockNotifications = [];
@@ -3227,7 +3379,7 @@ app.post('/api/inventory-checkout', async (req, res) => {
       enforceCategoryRules(rules, { action: 'checkout', jobId, notes: notes || reason, qty });
       const tsNow = ts || Date.now();
       const due = tsNow + getReturnWindowMs(rules);
-      const result = await processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const result = await processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, location, locationType, locationRef, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return result;
     });
@@ -3263,7 +3415,7 @@ app.get('/api/inventory-reserve', async (req, res) => {
 
 app.post('/api/inventory-reserve', async (req, res) => {
   try {
-    const { code, jobId, qty, returnDate, notes, ts, jobMaterialId } = req.body;
+    const { code, jobId, qty, returnDate, notes, ts, jobMaterialId, location, locationType, locationRef } = req.body;
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
@@ -3271,7 +3423,7 @@ app.post('/api/inventory-reserve', async (req, res) => {
     const entry = await withTransaction(async (client) => {
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'reserve', jobId, notes, qty });
-      const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, location, locationType, locationRef, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
       await changeJobMaterialQtyTx(client, t, normalizeJobId(jobId), jobMaterialId, 'qtyAllocated', Number(qty));
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return ev;
@@ -3285,7 +3437,7 @@ app.post('/api/inventory-reserve', async (req, res) => {
 // Bulk reserve to minimize clicks (admin only)
 app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) => {
   try {
-    const { jobId, returnDate, notes, lines } = req.body || {};
+    const { jobId, returnDate, notes, lines, location, locationType, locationRef } = req.body || {};
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const entries = Array.isArray(lines) ? lines : [];
     if (!entries.length) return res.status(400).json({ error: 'lines array required' });
@@ -3300,7 +3452,7 @@ app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) =
         if (!code || qty <= 0) throw new Error(`Invalid line for code ${code || ''}`);
         const { rules } = await getItemCategoryRulesTx(client, t, code);
         enforceCategoryRules(rules, { action: 'reserve', jobId, notes, qty });
-        const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts: line?.ts || Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+        const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, location: line?.location || location, locationType: line?.locationType || locationType, locationRef: line?.locationRef || locationRef, ts: line?.ts || Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
         await changeJobMaterialQtyTx(client, t, normalizeJobId(jobId), line?.jobMaterialId || null, 'qtyAllocated', qty);
         results.push(ev);
       }
@@ -3339,10 +3491,11 @@ app.post('/api/inventory-reassign', requireRole('admin'), async (req, res) => {
       enforceCategoryRules(rules, { action: 'reserve', jobId: fromId, notes: reason, qty: qtyNum });
       const reserved = await calcReservedOutstandingTx(client, code, fromId, t);
       if (qtyNum > reserved) throw new Error('reassign exceeds reserved qty');
-      const release = await processInventoryEvent(client, { type: 'reserve_release', code, jobId: fromId, qty: qtyNum, notes: `reassign: ${reason}`, ts: Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const primaryLocation = await calcPrimaryReservedLocationTx(client, code, fromId, t);
+      const release = await processInventoryEvent(client, { type: 'reserve_release', code, jobId: fromId, qty: qtyNum, location: primaryLocation.location, locationType: primaryLocation.locationType, locationRef: primaryLocation.locationRef, notes: `reassign: ${reason}`, ts: Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
       let reserve = null;
       if (toId) {
-        reserve = await processInventoryEvent(client, { type: 'reserve', code, jobId: toId, qty: qtyNum, notes: `reassign: ${reason}`, ts: release.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+        reserve = await processInventoryEvent(client, { type: 'reserve', code, jobId: toId, qty: qtyNum, location: release.location, locationType: release.locationType, locationRef: release.locationRef, notes: `reassign: ${reason}`, ts: release.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
       }
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return { release, reserve };
@@ -3364,7 +3517,7 @@ app.get('/api/inventory-return', async (req, res) => {
 
 app.post('/api/inventory-return', async (req, res) => {
   try {
-    const { code, jobId, qty, reason, location, notes, ts } = req.body;
+    const { code, jobId, qty, reason, location, locationType, locationRef, notes, ts } = req.body;
     if (!code) return res.status(400).json({ error: 'code required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
@@ -3373,7 +3526,7 @@ app.post('/api/inventory-return', async (req, res) => {
       const resolvedJobId = await resolveReturnJobIdTx(client, code, t, jobId);
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'return', jobId: resolvedJobId, location, notes: notes || reason, qty });
-      const ev = await processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, requireRecentReturn: true, returnWindowDays: rules.returnWindowDays });
+      const ev = await processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, locationType, locationRef, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, requireRecentReturn: true, returnWindowDays: rules.returnWindowDays });
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return ev;
     });
@@ -3477,13 +3630,13 @@ app.get('/api/ops-events', async (req, res) => {
 // CONSUME / LOST / DAMAGED (admin-only)
 app.post('/api/inventory-consume', requireRole('admin'), async (req, res) => {
   try {
-    const { code, qty, reason, notes, ts } = req.body;
+    const { code, qty, reason, notes, ts, location, locationType, locationRef } = req.body;
     if (!reason) return res.status(400).json({ error: 'reason required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
     let lowStockNotifications = [];
     const entry = await withTransaction(async (client) => {
-      const ev = await processInventoryEvent(client, { type: 'consume', code, qty, reason, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const ev = await processInventoryEvent(client, { type: 'consume', code, qty, reason, notes, location, locationType, locationRef, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return ev;
     });
@@ -3495,7 +3648,7 @@ app.post('/api/inventory-consume', requireRole('admin'), async (req, res) => {
 
 app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
   try {
-    const { code, delta, reason, notes, location, ts } = req.body || {};
+    const { code, delta, reason, notes, location, locationType, locationRef, ts } = req.body || {};
     const qtyNum = Math.abs(Number(delta));
     if (!code || !Number.isFinite(qtyNum) || qtyNum <= 0) return res.status(400).json({ error: 'code and non-zero delta required' });
     if (!reason || !String(reason).trim()) return res.status(400).json({ error: 'reason required' });
@@ -3514,6 +3667,8 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
           code,
           qty: qtyNum,
           location,
+          locationType,
+          locationRef,
           notes: adjustmentNotes.join(' | '),
           ts,
           userEmail: actor.userEmail,
@@ -3527,6 +3682,9 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
         type: 'consume',
         code,
         qty: qtyNum,
+        location,
+        locationType,
+        locationRef,
         reason: String(reason).trim(),
         notes,
         ts,
@@ -4730,6 +4888,8 @@ app.post('/api/field-purchase', async (req, res) => {
         if (!name) throw new Error(`Name required for new purchase (${code})`);
         const jobIdVal = normalizeJobId(line?.jobId || req.body?.jobId || '') || null;
         const location = (line?.location || req.body?.location || '').trim();
+        const locationType = line?.locationType || req.body?.locationType || '';
+        const locationRef = line?.locationRef || req.body?.locationRef || '';
         const notes = (line?.notes || req.body?.notes || '').trim();
         const tsVal = line?.ts || req.body?.purchasedAt || Date.now();
         const unitPrice = line?.unitPrice ?? null;
@@ -4749,6 +4909,8 @@ app.post('/api/field-purchase', async (req, res) => {
           unitPrice,
           qty: qtyNum,
           location,
+          locationType,
+          locationRef,
           jobId: jobIdVal,
           notes,
           ts: tsVal,
@@ -4766,6 +4928,8 @@ app.post('/api/field-purchase', async (req, res) => {
           unitPrice,
           qty: qtyNum,
           location,
+          locationType,
+          locationRef,
           jobId: jobIdVal,
           notes: notes || 'Field purchase',
           ts: tsVal,
@@ -4785,6 +4949,9 @@ app.post('/api/field-purchase', async (req, res) => {
               code,
               jobId: jobIdVal,
               qty: reserveQty,
+              location,
+              locationType,
+              locationRef,
               returnDate: null,
               notes: 'auto-reserve on field purchase',
               ts: checkin.ts,

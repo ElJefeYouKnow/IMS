@@ -9,11 +9,19 @@ let openOrderGroups = [];
 let openOrderGroupsMap = new Map();
 let pendingCheckout = null;
 let opsRefreshInFlight = null;
+let inventoryLocationOptions = [];
 const FALLBACK = 'N/A';
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const MIN_LINES = 1;
 const SESSION_KEY = 'sessionUser';
 let categoriesCache = [];
+const FALLBACK_LOCATION_OPTIONS = [
+  { id: 'loc:warehouse:main', name: 'Main Warehouse', label: 'Main Warehouse', type: 'warehouse', ref: 'main' },
+  { id: 'loc:bin:primary', name: 'Primary Bin', label: 'Primary Bin', type: 'bin', ref: 'primary' },
+  { id: 'loc:staging:default', name: 'Staging Area', label: 'Staging Area', type: 'staging', ref: 'default' },
+  { id: 'loc:field:default', name: 'Field Stock', label: 'Field Stock', type: 'field', ref: 'default' },
+  { id: 'loc:writeoff:default', name: 'Lost / Write-off', label: 'Lost / Write-off', type: 'writeoff', ref: 'default' }
+];
 const OPS_MODE_META = {
   checkout: {
     title: 'Pick Items',
@@ -48,6 +56,49 @@ function normalizeJobId(value){
 }
 function getEntryJobId(entry){
   return normalizeJobId(entry?.jobId || entry?.jobid || '');
+}
+async function loadInventoryLocations(force = false){
+  if(inventoryLocationOptions.length && !force) return inventoryLocationOptions;
+  const rows = await utils.fetchJsonSafe('/api/inventory-locations', {}, []) || [];
+  inventoryLocationOptions = (rows.length ? rows : FALLBACK_LOCATION_OPTIONS).map((row)=>({
+    id: row.id || row.ref || row.name,
+    name: row.name || row.label || 'Location',
+    label: row.label || row.name || 'Location',
+    type: row.type || '',
+    ref: row.ref || row.id || ''
+  }));
+  return inventoryLocationOptions;
+}
+function populateInventoryLocationSelect(selectId, preferredId){
+  const select = document.getElementById(selectId);
+  if(!select) return;
+  const current = select.value || preferredId || '';
+  select.innerHTML = '<option value="">Select location...</option>';
+  inventoryLocationOptions.forEach((option)=>{
+    const el = document.createElement('option');
+    el.value = option.id;
+    el.textContent = option.label || option.name;
+    el.dataset.locationName = option.name || option.label || '';
+    el.dataset.locationType = option.type || '';
+    el.dataset.locationRef = option.ref || '';
+    select.appendChild(el);
+  });
+  if(current && [...select.options].some((option)=> option.value === current)){
+    select.value = current;
+  }else if(preferredId && [...select.options].some((option)=> option.value === preferredId)){
+    select.value = preferredId;
+  }else if(select.options.length > 1){
+    select.selectedIndex = 1;
+  }
+}
+function getInventoryLocationPayload(selectId){
+  const select = document.getElementById(selectId);
+  const option = select?.selectedOptions?.[0];
+  return {
+    location: option?.dataset.locationName || '',
+    locationType: option?.dataset.locationType || '',
+    locationRef: option?.dataset.locationRef || ''
+  };
 }
 function getOrderBatchId(entry){
   const sourceMeta = entry?.sourceMeta || entry?.sourcemeta || {};
@@ -1120,9 +1171,13 @@ async function refreshOperationsWorkspace(){
         refreshBtn.textContent = 'Refreshing...';
       }
       await loadItems();
+      await loadInventoryLocations();
       await loadCategories();
       await loadJobOptions();
       await loadOpenOrders();
+      populateInventoryLocationSelect('checkin-location', 'loc:warehouse:main');
+      populateInventoryLocationSelect('checkout-location', 'loc:bin:primary');
+      populateInventoryLocationSelect('return-location', 'loc:warehouse:main');
       populateOrderSelect();
       await updateOpsMetrics();
       await renderCheckinTable();
@@ -1262,7 +1317,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   checkinForm.addEventListener('submit', async ev=>{
     ev.preventDefault();
     const lines = gatherLines('checkin');
-    const location = document.getElementById('checkin-location').value.trim();
+    const locationPayload = getInventoryLocationPayload('checkin-location');
     const notes = document.getElementById('checkin-notes').value.trim();
     const user = getSessionUser();
     if(!lines.length){alert('Add at least one incoming order line before receiving.'); return;}
@@ -1276,7 +1331,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(overLimit){ alert('Check-in quantity exceeds open order quantity.'); return; }
     let okAll=true;
     for(const line of lines){
-      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, location, jobId: line.jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, category: line.category, sourceType: line.sourceType, sourceId: line.sourceId});
+      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, ...locationPayload, jobId: line.jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, category: line.category, sourceType: line.sourceType, sourceId: line.sourceId});
       if(ok){
         addItemLocally({code: line.code, name: line.name, category: line.category});
       }else{
@@ -1301,10 +1356,11 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const checkoutForm = document.getElementById('checkoutForm');
   const executeCheckout = async (lines, jobId, notes)=>{
     const user = getSessionUser();
+    const locationPayload = getInventoryLocationPayload('checkout-location');
     let okAll=true;
     const errors=[];
     for(const line of lines){
-      const res = await addCheckout({code: line.code, jobId, qty: line.qty, notes, ts: Date.now(), type: 'out', userEmail: user?.email, userName: user?.name});
+      const res = await addCheckout({code: line.code, jobId, qty: line.qty, ...locationPayload, notes, ts: Date.now(), type: 'out', userEmail: user?.email, userName: user?.name});
       if(!res.ok){
         okAll=false;
         if(res.error) errors.push(`${line.code}: ${res.error}`);
@@ -1377,6 +1433,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const returnDate = document.getElementById('reserve-returnDate').value;
       const notes = document.getElementById('reserve-notes').value.trim();
       const user = getSessionUser();
+      const locationPayload = getInventoryLocationPayload('checkout-location');
       
       if(!jobId){alert('Job ID required'); return;}
       if(!lines.length){alert('Add at least one line with code and quantity'); return;}
@@ -1385,7 +1442,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       
       let okAll=true;
       for(const line of lines){
-        const ok = await addReservation({code: line.code, jobId, qty: line.qty, returnDate, notes, ts: Date.now(), type: 'reserve', userEmail: user?.email, userName: user?.name});
+        const ok = await addReservation({code: line.code, jobId, qty: line.qty, ...locationPayload, returnDate, notes, ts: Date.now(), type: 'reserve', userEmail: user?.email, userName: user?.name});
         if(!ok) okAll=false;
       }
       if(!okAll) alert('Some items failed to reserve');
@@ -1409,7 +1466,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       ev.preventDefault();
       const jobId = document.getElementById('return-jobId').value.trim();
       const reason = document.getElementById('return-reason').value.trim();
-      const location = document.getElementById('return-location').value.trim();
+      const locationPayload = getInventoryLocationPayload('return-location');
       const notes = document.getElementById('return-notes').value.trim();
       const user = getSessionUser();
       
@@ -1423,7 +1480,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const errors=[];
       for(const line of lines){
         const lineJobId = line.jobId || jobId;
-        const res = await addReturn({code: line.code, jobId: lineJobId, qty: line.qty, reason, location, notes, ts: Date.now(), type: 'return', userEmail: user?.email, userName: user?.name});
+        const res = await addReturn({code: line.code, jobId: lineJobId, qty: line.qty, reason, ...locationPayload, notes, ts: Date.now(), type: 'return', userEmail: user?.email, userName: user?.name});
         if(!res.ok){
           okAll=false;
           if(res.error) errors.push(`${line.code}: ${res.error}`);
