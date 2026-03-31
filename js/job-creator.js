@@ -913,7 +913,7 @@ function summarizeProjectMaterials(materials){
   if(!rows.length){
     stats.status = 'none';
     stats.statusLabel = 'No Material Plan';
-  }else if(stats.outstandingLines === 0){
+  }else if(stats.readyLines === rows.length){
     stats.status = 'ready';
     stats.statusLabel = 'Ready';
   }else if(stats.totalReceived > 0 || stats.totalAllocated > 0){
