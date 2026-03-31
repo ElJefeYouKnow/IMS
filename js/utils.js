@@ -296,6 +296,7 @@
       this.updateBrand?.();
       this.ensureFleetNav?.();
       this.ensureModuleNav?.();
+      this.ensureLocationsNav?.();
       this.buildMobileNav?.();
       this.registerServiceWorker?.();
       const applyForUser = (user)=>{
@@ -358,6 +359,33 @@
       const moduleWrap = nav.querySelector('.nav-module-items[data-module="inventory"]');
       if(moduleWrap){
         moduleWrap.appendChild(link);
+        return;
+      }
+      const anchor = nav.querySelector('a[href="inventory-list.html"]') || nav.lastElementChild;
+      if(anchor && anchor.parentElement === nav && anchor.nextSibling){
+        nav.insertBefore(link, anchor.nextSibling);
+      }else{
+        nav.appendChild(link);
+      }
+    },
+    ensureLocationsNav(){
+      const nav = document.querySelector('.sidebar nav');
+      if(!nav || nav.querySelector('a[href="settings.html#locations"]')) return;
+      const link = document.createElement('a');
+      link.href = 'settings.html#locations';
+      link.dataset.role = 'admin';
+      link.textContent = 'Locations';
+      if(window.location.pathname.endsWith('settings.html') && window.location.hash === '#locations'){
+        link.classList.add('active');
+      }
+      const moduleWrap = nav.querySelector('.nav-module-items[data-module="inventory"]');
+      if(moduleWrap){
+        const anchor = moduleWrap.querySelector('a[href="inventory-list.html"]') || moduleWrap.lastElementChild;
+        if(anchor && anchor.nextSibling){
+          moduleWrap.insertBefore(link, anchor.nextSibling);
+        }else{
+          moduleWrap.appendChild(link);
+        }
         return;
       }
       const anchor = nav.querySelector('a[href="inventory-list.html"]') || nav.lastElementChild;
@@ -556,7 +584,10 @@
         if(l.dataset.locked) a.dataset.locked = l.dataset.locked;
         if(l.dataset.module) a.dataset.module = l.dataset.module;
         if(l.classList.contains('nav-locked')) a.classList.add('nav-locked');
-        if(window.location.pathname.endsWith(href)) a.classList.add('active');
+        const [hrefPath, hrefHash] = href.split('#');
+        if(window.location.pathname.endsWith(hrefPath || href) && (!hrefHash || window.location.hash === `#${hrefHash}`)){
+          a.classList.add('active');
+        }
         wrap.appendChild(a);
       });
 

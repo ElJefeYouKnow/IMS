@@ -33,6 +33,203 @@ function getAdminSettingsMsg(){
   return document.getElementById('adminSettingsMsg');
 }
 
+let locationRowsCache = [];
+
+function normalizeLocationRefInput(value, fallbackName = ''){
+  const raw = String(value || fallbackName || '').trim().toLowerCase();
+  if(!raw) return '';
+  return raw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64);
+}
+
+function getLocationMsg(){
+  return document.getElementById('locationMsg');
+}
+
+function resetLocationForm(){
+  document.getElementById('locationForm')?.reset();
+  const id = document.getElementById('locationId');
+  const title = document.getElementById('locationFormTitle');
+  const saveBtn = document.getElementById('locationSaveBtn');
+  const active = document.getElementById('locationActive');
+  if(id) id.value = '';
+  if(active) active.checked = true;
+  if(title) title.textContent = 'Create Location';
+  if(saveBtn) saveBtn.textContent = 'Save Location';
+  const msg = getLocationMsg();
+  if(msg) msg.textContent = '';
+  populateLocationParentSelect(locationRowsCache);
+}
+
+function populateLocationParentSelect(rows, selectedId = '', excludeId = ''){
+  const select = document.getElementById('locationParent');
+  if(!select) return;
+  select.innerHTML = '<option value="">No parent</option>';
+  (rows || []).forEach((row)=>{
+    if(excludeId && row.id === excludeId) return;
+    const option = document.createElement('option');
+    option.value = row.id;
+    option.textContent = `${'  '.repeat(Math.max(0, row.depth || 0))}${row.name}`;
+    select.appendChild(option);
+  });
+  select.value = selectedId || '';
+}
+
+function updateLocationSummary(rows){
+  const total = rows.length;
+  const roots = rows.filter((row)=> !row.parentId).length;
+  const bins = rows.filter((row)=> row.type === 'bin').length;
+  const vehicles = rows.filter((row)=> row.type === 'vehicle').length;
+  const setText = (id, value)=>{
+    const el = document.getElementById(id);
+    if(el) el.textContent = `${value}`;
+  };
+  setText('locationTotal', total);
+  setText('locationRoots', roots);
+  setText('locationBins', bins);
+  setText('locationVehicles', vehicles);
+}
+
+function renderLocationTree(rows){
+  const wrap = document.getElementById('locationTree');
+  if(!wrap) return;
+  if(!rows.length){
+    wrap.innerHTML = '<div class="muted-text">No managed locations yet.</div>';
+    return;
+  }
+  wrap.innerHTML = rows.map((row)=>{
+    const childrenLabel = row.parentName ? `Child of ${row.parentName}` : 'Top level';
+    return `
+      <div class="location-row-card" style="--location-depth:${Math.max(0, row.depth || 0)};">
+        <div class="location-row-main">
+          <div class="location-row-head">
+            <strong>${row.name}</strong>
+            <span class="badge ${row.type === 'writeoff' ? 'warn' : 'info'}">${row.typeLabel || row.type}</span>
+          </div>
+          <div class="location-row-meta">
+            <span>${row.label}</span>
+            <span>Ref: ${row.ref}</span>
+            <span>${childrenLabel}</span>
+          </div>
+          ${row.notes ? `<p class="location-row-notes">${row.notes}</p>` : ''}
+        </div>
+        <div class="location-row-actions">
+          <button type="button" class="action-btn edit-location" data-id="${row.id}">Edit</button>
+          <button type="button" class="action-btn delete-location" data-id="${row.id}">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  wrap.querySelectorAll('.edit-location').forEach((button)=>{
+    button.addEventListener('click', ()=>{
+      const row = locationRowsCache.find((entry)=> entry.id === button.dataset.id);
+      if(!row) return;
+      document.getElementById('locationId').value = row.id;
+      document.getElementById('locationName').value = row.name || '';
+      document.getElementById('locationRef').value = row.ref || '';
+      document.getElementById('locationType').value = row.type || 'warehouse';
+      document.getElementById('locationSortOrder').value = row.sortOrder ?? 0;
+      document.getElementById('locationNotes').value = row.notes || '';
+      document.getElementById('locationActive').checked = row.isActive !== false;
+      document.getElementById('locationFormTitle').textContent = `Edit ${row.name}`;
+      document.getElementById('locationSaveBtn').textContent = 'Update Location';
+      populateLocationParentSelect(locationRowsCache, row.parentId || '', row.id);
+      document.getElementById('locationParent').value = row.parentId || '';
+      document.getElementById('locationName')?.focus();
+      const msg = getLocationMsg();
+      if(msg) msg.textContent = '';
+    });
+  });
+
+  wrap.querySelectorAll('.delete-location').forEach((button)=>{
+    button.addEventListener('click', async ()=>{
+      const row = locationRowsCache.find((entry)=> entry.id === button.dataset.id);
+      if(!row) return;
+      if(!confirm(`Delete location "${row.name}"?`)) return;
+      const msg = getLocationMsg();
+      if(msg) msg.textContent = 'Deleting location...';
+      try{
+        const response = await fetch(`/api/locations/${encodeURIComponent(row.id)}`, { method: 'DELETE' });
+        const data = await response.json().catch(()=>({}));
+        if(!response.ok) throw new Error(data.error || 'Unable to delete location');
+        await loadLocations();
+        resetLocationForm();
+        if(msg) msg.textContent = 'Location deleted';
+      }catch(e){
+        if(msg) msg.textContent = e.message || 'Unable to delete location';
+      }
+    });
+  });
+}
+
+async function loadLocations(){
+  try{
+    const response = await fetch('/api/locations');
+    if(!response.ok) throw new Error('Unable to load locations');
+    const rows = await response.json();
+    locationRowsCache = Array.isArray(rows) ? rows : [];
+    updateLocationSummary(locationRowsCache);
+    populateLocationParentSelect(locationRowsCache);
+    renderLocationTree(locationRowsCache);
+  }catch(e){
+    const wrap = document.getElementById('locationTree');
+    if(wrap) wrap.innerHTML = '<div class="muted-text">Unable to load locations.</div>';
+    const msg = getLocationMsg();
+    if(msg) msg.textContent = 'Unable to load locations.';
+  }
+}
+
+function initLocations(){
+  const form = document.getElementById('locationForm');
+  if(!form) return;
+  const nameInput = document.getElementById('locationName');
+  const refInput = document.getElementById('locationRef');
+  const resetBtn = document.getElementById('locationResetBtn');
+  const refreshBtn = document.getElementById('locationRefreshBtn');
+
+  nameInput?.addEventListener('input', ()=>{
+    if(!refInput || document.getElementById('locationId')?.value) return;
+    refInput.value = normalizeLocationRefInput(refInput.value, nameInput.value);
+  });
+  refInput?.addEventListener('blur', ()=>{
+    refInput.value = normalizeLocationRefInput(refInput.value, nameInput?.value || '');
+  });
+
+  form.addEventListener('submit', async (event)=>{
+    event.preventDefault();
+    const id = document.getElementById('locationId').value.trim();
+    const payload = {
+      name: document.getElementById('locationName').value.trim(),
+      ref: normalizeLocationRefInput(document.getElementById('locationRef').value, document.getElementById('locationName').value),
+      type: document.getElementById('locationType').value,
+      parentId: document.getElementById('locationParent').value || '',
+      sortOrder: Number(document.getElementById('locationSortOrder').value || 0),
+      notes: document.getElementById('locationNotes').value.trim(),
+      isActive: !!document.getElementById('locationActive').checked
+    };
+    const msg = getLocationMsg();
+    if(msg) msg.textContent = id ? 'Updating location...' : 'Creating location...';
+    try{
+      const response = await fetch(id ? `/api/locations/${encodeURIComponent(id)}` : '/api/locations', {
+        method: id ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(()=>({}));
+      if(!response.ok) throw new Error(data.error || 'Unable to save location');
+      await loadLocations();
+      resetLocationForm();
+      if(msg) msg.textContent = id ? 'Location updated' : 'Location created';
+    }catch(e){
+      if(msg) msg.textContent = e.message || 'Unable to save location';
+    }
+  });
+
+  resetBtn?.addEventListener('click', resetLocationForm);
+  refreshBtn?.addEventListener('click', loadLocations);
+  loadLocations();
+}
+
 function renderNotificationPrefs(prefs){
   const resolved = normalizeNotificationPrefs(prefs);
   const projectToggle = document.getElementById('prefProjectMaterialsReadyEmail');
@@ -278,6 +475,7 @@ function setupTabs(){
     shortcuts: document.getElementById('panelShortcuts'),
     locale: document.getElementById('panelLocale'),
     notifications: document.getElementById('panelNotifications'),
+    locations: document.getElementById('panelLocations'),
     users: document.getElementById('panelUsers'),
     capabilities: document.getElementById('panelCapabilities')
   };
@@ -656,6 +854,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initAppearanceSettings();
   initInstallLink();
   loadNotificationPrefs();
+  initLocations();
   refreshUsers();
   loadCapabilities();
   document.getElementById('notificationPrefsSave')?.addEventListener('click', saveNotificationPrefs);

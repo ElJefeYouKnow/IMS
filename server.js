@@ -123,10 +123,11 @@ const INVENTORY_LOCATION_TYPE_LABELS = {
 };
 const SYSTEM_INVENTORY_LOCATIONS = [
   { id: 'loc:warehouse:main', ref: 'main', name: 'Main Warehouse', type: 'warehouse', system: true, sortOrder: 10 },
-  { id: 'loc:bin:primary', ref: 'primary', name: 'Primary Bin', type: 'bin', system: true, sortOrder: 20 },
-  { id: 'loc:staging:default', ref: 'default', name: 'Staging Area', type: 'staging', system: true, sortOrder: 30 },
-  { id: 'loc:field:default', ref: 'default', name: 'Field Stock', type: 'field', system: true, sortOrder: 40 },
-  { id: 'loc:writeoff:default', ref: 'default', name: 'Lost / Write-off', type: 'writeoff', system: true, sortOrder: 90 }
+  { id: 'loc:bin:primary', ref: 'primary', name: 'Primary Bin', type: 'bin', parentRef: 'main', system: true, sortOrder: 20 },
+  { id: 'loc:staging:default', ref: 'staging', name: 'Staging Area', type: 'staging', parentRef: 'main', system: true, sortOrder: 30 },
+  { id: 'loc:vehicle:fleet', ref: 'fleet', name: 'Vehicle Fleet', type: 'vehicle', system: true, sortOrder: 40 },
+  { id: 'loc:field:default', ref: 'field', name: 'Field Stock', type: 'field', system: true, sortOrder: 50 },
+  { id: 'loc:writeoff:default', ref: 'writeoff', name: 'Lost / Write-off', type: 'writeoff', system: true, sortOrder: 90 }
 ];
 const CLOSED_PROJECT_STATUSES = new Set(['complete', 'completed', 'closed', 'archived', 'cancelled', 'canceled']);
 let sellerStore = { clients: [], tickets: [], activities: [] };
@@ -2144,7 +2145,93 @@ function normalizeInventoryLocationLabel(location, locationType) {
   const system = SYSTEM_INVENTORY_LOCATIONS.find((entry) => entry.type === type);
   return system?.name || '';
 }
+function buildInventoryLocationId(tenantIdVal, ref) {
+  return `invloc:${tenantIdVal}:${ref}`;
+}
+function normalizeInventoryLocationRef(input, fallbackName) {
+  const raw = String(input || fallbackName || '').trim().toLowerCase();
+  if (!raw) return '';
+  return raw
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+async function ensureDefaultInventoryLocations(tenantIdVal) {
+  const existing = await getAsync('SELECT COUNT(*)::int AS count FROM inventory_locations WHERE tenantId=$1', [tenantIdVal]);
+  if (Number(existing?.count || 0) > 0) return;
+  const now = Date.now();
+  const byRef = new Map();
+  for (const entry of SYSTEM_INVENTORY_LOCATIONS) {
+    const id = buildInventoryLocationId(tenantIdVal, entry.ref);
+    byRef.set(entry.ref, id);
+  }
+  for (const entry of SYSTEM_INVENTORY_LOCATIONS) {
+    const id = byRef.get(entry.ref);
+    const parentId = entry.parentRef ? byRef.get(entry.parentRef) || null : null;
+    await runAsync(
+      `INSERT INTO inventory_locations(id,ref,name,type,parentId,sortOrder,isActive,notes,tenantId,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+       ON CONFLICT (id) DO NOTHING`,
+      [id, entry.ref, entry.name, entry.type, parentId, entry.sortOrder || 0, true, entry.system ? 'System default location' : null, tenantIdVal, now]
+    );
+  }
+}
+function decorateInventoryLocationRows(rows) {
+  const sourceRows = (rows || []).map((row) => ({
+    id: row.id,
+    ref: row.ref,
+    name: row.name,
+    type: row.type,
+    parentId: row.parentid || row.parentId || null,
+    sortOrder: Number(row.sortorder || row.sortOrder || 0) || 0,
+    isActive: row.isactive !== false && row.isActive !== false,
+    notes: row.notes || '',
+    createdAt: row.createdat || row.createdAt || null,
+    updatedAt: row.updatedat || row.updatedAt || null
+  }));
+  const byId = new Map(sourceRows.map((row) => [row.id, row]));
+  const buildPath = (row, seen = new Set()) => {
+    if (!row) return [];
+    if (seen.has(row.id)) return [row.name];
+    const nextSeen = new Set(seen);
+    nextSeen.add(row.id);
+    const parent = row.parentId ? byId.get(row.parentId) : null;
+    const parentPath = parent ? buildPath(parent, nextSeen) : [];
+    return [...parentPath, row.name];
+  };
+  return sourceRows
+    .map((row) => {
+      const path = buildPath(row);
+      const depth = Math.max(0, path.length - 1);
+      return {
+        ...row,
+        typeLabel: INVENTORY_LOCATION_TYPE_LABELS[row.type] || row.type,
+        path,
+        depth,
+        label: path.join(' / '),
+        parentName: row.parentId ? byId.get(row.parentId)?.name || '' : '',
+        parentRef: row.parentId ? byId.get(row.parentId)?.ref || '' : ''
+      };
+    })
+    .sort((a, b) => {
+      const bySort = (a.sortOrder || 0) - (b.sortOrder || 0);
+      if (bySort !== 0) return bySort;
+      if (a.label !== b.label) return a.label.localeCompare(b.label);
+      return a.name.localeCompare(b.name);
+    });
+}
+async function listManagedInventoryLocations(tenantIdVal) {
+  await ensureDefaultInventoryLocations(tenantIdVal);
+  const rows = await allAsync(
+    `SELECT id, ref, name, type, parentId, sortOrder, isActive, notes, createdAt, updatedAt
+     FROM inventory_locations
+     WHERE tenantId=$1 AND COALESCE(isActive, true)=true`,
+    [tenantIdVal]
+  );
+  return decorateInventoryLocationRows(rows);
+}
 async function listInventoryLocations(tenantIdVal) {
+  const managedRows = await listManagedInventoryLocations(tenantIdVal);
   const vehicles = await allAsync(
     'SELECT id, code, name, location FROM vehicle_assets WHERE tenantId=$1 ORDER BY name ASC NULLS LAST, code ASC',
     [tenantIdVal]
@@ -2153,23 +2240,72 @@ async function listInventoryLocations(tenantIdVal) {
     const name = (row.name || row.code || '').trim();
     return {
       id: `vehicle:${row.id}`,
-      ref: row.id,
+      ref: row.code || row.id,
       name,
-      label: `Vehicle: ${name}${row.location ? ` (${row.location})` : ''}`,
+      label: `Vehicle Fleet / ${name}${row.location ? ` (${row.location})` : ''}`,
       type: 'vehicle',
       typeLabel: INVENTORY_LOCATION_TYPE_LABELS.vehicle,
       system: false,
-      sortOrder: 200 + index
+      sortOrder: 500 + index,
+      depth: 1,
+      path: ['Vehicle Fleet', name]
     };
   });
   return [
-    ...SYSTEM_INVENTORY_LOCATIONS.map((entry) => ({
-      ...entry,
-      label: entry.name,
-      typeLabel: INVENTORY_LOCATION_TYPE_LABELS[entry.type] || entry.type
-    })),
+    ...managedRows,
     ...vehicleRows
   ];
+}
+async function getInventoryLocationById(locationId, tenantIdVal) {
+  if (!locationId) return null;
+  return getAsync(
+    `SELECT id, ref, name, type, parentId, sortOrder, isActive, notes, createdAt, updatedAt
+     FROM inventory_locations WHERE id=$1 AND tenantId=$2`,
+    [locationId, tenantIdVal]
+  );
+}
+async function getInventoryLocationByRef(locationRef, tenantIdVal) {
+  const ref = normalizeInventoryLocationRef(locationRef);
+  if (!ref) return null;
+  return getAsync(
+    `SELECT id, ref, name, type, parentId, sortOrder, isActive, notes, createdAt, updatedAt
+     FROM inventory_locations WHERE ref=$1 AND tenantId=$2`,
+    [ref, tenantIdVal]
+  );
+}
+async function assertInventoryLocationHierarchy({ tenantIdVal, locationId = null, parentId = null }) {
+  if (!parentId) return null;
+  if (locationId && parentId === locationId) throw new Error('location cannot be its own parent');
+  const parent = await getInventoryLocationById(parentId, tenantIdVal);
+  if (!parent) throw new Error('parent location not found');
+  if (!locationId) return parent;
+  let cursor = parent;
+  const seen = new Set([locationId]);
+  while (cursor?.parentid || cursor?.parentId) {
+    const nextId = cursor.parentid || cursor.parentId;
+    if (seen.has(nextId)) throw new Error('location hierarchy cannot contain a cycle');
+    seen.add(nextId);
+    cursor = await getInventoryLocationById(nextId, tenantIdVal);
+  }
+  return parent;
+}
+function normalizeInventoryLocationInput(body = {}) {
+  const name = String(body.name || '').trim();
+  const type = normalizeInventoryLocationType(body.type);
+  const ref = normalizeInventoryLocationRef(body.ref, name);
+  const notes = String(body.notes || '').trim() || null;
+  const sortOrderRaw = Number(body.sortOrder);
+  const sortOrder = Number.isFinite(sortOrderRaw) ? Math.round(sortOrderRaw) : 0;
+  const isActive = body.isActive === undefined ? true : !!body.isActive;
+  return {
+    name,
+    type,
+    ref,
+    parentId: String(body.parentId || '').trim() || null,
+    notes,
+    sortOrder,
+    isActive
+  };
 }
 function getReturnWindowMs(rules) {
   const days = Number(rules?.returnWindowDays);
@@ -2534,6 +2670,19 @@ async function initDb() {
     sourceId TEXT,
     sourceMeta JSONB
   )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS inventory_locations(
+    id TEXT PRIMARY KEY,
+    ref TEXT NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    parentId TEXT,
+    sortOrder INTEGER DEFAULT 0,
+    isActive BOOLEAN DEFAULT true,
+    notes TEXT,
+    tenantId TEXT REFERENCES tenants(id) DEFAULT 'default',
+    createdAt BIGINT,
+    updatedAt BIGINT
+  )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS jobs(
     code TEXT PRIMARY KEY,
     name TEXT,
@@ -2691,6 +2840,16 @@ async function initDb() {
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sourceMeta JSONB`);
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS locationType TEXT`);
   await runAsync(`ALTER TABLE inventory ADD COLUMN IF NOT EXISTS locationRef TEXT`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS ref TEXT`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS name TEXT`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS type TEXT`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS parentId TEXT`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS sortOrder INTEGER DEFAULT 0`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS isActive BOOLEAN DEFAULT true`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS createdAt BIGINT`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
   await runAsync(`UPDATE inventory
     SET locationType = CASE
       WHEN LOWER(COALESCE(location, '')) LIKE '%warehouse%' THEN 'warehouse'
@@ -2782,6 +2941,8 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant_type_ts ON inventory(tenantId, type, ts DESC)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant_code_ts ON inventory(tenantId, code, ts DESC)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_tenant_job_ts ON inventory(tenantId, jobId, ts DESC)');
+  await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_inventory_locations_tenant_ref ON inventory_locations(tenantId, ref)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_locations_tenant_parent ON inventory_locations(tenantId, parentId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_jobs_tenant ON jobs(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_counts_tenant ON inventory_counts(tenantId)');
@@ -3295,6 +3456,104 @@ app.get('/api/inventory-locations', async (req, res) => {
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: 'server error' });
+  }
+});
+
+app.get('/api/locations', requireRole('admin'), async (req, res) => {
+  try {
+    const rows = await listManagedInventoryLocations(tenantId(req));
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.post('/api/locations', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const payload = normalizeInventoryLocationInput(req.body || {});
+    if (!payload.name) return res.status(400).json({ error: 'name required' });
+    if (!payload.type) return res.status(400).json({ error: 'valid type required' });
+    if (!payload.ref) return res.status(400).json({ error: 'reference required' });
+    if (await getInventoryLocationByRef(payload.ref, t)) return res.status(400).json({ error: 'location reference already exists' });
+    await assertInventoryLocationHierarchy({ tenantIdVal: t, parentId: payload.parentId });
+    const now = Date.now();
+    const row = {
+      id: buildInventoryLocationId(t, payload.ref),
+      ...payload,
+      tenantId: t,
+      createdAt: now,
+      updatedAt: now
+    };
+    await runAsync(
+      `INSERT INTO inventory_locations(id,ref,name,type,parentId,sortOrder,isActive,notes,tenantId,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [row.id, row.ref, row.name, row.type, row.parentId, row.sortOrder, row.isActive, row.notes, row.tenantId, row.createdAt, row.updatedAt]
+    );
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'locations.create', details: { location: row.name, ref: row.ref, type: row.type, parentId: row.parentId } });
+    const rows = await listManagedInventoryLocations(t);
+    const created = rows.find((entry) => entry.id === row.id) || row;
+    res.status(201).json(created);
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'unable to create location' });
+  }
+});
+
+app.patch('/api/locations/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getInventoryLocationById(req.params.id, t);
+    if (!existing) return res.status(404).json({ error: 'location not found' });
+    const payload = normalizeInventoryLocationInput({ ...existing, ...req.body });
+    if (!payload.name) return res.status(400).json({ error: 'name required' });
+    if (!payload.type) return res.status(400).json({ error: 'valid type required' });
+    if (!payload.ref) return res.status(400).json({ error: 'reference required' });
+    const refOwner = await getInventoryLocationByRef(payload.ref, t);
+    if (refOwner && refOwner.id !== existing.id) return res.status(400).json({ error: 'location reference already exists' });
+    await assertInventoryLocationHierarchy({ tenantIdVal: t, locationId: existing.id, parentId: payload.parentId });
+    if (payload.ref !== existing.ref) {
+      const usage = await getAsync(
+        `SELECT COUNT(*)::int AS count FROM inventory
+         WHERE tenantId=$1 AND (locationRef=$2 OR (location=$3 AND COALESCE(locationRef,'')=''))`,
+        [t, existing.ref, existing.name]
+      );
+      if (Number(usage?.count || 0) > 0) {
+        return res.status(400).json({ error: 'cannot change reference after the location has been used' });
+      }
+    }
+    await runAsync(
+      `UPDATE inventory_locations
+       SET ref=$1, name=$2, type=$3, parentId=$4, sortOrder=$5, isActive=$6, notes=$7, updatedAt=$8
+       WHERE id=$9 AND tenantId=$10`,
+      [payload.ref, payload.name, payload.type, payload.parentId, payload.sortOrder, payload.isActive, payload.notes, Date.now(), existing.id, t]
+    );
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'locations.update', details: { location: payload.name, ref: payload.ref, type: payload.type, parentId: payload.parentId } });
+    const rows = await listManagedInventoryLocations(t);
+    const updated = rows.find((entry) => entry.id === existing.id);
+    res.json(updated || { ...existing, ...payload });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'unable to update location' });
+  }
+});
+
+app.delete('/api/locations/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getInventoryLocationById(req.params.id, t);
+    if (!existing) return res.status(404).json({ error: 'location not found' });
+    const child = await getAsync('SELECT id FROM inventory_locations WHERE tenantId=$1 AND parentId=$2 LIMIT 1', [t, existing.id]);
+    if (child) return res.status(400).json({ error: 'move or delete child locations first' });
+    const usage = await getAsync(
+      `SELECT COUNT(*)::int AS count FROM inventory
+       WHERE tenantId=$1 AND (locationRef=$2 OR (location=$3 AND COALESCE(locationRef,'')=''))`,
+      [t, existing.ref, existing.name]
+    );
+    if (Number(usage?.count || 0) > 0) return res.status(400).json({ error: 'location is already used in inventory history' });
+    await runAsync('DELETE FROM inventory_locations WHERE id=$1 AND tenantId=$2', [existing.id, t]);
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'locations.delete', details: { location: existing.name, ref: existing.ref, type: existing.type } });
+    res.json({ status: 'ok' });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'unable to delete location' });
   }
 });
 
@@ -4985,6 +5244,7 @@ app.post('/api/dev/reset', requireDev, async (req, res) => {
       await client.query('TRUNCATE inventory_counts');
       await client.query('TRUNCATE support_tickets');
       await client.query('TRUNCATE tenant_capabilities');
+      await client.query('TRUNCATE inventory_locations');
       await client.query('TRUNCATE items');
       await client.query('TRUNCATE suppliers');
       await client.query('TRUNCATE equipment_assets');
@@ -5080,6 +5340,7 @@ app.post('/api/dev/delete-tenant', requireDev, async (req, res) => {
       await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM auth_tokens WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM tenant_capabilities WHERE tenant_id=$1', [tenant.id]);
+      await client.query('DELETE FROM inventory_locations WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM equipment_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM vehicle_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);
@@ -6200,6 +6461,7 @@ app.delete('/api/seller/clients/:id', requireDev, async (req, res) => {
       await client.query('DELETE FROM support_tickets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM auth_tokens WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM tenant_capabilities WHERE tenant_id=$1', [tenant.id]);
+      await client.query('DELETE FROM inventory_locations WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM equipment_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM vehicle_assets WHERE tenantId=$1', [tenant.id]);
       await client.query('DELETE FROM items WHERE tenantId=$1', [tenant.id]);

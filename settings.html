@@ -53,6 +53,7 @@
           <button class="mode-btn settings-tab" data-tab="shortcuts" type="button">Shortcuts</button>
           <button class="mode-btn settings-tab" data-tab="locale" type="button">Language &amp; Time</button>
           <button class="mode-btn settings-tab" data-tab="notifications" type="button">Notifications</button>
+          <button class="mode-btn settings-tab" data-tab="locations" type="button">Locations</button>
           <button class="mode-btn settings-tab" data-tab="users" type="button">User Management</button>
           <button class="mode-btn settings-tab" data-tab="capabilities" type="button">Capabilities</button>
         </div>
@@ -179,6 +180,85 @@
               </div>
               <div class="form-row">
                 <button id="notificationPrefsSave" type="button" class="settings-action">Save Notifications</button>
+              </div>
+            </section>
+          </div>
+
+          <div id="panelLocations" class="settings-panel" style="display:none;">
+            <section class="inventory-card">
+              <div class="card-header">
+                <div>
+                  <h3>Location Hierarchy</h3>
+                  <p class="muted-text">Create the approved warehouse, bin, staging, vehicle, field, and write-off locations your team can use across inventory workflows.</p>
+                </div>
+                <button id="locationRefreshBtn" type="button" class="muted">Refresh</button>
+              </div>
+              <div class="summary-grid">
+                <div class="summary-item"><span>Total Locations</span><strong id="locationTotal">-</strong></div>
+                <div class="summary-item"><span>Top Level</span><strong id="locationRoots">-</strong></div>
+                <div class="summary-item"><span>Bins / Zones</span><strong id="locationBins">-</strong></div>
+                <div class="summary-item"><span>Vehicle Nodes</span><strong id="locationVehicles">-</strong></div>
+              </div>
+            </section>
+
+            <section class="inventory-card">
+              <h3 id="locationFormTitle">Create Location</h3>
+              <form id="locationForm" class="inventory-form" autocomplete="off">
+                <input id="locationId" type="hidden">
+                <div class="form-row">
+                  <label>Name
+                    <input id="locationName" type="text" placeholder="Main Warehouse" required>
+                  </label>
+                  <label>Reference
+                    <input id="locationRef" type="text" placeholder="main-warehouse">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Type
+                    <select id="locationType" required>
+                      <option value="warehouse">Warehouse</option>
+                      <option value="bin">Bin / Shelf / Zone</option>
+                      <option value="staging">Staging Area</option>
+                      <option value="vehicle">Vehicle</option>
+                      <option value="field">Field</option>
+                      <option value="writeoff">Lost / Write-off</option>
+                    </select>
+                  </label>
+                  <label>Parent Location (optional)
+                    <select id="locationParent">
+                      <option value="">No parent</option>
+                    </select>
+                  </label>
+                  <label>Sort Order
+                    <input id="locationSortOrder" type="number" value="0">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label style="flex:1;">Notes
+                    <textarea id="locationNotes" rows="2" placeholder="Optional notes for this location"></textarea>
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label class="toggle-inline"><input id="locationActive" type="checkbox" checked> Active</label>
+                </div>
+                <div class="muted-text">Leave parent empty if this should be a top-level location.</div>
+                <div class="form-row">
+                  <button id="locationSaveBtn" type="submit" class="settings-action">Save Location</button>
+                  <button id="locationResetBtn" type="button" class="muted">Clear</button>
+                </div>
+                <div id="locationMsg" class="muted-text"></div>
+              </form>
+            </section>
+
+            <section class="card">
+              <div class="card-header">
+                <div>
+                  <h3>Managed Locations</h3>
+                  <p class="muted-text">Use parents to build the hierarchy your team selects from during receiving, picking, returns, and allocation.</p>
+                </div>
+              </div>
+              <div id="locationTree" class="location-tree">
+                <div class="muted-text">Loading locations...</div>
               </div>
             </section>
           </div>

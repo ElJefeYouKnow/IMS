@@ -28,6 +28,7 @@ let closedJobIds = new Set();
 let itemPanelEls = null;
 let lastSyncTs = null;
 let inventoryEventCache = [];
+let inventoryLocationOptions = [];
 
 function haptic(kind){
   if(!navigator.vibrate) return;
@@ -52,6 +53,52 @@ function writeCache(payload){
   try{
     localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
   }catch(e){}
+}
+
+async function loadInventoryLocations(force = false){
+  if(inventoryLocationOptions.length && !force) return inventoryLocationOptions;
+  try{
+    const rows = await fetch('/api/inventory-locations').then((res)=> res.ok ? res.json() : []);
+    inventoryLocationOptions = (rows || []).map((row)=>({
+      id: row.id || row.ref || row.name,
+      name: row.name || row.label || 'Location',
+      label: row.label || row.name || 'Location',
+      type: row.type || '',
+      ref: row.ref || row.id || ''
+    }));
+  }catch(e){
+    inventoryLocationOptions = [];
+  }
+  return inventoryLocationOptions;
+}
+
+function renderInventoryLocationSelect(selectEl, preferred){
+  if(!selectEl) return;
+  const current = selectEl.value || preferred || '';
+  selectEl.innerHTML = '<option value="">Select location...</option>';
+  inventoryLocationOptions.forEach((option)=>{
+    const el = document.createElement('option');
+    el.value = option.id;
+    el.textContent = option.label || option.name;
+    el.dataset.locationName = option.name || option.label || '';
+    el.dataset.locationType = option.type || '';
+    el.dataset.locationRef = option.ref || '';
+    selectEl.appendChild(el);
+  });
+  const matchByValue = [...selectEl.options].find((option)=> option.value === current);
+  const matchByRef = [...selectEl.options].find((option)=> option.dataset.locationRef === current);
+  if(matchByValue) selectEl.value = matchByValue.value;
+  else if(matchByRef) selectEl.value = matchByRef.value;
+  else if(selectEl.options.length > 1) selectEl.selectedIndex = 1;
+}
+
+function getSelectedInventoryLocation(selectEl){
+  const option = selectEl?.selectedOptions?.[0];
+  return {
+    location: option?.dataset.locationName || '',
+    locationType: option?.dataset.locationType || '',
+    locationRef: option?.dataset.locationRef || ''
+  };
 }
 
 function updateSyncStatus(offline, ts){
@@ -445,7 +492,9 @@ function renderTabOverview(data){
         </div>
         <div class="form-row">
           <label style="flex:1;">Location
-            <input name="location" value="${meta.warehouse || item.location || ''}" placeholder="Warehouse / Bin">
+            <select name="location">
+              <option value="">Select location...</option>
+            </select>
           </label>
           <label style="flex:1;">Reason
             <input name="reason" placeholder="Adjustment reason" required>
@@ -843,6 +892,11 @@ function bindTabEvents(tab){
     els.body.querySelector('[data-action="view-activity"]')?.addEventListener('click',(e)=>{e.preventDefault(); setActiveTab('activity');});
     const adjustForm = els.body.querySelector('#drawerAdjustForm');
     if(adjustForm){
+      const locationSelect = adjustForm.querySelector('select[name="location"]');
+      loadInventoryLocations().then(()=>{
+        const preferredLocation = itemMetaByCode.get(drawerState.itemCode)?.warehouse || drawerState.cache?.overview?.item?.location || 'main';
+        renderInventoryLocationSelect(locationSelect, preferredLocation);
+      });
       adjustForm.addEventListener('submit', async (e)=>{
         e.preventDefault();
         const msg = adjustForm.querySelector('#drawerAdjustMsg');
@@ -851,7 +905,7 @@ function bindTabEvents(tab){
         const direction = String(formData.get('direction') || 'add');
         const reason = String(formData.get('reason') || '').trim();
         const notes = String(formData.get('notes') || '').trim();
-        const location = String(formData.get('location') || '').trim();
+        const locationPayload = getSelectedInventoryLocation(locationSelect);
         if(!Number.isFinite(qty) || qty <= 0){
           if(msg) msg.textContent = 'Enter a valid quantity.';
           return;
@@ -862,7 +916,7 @@ function bindTabEvents(tab){
         }
         if(msg) msg.textContent = 'Saving...';
         const delta = direction === 'remove' ? -qty : qty;
-        const res = await adjustInventoryFromDrawer(drawerState.itemCode, { delta, reason, notes, location });
+        const res = await adjustInventoryFromDrawer(drawerState.itemCode, { delta, reason, notes, ...locationPayload });
         if(!res.ok){
           if(msg) msg.textContent = res.error || 'Adjustment failed.';
           return;

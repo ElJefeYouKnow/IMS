@@ -83,10 +83,18 @@ function populateInventoryLocationSelect(selectId, preferredId){
     el.dataset.locationRef = option.ref || '';
     select.appendChild(el);
   });
-  if(current && [...select.options].some((option)=> option.value === current)){
-    select.value = current;
-  }else if(preferredId && [...select.options].some((option)=> option.value === preferredId)){
-    select.value = preferredId;
+  const matchByValue = [...select.options].find((option)=> option.value === current);
+  const matchByRef = [...select.options].find((option)=> option.dataset.locationRef === current);
+  const preferredByValue = [...select.options].find((option)=> option.value === preferredId);
+  const preferredByRef = [...select.options].find((option)=> option.dataset.locationRef === preferredId);
+  if(matchByValue){
+    select.value = matchByValue.value;
+  }else if(matchByRef){
+    select.value = matchByRef.value;
+  }else if(preferredByValue){
+    select.value = preferredByValue.value;
+  }else if(preferredByRef){
+    select.value = preferredByRef.value;
   }else if(select.options.length > 1){
     select.selectedIndex = 1;
   }
@@ -1175,9 +1183,9 @@ async function refreshOperationsWorkspace(){
       await loadCategories();
       await loadJobOptions();
       await loadOpenOrders();
-      populateInventoryLocationSelect('checkin-location', 'loc:warehouse:main');
-      populateInventoryLocationSelect('checkout-location', 'loc:bin:primary');
-      populateInventoryLocationSelect('return-location', 'loc:warehouse:main');
+      populateInventoryLocationSelect('checkin-location', 'main');
+      populateInventoryLocationSelect('checkout-location', 'primary');
+      populateInventoryLocationSelect('return-location', 'main');
       populateOrderSelect();
       await updateOpsMetrics();
       await renderCheckinTable();

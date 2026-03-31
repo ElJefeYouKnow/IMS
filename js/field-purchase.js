@@ -1,12 +1,68 @@
 let itemsCache = [];
 let jobOptions = [];
 let categoriesCache = [];
+let inventoryLocationOptions = [];
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const SESSION_KEY = 'sessionUser';
+const FALLBACK_LOCATION_OPTIONS = [
+  { id: 'loc:warehouse:main', name: 'Main Warehouse', label: 'Main Warehouse', type: 'warehouse', ref: 'main' },
+  { id: 'loc:bin:primary', name: 'Primary Bin', label: 'Primary Bin', type: 'bin', ref: 'primary' },
+  { id: 'loc:staging:staging', name: 'Staging Area', label: 'Staging Area', type: 'staging', ref: 'staging' },
+  { id: 'loc:field:field', name: 'Field Stock', label: 'Field Stock', type: 'field', ref: 'field' },
+  { id: 'loc:writeoff:writeoff', name: 'Lost / Write-off', label: 'Lost / Write-off', type: 'writeoff', ref: 'writeoff' }
+];
 
 function getSession(){
   if(window.utils?.getSession) return utils.getSession();
   try{return JSON.parse(localStorage.getItem(SESSION_KEY)||'null');}catch(e){return null;}
+}
+
+async function loadInventoryLocations(force = false){
+  if(inventoryLocationOptions.length && !force) return inventoryLocationOptions;
+  const rows = await utils.fetchJsonSafe('/api/inventory-locations', {}, []) || [];
+  inventoryLocationOptions = (rows.length ? rows : FALLBACK_LOCATION_OPTIONS).map((row)=>({
+    id: row.id || row.ref || row.name,
+    name: row.name || row.label || 'Location',
+    label: row.label || row.name || 'Location',
+    type: row.type || '',
+    ref: row.ref || row.id || ''
+  }));
+  return inventoryLocationOptions;
+}
+
+function populateInventoryLocationSelect(selectId, preferredId){
+  const select = document.getElementById(selectId);
+  if(!select) return;
+  const current = select.value || preferredId || '';
+  select.innerHTML = '<option value="">Select location...</option>';
+  inventoryLocationOptions.forEach((option)=>{
+    const el = document.createElement('option');
+    el.value = option.id;
+    el.textContent = option.label || option.name;
+    el.dataset.locationName = option.name || option.label || '';
+    el.dataset.locationType = option.type || '';
+    el.dataset.locationRef = option.ref || '';
+    select.appendChild(el);
+  });
+  const matchByValue = [...select.options].find((option)=> option.value === current);
+  const matchByRef = [...select.options].find((option)=> option.dataset.locationRef === current);
+  const preferredByValue = [...select.options].find((option)=> option.value === preferredId);
+  const preferredByRef = [...select.options].find((option)=> option.dataset.locationRef === preferredId);
+  if(matchByValue) select.value = matchByValue.value;
+  else if(matchByRef) select.value = matchByRef.value;
+  else if(preferredByValue) select.value = preferredByValue.value;
+  else if(preferredByRef) select.value = preferredByRef.value;
+  else if(select.options.length > 1) select.selectedIndex = 1;
+}
+
+function getInventoryLocationPayload(selectId){
+  const select = document.getElementById(selectId);
+  const option = select?.selectedOptions?.[0];
+  return {
+    location: option?.dataset.locationName || '',
+    locationType: option?.dataset.locationType || '',
+    locationRef: option?.dataset.locationRef || ''
+  };
 }
 
 async function loadItems(){
@@ -172,6 +228,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   await loadItems();
   await loadCategories();
   await loadJobs();
+  await loadInventoryLocations();
+  populateInventoryLocationSelect('purchase-location', 'field');
   addLine();
   renderPurchaseTable();
 
@@ -184,7 +242,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const session = getSession();
     const lines = gatherLines();
     const jobId = document.getElementById('purchase-jobId').value.trim();
-    const location = document.getElementById('purchase-location').value.trim();
+    const locationPayload = getInventoryLocationPayload('purchase-location');
     const vendor = document.getElementById('purchase-vendor').value.trim();
     const receipt = document.getElementById('purchase-receipt').value.trim();
     const notes = document.getElementById('purchase-notes').value.trim();
@@ -195,11 +253,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const r = await fetch('/api/field-purchase', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ lines, jobId, location, vendor, receipt, notes, userEmail: session?.email, userName: session?.name })
+        body: JSON.stringify({ lines, jobId, ...locationPayload, vendor, receipt, notes, userEmail: session?.email, userName: session?.name })
       });
       const data = await r.json().catch(()=>({}));
       if(!r.ok){ alert(data.error || 'Failed to log purchase'); return; }
       form.reset();
+      populateInventoryLocationSelect('purchase-location', 'field');
       document.getElementById('purchase-lines').innerHTML = '';
       addLine();
       await loadItems();
@@ -213,6 +272,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const clearBtn = document.getElementById('purchase-clearBtn');
   clearBtn?.addEventListener('click', ()=>{
     if(confirm('Clear all lines?')){
+      document.getElementById('purchaseForm')?.reset();
+      populateInventoryLocationSelect('purchase-location', 'field');
       document.getElementById('purchase-lines').innerHTML = '';
       addLine();
     }
