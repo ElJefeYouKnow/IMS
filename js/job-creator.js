@@ -268,72 +268,85 @@ function getTimelineMeta(meta){
   return { tone:'static', label:'Schedule not set', detail:'Add start or end dates to improve planning order' };
 }
 
-function getReportSortValue(project){
-  const sortMode = document.getElementById('reportSortSelect')?.value || REPORT_SORT_DEFAULT;
+function getProjectScheduleProfile(project){
   const meta = project?.meta || {};
+  const todayTs = todayStartTs();
   const startTs = parseDateValue(meta.startDate)?.getTime() || 0;
   const endTs = parseDateValue(meta.endDate)?.getTime() || 0;
   const updatedTs = parseDateValue(meta.updatedAt)?.getTime() || 0;
   const lastActivityTs = Number(project?.lastActivityTs || 0) || 0;
-  const outstandingLines = Number(project?.materialStats?.outstandingLines || 0);
-  const shortageScore = outstandingLines * 1000 + Number(project?.materialStats?.totalRequired || 0) - Number(project?.materialStats?.totalReceived || 0);
-  const todayTs = todayStartTs();
   const status = (meta.status || '').toString().trim().toLowerCase();
   const isClosed = CLOSED_PROJECT_STATUSES.has(status);
-  const isUpcoming = startTs && startTs >= todayTs;
-  const isActive = !isClosed && ((status === 'active') || (startTs && startTs <= todayTs && (!endTs || endTs >= todayTs)));
-  const code = (project?.projectId || meta.code || '').toString();
-
-  if(sortMode === 'projectCode'){
-    return { bucket: 0, value: code, direction: 'text' };
-  }
-  if(sortMode === 'recentlyUpdated'){
-    return { bucket: 0, value: -(lastActivityTs || updatedTs || 0), direction: 'number' };
-  }
-  if(sortMode === 'urgency'){
-    const overdueBucket = endTs && endTs < todayTs ? 0 : 1;
-    const activeBucket = isActive ? 0 : 1;
-    const upcomingBucket = isUpcoming ? 0 : 1;
-    return {
-      bucket: overdueBucket,
-      value: [activeBucket, upcomingBucket, -(shortageScore || 0), startTs || Number.MAX_SAFE_INTEGER, endTs || Number.MAX_SAFE_INTEGER]
-    };
-  }
-  if(sortMode === 'activeWindow'){
-    if(isActive) return { bucket: 0, value: endTs || Number.MAX_SAFE_INTEGER };
-    if(isUpcoming) return { bucket: 1, value: startTs };
-    if(!isClosed) return { bucket: 2, value: -(updatedTs || 0) };
-    return { bucket: 3, value: -(updatedTs || endTs || 0) };
-  }
-
-  if(isUpcoming) return { bucket: 0, value: startTs };
-  if(isActive) return { bucket: 1, value: endTs || Number.MAX_SAFE_INTEGER };
-  if(!isClosed && startTs) return { bucket: 2, value: startTs };
-  if(!isClosed) return { bucket: 3, value: -(updatedTs || 0) };
-  return { bucket: 4, value: -(updatedTs || endTs || startTs || 0) };
+  const isOverdue = !isClosed && !!endTs && endTs < todayTs;
+  const isActive = !isClosed && !isOverdue && (
+    status === 'active' ||
+    ((!!startTs && startTs <= todayTs) && (!endTs || endTs >= todayTs))
+  );
+  const isUpcoming = !isClosed && !isActive && !isOverdue && !!startTs && startTs >= todayTs;
+  const isScheduled = !!startTs || !!endTs;
+  const outstandingLines = Number(project?.materialStats?.outstandingLines || 0);
+  const openQty = Math.max(0, Number(project?.materialStats?.totalRequired || 0) - Number(project?.materialStats?.totalReceived || 0) - Number(project?.materialStats?.totalAllocated || 0));
+  const urgencyScore = (outstandingLines * 1000) + openQty;
+  return {
+    todayTs,
+    startTs,
+    endTs,
+    updatedTs,
+    lastActivityTs,
+    isClosed,
+    isOverdue,
+    isActive,
+    isUpcoming,
+    isScheduled,
+    urgencyScore
+  };
 }
 
 function compareReportProjects(a, b){
-  const aSort = getReportSortValue(a);
-  const bSort = getReportSortValue(b);
-  if(aSort.bucket !== bSort.bucket) return aSort.bucket - bSort.bucket;
-  if(Array.isArray(aSort.value) && Array.isArray(bSort.value)){
-    const len = Math.max(aSort.value.length, bSort.value.length);
-    for(let i = 0; i < len; i += 1){
-      const av = aSort.value[i];
-      const bv = bSort.value[i];
-      if(av === bv) continue;
-      return av < bv ? -1 : 1;
-    }
-  }else if(aSort.direction === 'text' || bSort.direction === 'text'){
-    const aVal = String(aSort.value || '');
-    const bVal = String(bSort.value || '');
-    const diff = aVal.localeCompare(bVal);
-    if(diff) return diff;
-  }else if(aSort.value !== bSort.value){
-    return aSort.value - bSort.value;
+  const mode = document.getElementById('reportSortSelect')?.value || REPORT_SORT_DEFAULT;
+  const aProfile = getProjectScheduleProfile(a);
+  const bProfile = getProjectScheduleProfile(b);
+  const textFallback = ()=> compareProjectsForDisplay(a, b);
+
+  if(mode === 'projectCode'){
+    const diff = String(a?.projectId || '').localeCompare(String(b?.projectId || ''));
+    return diff || textFallback();
   }
-  return compareProjectsForDisplay(a, b);
+
+  if(mode === 'recentlyUpdated'){
+    const aRecent = -(aProfile.lastActivityTs || aProfile.updatedTs || aProfile.endTs || aProfile.startTs || 0);
+    const bRecent = -(bProfile.lastActivityTs || bProfile.updatedTs || bProfile.endTs || bProfile.startTs || 0);
+    if(aRecent !== bRecent) return aRecent - bRecent;
+    return textFallback();
+  }
+
+  if(mode === 'urgency'){
+    const aBucket = aProfile.isOverdue ? 0 : aProfile.isActive ? 1 : aProfile.isUpcoming ? 2 : aProfile.isScheduled ? 3 : aProfile.isClosed ? 5 : 4;
+    const bBucket = bProfile.isOverdue ? 0 : bProfile.isActive ? 1 : bProfile.isUpcoming ? 2 : bProfile.isScheduled ? 3 : bProfile.isClosed ? 5 : 4;
+    if(aBucket !== bBucket) return aBucket - bBucket;
+    if(aProfile.urgencyScore !== bProfile.urgencyScore) return bProfile.urgencyScore - aProfile.urgencyScore;
+    if(aProfile.endTs !== bProfile.endTs) return (aProfile.endTs || Number.MAX_SAFE_INTEGER) - (bProfile.endTs || Number.MAX_SAFE_INTEGER);
+    if(aProfile.startTs !== bProfile.startTs) return (aProfile.startTs || Number.MAX_SAFE_INTEGER) - (bProfile.startTs || Number.MAX_SAFE_INTEGER);
+    return textFallback();
+  }
+
+  if(mode === 'activeWindow'){
+    const aBucket = aProfile.isActive ? 0 : aProfile.isUpcoming ? 1 : aProfile.isOverdue ? 2 : aProfile.isScheduled ? 3 : aProfile.isClosed ? 5 : 4;
+    const bBucket = bProfile.isActive ? 0 : bProfile.isUpcoming ? 1 : bProfile.isOverdue ? 2 : bProfile.isScheduled ? 3 : bProfile.isClosed ? 5 : 4;
+    if(aBucket !== bBucket) return aBucket - bBucket;
+    if(aBucket === 0 && aProfile.endTs !== bProfile.endTs) return (aProfile.endTs || Number.MAX_SAFE_INTEGER) - (bProfile.endTs || Number.MAX_SAFE_INTEGER);
+    if(aBucket === 1 && aProfile.startTs !== bProfile.startTs) return (aProfile.startTs || Number.MAX_SAFE_INTEGER) - (bProfile.startTs || Number.MAX_SAFE_INTEGER);
+    return textFallback();
+  }
+
+  const aBucket = aProfile.isUpcoming ? 0 : aProfile.isActive ? 1 : aProfile.isOverdue ? 2 : aProfile.isScheduled ? 3 : aProfile.isClosed ? 5 : 4;
+  const bBucket = bProfile.isUpcoming ? 0 : bProfile.isActive ? 1 : bProfile.isOverdue ? 2 : bProfile.isScheduled ? 3 : bProfile.isClosed ? 5 : 4;
+  if(aBucket !== bBucket) return aBucket - bBucket;
+  if(aBucket === 0 && aProfile.startTs !== bProfile.startTs) return (aProfile.startTs || Number.MAX_SAFE_INTEGER) - (bProfile.startTs || Number.MAX_SAFE_INTEGER);
+  if(aBucket === 1 && aProfile.endTs !== bProfile.endTs) return (aProfile.endTs || Number.MAX_SAFE_INTEGER) - (bProfile.endTs || Number.MAX_SAFE_INTEGER);
+  if(aBucket === 2 && aProfile.endTs !== bProfile.endTs) return (aProfile.endTs || Number.MAX_SAFE_INTEGER) - (bProfile.endTs || Number.MAX_SAFE_INTEGER);
+  if(aBucket === 3 && aProfile.startTs !== bProfile.startTs) return (aProfile.startTs || Number.MAX_SAFE_INTEGER) - (bProfile.startTs || Number.MAX_SAFE_INTEGER);
+  return textFallback();
 }
 
 function addMaterialLine(containerId, prefill = {}){
@@ -1212,6 +1225,7 @@ async function renderReport(){
           : materialStats.status === 'none'
             ? 'static'
             : 'danger';
+    const totalOpenQty = Math.max(0, Number(materialStats.totalRequired || 0) - Number(materialStats.totalReceived || 0) - Number(materialStats.totalAllocated || 0));
     const card = document.createElement('div');
     card.className = 'report-card';
     card.innerHTML = `
@@ -1230,23 +1244,34 @@ async function renderReport(){
           ${actionButton}
         </div>
       </div>
-      <div class="report-card-grid">
-        <div class="report-chip"><span>Dates</span><strong>${escapeHtml(datesLabel)}</strong></div>
+      <div class="report-card-grid compact">
+        <div class="report-chip"><span>Schedule</span><strong>${escapeHtml(datesLabel)}</strong></div>
         <div class="report-chip"><span>Location</span><strong>${escapeHtml(locationLabel)}</strong></div>
-        <div class="report-chip"><span>Last Activity</span><strong>${escapeHtml(lastActivityLabel)}</strong></div>
-        <div class="report-chip"><span>Material Lines</span><strong>${materialStats.totalLines}</strong></div>
       </div>
-      <div class="report-metrics">
-        <div class="report-metric"><span>Checked Out</span><strong>${checkedOutQty}</strong></div>
-        <div class="report-metric"><span>Reserved</span><strong>${reservedQty}</strong></div>
-        <div class="report-metric"><span>Outstanding Materials</span><strong>${materialStats.outstandingLines}</strong></div>
-        <div class="report-metric"><span>Received / Needed</span><strong>${materialStats.totalReceived} / ${materialStats.totalRequired}</strong></div>
+      <div class="report-compact-stats">
+        <div class="report-compact-stat">
+          <span>Open lines</span>
+          <strong>${materialStats.outstandingLines}</strong>
+        </div>
+        <div class="report-compact-stat">
+          <span>Open qty</span>
+          <strong>${totalOpenQty}</strong>
+        </div>
+        <div class="report-compact-stat">
+          <span>Reserved</span>
+          <strong>${reservedQty}</strong>
+        </div>
+        <div class="report-compact-stat">
+          <span>Checked out</span>
+          <strong>${checkedOutQty}</strong>
+        </div>
       </div>
-      <div class="report-notes"><strong>Notes:</strong> ${escapeHtml(notesLabel || FALLBACK)}</div>
+      <div class="report-card-meta-line">Last activity: <strong>${escapeHtml(lastActivityLabel)}</strong></div>
         <div class="report-card-actions">
           <button type="button" class="action-btn report-toggle" data-project="${key}">View Project Detail</button>
         </div>
       <div class="report-detail" data-project="${key}" style="display:none;">
+        <div class="report-notes"><strong>Notes:</strong> ${escapeHtml(notesLabel || FALLBACK)}</div>
         <div class="subhead">Material Plan</div>
         ${buildMaterialsTable(project.materials || [])}
         <div class="subhead">Current Inventory Use</div>
