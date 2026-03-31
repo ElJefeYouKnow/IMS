@@ -743,7 +743,7 @@ function buildReportSummary(items){
 function getMaterialStatusLabel(status){
   const map = {
     ready: 'Ready',
-    partially_received: 'Partially Received',
+    partially_received: 'Partially Covered',
     ordered: 'Ordered',
     partially_ordered: 'In Progress',
     not_ordered: 'Not Ordered'
@@ -794,9 +794,9 @@ function summarizeProjectMaterials(materials){
   }else if(stats.outstandingLines === 0){
     stats.status = 'ready';
     stats.statusLabel = 'Ready';
-  }else if(stats.totalReceived > 0){
+  }else if(stats.totalReceived > 0 || stats.totalAllocated > 0){
     stats.status = 'partially_received';
-    stats.statusLabel = 'Partially Received';
+    stats.statusLabel = 'Partially Covered';
   }else if(stats.totalOrdered > 0 || stats.totalAllocated > 0){
     stats.status = 'partially_ordered';
     stats.statusLabel = 'In Progress';

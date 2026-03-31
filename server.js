@@ -5826,9 +5826,11 @@ function normalizeJobMaterialRow(row) {
   const qtyAllocated = roundQty(row?.qtyallocated ?? row?.qtyAllocated);
   const qtyReceived = roundQty(row?.qtyreceived ?? row?.qtyReceived);
   const outstandingQty = Math.max(0, roundQty(qtyRequired - qtyOrdered - qtyAllocated));
+  const coveredFromStockQty = roundQty(qtyAllocated + qtyReceived);
   let status = 'not_ordered';
   if (qtyReceived >= qtyRequired && qtyRequired > 0) status = 'ready';
-  else if (qtyReceived > 0) status = 'partially_received';
+  else if (coveredFromStockQty > 0 && outstandingQty <= 0 && qtyRequired > 0) status = 'ready';
+  else if (coveredFromStockQty > 0) status = 'partially_received';
   else if (qtyOrdered >= qtyRequired && qtyRequired > 0) status = 'ordered';
   else if (qtyOrdered > 0 || qtyAllocated > 0) status = 'partially_ordered';
   return {
