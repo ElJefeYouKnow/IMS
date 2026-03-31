@@ -6,6 +6,7 @@ let isAdmin = false;
 let editingCode = null;
 let projectMaterialsReportCache = new Map();
 let workflowOverviewCache = null;
+const REPORT_SORT_DEFAULT = 'closestUpcoming';
 const CLOSED_PROJECT_STATUSES = new Set(['complete','completed','closed','archived','cancelled','canceled']);
 
 function normalizeJobRow(row){
@@ -226,6 +227,113 @@ function compareProjectsForDisplay(a, b){
   const aCode = (a?.code || a?.projectId || '').toString();
   const bCode = (b?.code || b?.projectId || '').toString();
   return aCode.localeCompare(bCode);
+}
+
+function dayDiffFromToday(ts){
+  if(!ts) return null;
+  return Math.round((ts - todayStartTs()) / (24 * 60 * 60 * 1000));
+}
+
+function getTimelineMeta(meta){
+  const todayTs = todayStartTs();
+  const startTs = parseDateValue(meta?.startDate)?.getTime() || 0;
+  const endTs = parseDateValue(meta?.endDate)?.getTime() || 0;
+  const status = (meta?.status || '').toString().trim().toLowerCase();
+  const isClosed = CLOSED_PROJECT_STATUSES.has(status);
+  if(isClosed){
+    return { tone:'static', label:'Closed project', detail:endTs ? `Closed with end date ${formatDate(meta.endDate)}` : 'Closed or archived project' };
+  }
+  if(endTs && endTs < todayTs){
+    const overdueDays = Math.abs(dayDiffFromToday(endTs));
+    return { tone:'danger', label: overdueDays <= 1 ? 'Past due' : `${overdueDays} days overdue`, detail: `End date ${formatDate(meta.endDate)}` };
+  }
+  if(startTs && startTs > todayTs){
+    const daysUntil = dayDiffFromToday(startTs);
+    if(daysUntil === 0) return { tone:'warn', label:'Starts today', detail:`Start date ${formatDate(meta.startDate)}` };
+    if(daysUntil === 1) return { tone:'warn', label:'Starts tomorrow', detail:`Start date ${formatDate(meta.startDate)}` };
+    return { tone: daysUntil <= 7 ? 'warn' : 'info', label:`Starts in ${daysUntil} days`, detail:`Start date ${formatDate(meta.startDate)}` };
+  }
+  if(startTs && startTs <= todayTs){
+    if(endTs){
+      const daysLeft = dayDiffFromToday(endTs);
+      if(daysLeft === 0) return { tone:'warn', label:'Ends today', detail:`End date ${formatDate(meta.endDate)}` };
+      if(daysLeft === 1) return { tone:'warn', label:'Ends tomorrow', detail:`End date ${formatDate(meta.endDate)}` };
+      if(daysLeft > 1) return { tone:'low', label:`Active • ${daysLeft} days left`, detail:`End date ${formatDate(meta.endDate)}` };
+    }
+    return { tone:'low', label:'Active now', detail:startTs ? `Started ${formatDate(meta.startDate)}` : 'Currently in progress' };
+  }
+  if(startTs){
+    return { tone:'info', label:`Scheduled ${formatDate(meta.startDate)}`, detail:endTs ? `Ends ${formatDate(meta.endDate)}` : 'Start date set' };
+  }
+  return { tone:'static', label:'Schedule not set', detail:'Add start or end dates to improve planning order' };
+}
+
+function getReportSortValue(project){
+  const sortMode = document.getElementById('reportSortSelect')?.value || REPORT_SORT_DEFAULT;
+  const meta = project?.meta || {};
+  const startTs = parseDateValue(meta.startDate)?.getTime() || 0;
+  const endTs = parseDateValue(meta.endDate)?.getTime() || 0;
+  const updatedTs = parseDateValue(meta.updatedAt)?.getTime() || 0;
+  const lastActivityTs = Number(project?.lastActivityTs || 0) || 0;
+  const outstandingLines = Number(project?.materialStats?.outstandingLines || 0);
+  const shortageScore = outstandingLines * 1000 + Number(project?.materialStats?.totalRequired || 0) - Number(project?.materialStats?.totalReceived || 0);
+  const todayTs = todayStartTs();
+  const status = (meta.status || '').toString().trim().toLowerCase();
+  const isClosed = CLOSED_PROJECT_STATUSES.has(status);
+  const isUpcoming = startTs && startTs >= todayTs;
+  const isActive = !isClosed && ((status === 'active') || (startTs && startTs <= todayTs && (!endTs || endTs >= todayTs)));
+  const code = (project?.projectId || meta.code || '').toString();
+
+  if(sortMode === 'projectCode'){
+    return { bucket: 0, value: code, direction: 'text' };
+  }
+  if(sortMode === 'recentlyUpdated'){
+    return { bucket: 0, value: -(lastActivityTs || updatedTs || 0), direction: 'number' };
+  }
+  if(sortMode === 'urgency'){
+    const overdueBucket = endTs && endTs < todayTs ? 0 : 1;
+    const activeBucket = isActive ? 0 : 1;
+    const upcomingBucket = isUpcoming ? 0 : 1;
+    return {
+      bucket: overdueBucket,
+      value: [activeBucket, upcomingBucket, -(shortageScore || 0), startTs || Number.MAX_SAFE_INTEGER, endTs || Number.MAX_SAFE_INTEGER]
+    };
+  }
+  if(sortMode === 'activeWindow'){
+    if(isActive) return { bucket: 0, value: endTs || Number.MAX_SAFE_INTEGER };
+    if(isUpcoming) return { bucket: 1, value: startTs };
+    if(!isClosed) return { bucket: 2, value: -(updatedTs || 0) };
+    return { bucket: 3, value: -(updatedTs || endTs || 0) };
+  }
+
+  if(isUpcoming) return { bucket: 0, value: startTs };
+  if(isActive) return { bucket: 1, value: endTs || Number.MAX_SAFE_INTEGER };
+  if(!isClosed && startTs) return { bucket: 2, value: startTs };
+  if(!isClosed) return { bucket: 3, value: -(updatedTs || 0) };
+  return { bucket: 4, value: -(updatedTs || endTs || startTs || 0) };
+}
+
+function compareReportProjects(a, b){
+  const aSort = getReportSortValue(a);
+  const bSort = getReportSortValue(b);
+  if(aSort.bucket !== bSort.bucket) return aSort.bucket - bSort.bucket;
+  if(Array.isArray(aSort.value) && Array.isArray(bSort.value)){
+    const len = Math.max(aSort.value.length, bSort.value.length);
+    for(let i = 0; i < len; i += 1){
+      const av = aSort.value[i];
+      const bv = bSort.value[i];
+      if(av === bv) continue;
+      return av < bv ? -1 : 1;
+    }
+  }else if(aSort.direction === 'text' || bSort.direction === 'text'){
+    const aVal = String(aSort.value || '');
+    const bVal = String(bSort.value || '');
+    const diff = aVal.localeCompare(bVal);
+    if(diff) return diff;
+  }else if(aSort.value !== bSort.value){
+    return aSort.value - bSort.value;
+  }
+  return compareProjectsForDisplay(a, b);
 }
 
 function addMaterialLine(containerId, prefill = {}){
@@ -717,6 +825,7 @@ function updateReportSummary(list){
   setText('reportActiveProjects', activeProjects);
   setText('reportCheckedOut', outstanding);
   setText('reportReserved', readyProjects);
+  setText('reportShowingCount', `${list.length} showing`);
 }
 
 function buildReportSummary(items){
@@ -1059,6 +1168,7 @@ async function renderReport(){
   if(!filtered.length){
     const message = (jobCache.length === 0 && items.length === 0) ? 'No projects created yet' : 'No matching projects';
     list.innerHTML = `<div class="report-empty">${message}</div>`;
+    updateReportSummary([]);
     setExpandAllState(false);
     return;
   }
@@ -1068,11 +1178,12 @@ async function renderReport(){
     materials: isGeneralProject(project.projectId) ? [] : await loadProjectMaterials(project.projectId),
   })));
   const rows = enriched
-    .map(project=> ({ ...project, materialStats: summarizeProjectMaterials(project.materials || []) }))
-    .sort(compareProjectsForDisplay);
+    .map(project=> ({ ...project, materialStats: summarizeProjectMaterials(project.materials || []), lastActivityTs: lastActivityMap.get(project.projectId) || 0 }))
+    .sort(compareReportProjects);
   updateReportSummary(rows);
   rows.forEach(project=>{
     const meta = project.meta || {};
+    const timeline = getTimelineMeta(meta);
     const statusLabel = meta.status ? formatStatus(meta.status) : (isGeneralProject(project.projectId) ? GENERAL_LABEL : FALLBACK);
     const datesLabel = formatProjectDates(meta);
     const locationLabel = meta.location || FALLBACK;
@@ -1086,7 +1197,7 @@ async function renderReport(){
           actionButton = `<button type="button" class="action-btn complete-btn" data-code="${key}">Mark Complete</button>`;
       }
     }
-    const lastActivityTs = lastActivityMap.get(project.projectId) || 0;
+    const lastActivityTs = project.lastActivityTs || 0;
     const lastActivityLabel = lastActivityTs ? formatDateTime(lastActivityTs) : FALLBACK;
     const nameLabel = (meta.name || '').toString().trim();
     const checkedOutQty = getProjectCheckedOut(project);
@@ -1106,6 +1217,10 @@ async function renderReport(){
     card.innerHTML = `
       <div class="report-card-header">
         <div>
+          <div class="report-card-eyebrow">
+            <span class="badge ${timeline.tone}">${escapeHtml(timeline.label)}</span>
+            ${timeline.detail ? `<span class="report-card-eyebrow-text">${escapeHtml(timeline.detail)}</span>` : ''}
+          </div>
           <div class="report-card-title">${escapeHtml(project.projectId)}</div>
           ${nameLabel ? `<div class="report-card-sub">${escapeHtml(nameLabel)}</div>` : ''}
         </div>
@@ -1184,11 +1299,14 @@ async function exportReportCSV(){
     ...project,
     materials: isGeneralProject(project.projectId) ? [] : await loadProjectMaterials(project.projectId)
   })));
+  const sorted = enriched
+    .map(project=> ({ ...project, meta: project.meta || getProjectMeta(project.projectId), materialStats: summarizeProjectMaterials(project.materials || []) }))
+    .sort(compareReportProjects);
   const hdr = ['projectId','status','startDate','endDate','location','materialStatus','materialLines','outstandingMaterialLines','code','checkedIn','checkedOut','reserved','netUsage','qtyRequired','qtyOrdered','qtyAllocated','qtyReceived','qtyOpen'];
   const rows = [];
-  enriched.forEach(p=>{
-    const meta = getProjectMeta(p.projectId);
-    const materialStats = summarizeProjectMaterials(p.materials || []);
+  sorted.forEach(p=>{
+    const meta = p.meta || getProjectMeta(p.projectId);
+    const materialStats = p.materialStats || summarizeProjectMaterials(p.materials || []);
     if((!p.items || p.items.length === 0) && !(p.materials || []).length){
       rows.push([
         p.projectId,
@@ -1298,6 +1416,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
   document.getElementById('projectSearchBox')?.addEventListener('input', renderProjects);
   document.getElementById('reportSearchBox')?.addEventListener('input', renderReport);
+  document.getElementById('reportSortSelect')?.addEventListener('change', renderReport);
   document.getElementById('reportStatusFilter')?.addEventListener('change', renderReport);
   document.getElementById('reportLocationFilter')?.addEventListener('input', renderReport);
   document.getElementById('reportWindowFilter')?.addEventListener('change', renderReport);

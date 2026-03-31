@@ -124,6 +124,15 @@
 
       <div id="report-tab" class="mode-content">
         <section class="card">
+          <div class="report-header">
+            <div class="report-header-copy">
+              <h3>Project Report</h3>
+              <p>See upcoming work first, track material readiness, and sort the board based on schedule or operational urgency.</p>
+            </div>
+            <div class="report-header-meta">
+              <span id="reportShowingCount" class="badge info">-</span>
+            </div>
+          </div>
           <div class="summary-grid" style="margin-bottom:12px;">
             <div class="summary-item">
               <span>Total Projects</span>
@@ -162,27 +171,38 @@
               </div>
             </section>
           </div>
-          <div class="data-toolbar">
-            <input id="reportSearchBox" type="text" placeholder="Search by project, status, or location...">
-            <select id="reportStatusFilter">
-              <option value="">All Statuses</option>
-              <option value="planned">Planned</option>
-              <option value="active">Active</option>
-              <option value="on-hold">On Hold</option>
-              <option value="complete">Complete</option>
-            </select>
-            <input id="reportLocationFilter" type="text" placeholder="Filter by location...">
-            <select id="reportWindowFilter">
-              <option value="">All Dates</option>
-              <option value="upcoming7">Start within 7 days</option>
-              <option value="upcoming30">Start within 30 days</option>
-              <option value="overdue">End date passed</option>
-              <option value="missingDates">Missing dates</option>
-            </select>
-            <label class="filter-chip"><input id="reportIncludeGeneral" type="checkbox" checked> Include General</label>
-            <label class="filter-chip"><input id="reportHasActivity" type="checkbox"> With activity only</label>
-            <button id="reportExpandAll" type="button" class="muted">Expand All</button>
-            <button id="reportExportBtn" type="button" class="muted">Export CSV</button>
+          <div class="report-controls">
+            <div class="report-controls-main">
+              <input id="reportSearchBox" type="text" placeholder="Search by project, status, or location...">
+              <select id="reportSortSelect">
+                <option value="closestUpcoming">Closest Upcoming</option>
+                <option value="urgency">Most Urgent</option>
+                <option value="activeWindow">Active Then Upcoming</option>
+                <option value="recentlyUpdated">Recently Updated</option>
+                <option value="projectCode">Project Code</option>
+              </select>
+              <select id="reportStatusFilter">
+                <option value="">All Statuses</option>
+                <option value="planned">Planned</option>
+                <option value="active">Active</option>
+                <option value="on-hold">On Hold</option>
+                <option value="complete">Complete</option>
+              </select>
+              <input id="reportLocationFilter" type="text" placeholder="Filter by location...">
+              <select id="reportWindowFilter">
+                <option value="">All Dates</option>
+                <option value="upcoming7">Start within 7 days</option>
+                <option value="upcoming30">Start within 30 days</option>
+                <option value="overdue">End date passed</option>
+                <option value="missingDates">Missing dates</option>
+              </select>
+            </div>
+            <div class="report-controls-actions">
+              <label class="filter-chip"><input id="reportIncludeGeneral" type="checkbox" checked> Include General</label>
+              <label class="filter-chip"><input id="reportHasActivity" type="checkbox"> With activity only</label>
+              <button id="reportExpandAll" type="button" class="muted">Expand All</button>
+              <button id="reportExportBtn" type="button" class="muted">Export CSV</button>
+            </div>
           </div>
           <div id="reportCards" class="report-cards"></div>
         </section>
