@@ -21,6 +21,82 @@ function updateUserChip(){
   }
 }
 
+function normalizeNotificationPrefs(raw){
+  const prefs = raw && typeof raw === 'object' ? raw : {};
+  return {
+    projectMaterialsReadyEmail: prefs.projectMaterialsReadyEmail !== false,
+    lowStockEmail: prefs.lowStockEmail !== false
+  };
+}
+
+function getAdminSettingsMsg(){
+  return document.getElementById('adminSettingsMsg');
+}
+
+function renderNotificationPrefs(prefs){
+  const resolved = normalizeNotificationPrefs(prefs);
+  const projectToggle = document.getElementById('prefProjectMaterialsReadyEmail');
+  const lowStockToggle = document.getElementById('prefLowStockEmail');
+  if(projectToggle) projectToggle.checked = resolved.projectMaterialsReadyEmail;
+  if(lowStockToggle) lowStockToggle.checked = resolved.lowStockEmail;
+}
+
+function readNotificationPrefs(){
+  return normalizeNotificationPrefs({
+    projectMaterialsReadyEmail: !!document.getElementById('prefProjectMaterialsReadyEmail')?.checked,
+    lowStockEmail: !!document.getElementById('prefLowStockEmail')?.checked
+  });
+}
+
+function updateSessionNotificationPrefs(prefs){
+  const session = getSession();
+  if(!session) return;
+  setSession({ ...session, notificationPrefs: normalizeNotificationPrefs(prefs) });
+}
+
+async function loadNotificationPrefs(){
+  try{
+    const response = await fetch('/api/users/me/notifications');
+    if(!response.ok) throw new Error('Failed to load notifications');
+    const data = await response.json();
+    const prefs = normalizeNotificationPrefs(data.notificationPrefs);
+    renderNotificationPrefs(prefs);
+    updateSessionNotificationPrefs(prefs);
+  }catch(e){
+    renderNotificationPrefs(getSession()?.notificationPrefs || {});
+    const msg = getAdminSettingsMsg();
+    if(msg) msg.textContent = 'Unable to load notification settings.';
+  }
+}
+
+async function saveNotificationPrefs(){
+  const msg = getAdminSettingsMsg();
+  const button = document.getElementById('notificationPrefsSave');
+  const prefs = readNotificationPrefs();
+  if(button) button.disabled = true;
+  if(msg) msg.textContent = 'Saving notification settings...';
+  try{
+    const response = await fetch('/api/users/me/notifications', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notificationPrefs: prefs })
+    });
+    if(!response.ok){
+      const data = await response.json().catch(()=>({ error: 'Unable to save notification settings' }));
+      throw new Error(data.error || 'Unable to save notification settings');
+    }
+    const user = await response.json();
+    if(user?.id) setSession(user);
+    else updateSessionNotificationPrefs(prefs);
+    renderNotificationPrefs(user?.notificationPrefs || prefs);
+    if(msg) msg.textContent = 'Notification settings saved';
+  }catch(e){
+    if(msg) msg.textContent = e.message || 'Unable to save notification settings';
+  }finally{
+    if(button) button.disabled = false;
+  }
+}
+
 async function fileToDataUrl(file){
   return new Promise((resolve,reject)=>{
     const reader = new FileReader();
@@ -201,6 +277,7 @@ function setupTabs(){
     profile: document.getElementById('panelProfile'),
     shortcuts: document.getElementById('panelShortcuts'),
     locale: document.getElementById('panelLocale'),
+    notifications: document.getElementById('panelNotifications'),
     users: document.getElementById('panelUsers'),
     capabilities: document.getElementById('panelCapabilities')
   };
@@ -552,7 +629,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const session = getSession();
   const guard = document.getElementById('admin-guard');
   const content = document.getElementById('settings-content');
-  if(!session || session.role !== 'admin'){
+  const role = (session?.role || '').toLowerCase();
+  if(!session || (role !== 'admin' && role !== 'dev')){
     guard.style.display='block';
     if(content) content.style.display='none';
     return;
@@ -568,7 +646,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
     setSession(fresh);
     utils.applyNavVisibility?.();
-    if(fresh.role !== 'admin'){
+    if(fresh.role !== 'admin' && fresh.role !== 'dev'){
       window.location.href = utils.getDashboardHref?.(fresh.role) || 'employee-dashboard.html';
       return;
     }
@@ -577,8 +655,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   setupTabs();
   initAppearanceSettings();
   initInstallLink();
+  loadNotificationPrefs();
   refreshUsers();
   loadCapabilities();
+  document.getElementById('notificationPrefsSave')?.addEventListener('click', saveNotificationPrefs);
   const form=document.getElementById('userForm');
   const err=document.getElementById('userError');
   const inviteBtn = document.getElementById('userInviteBtn');

@@ -117,6 +117,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   localeSaveBtn?.addEventListener('click', saveLocale);
   shortcutsSaveBtn?.addEventListener('click', saveShortcuts);
   profileSaveBtn?.addEventListener('click', saveProfile);
+  document.getElementById('notificationPrefsSave')?.addEventListener('click', saveNotificationPrefs);
   refreshBtn?.addEventListener('click', async ()=>{
     msg.textContent = 'Refreshing access...';
     const fresh = await utils.refreshSession?.();
@@ -141,6 +142,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // Tabs
   setupTabs();
   initInstallLink();
+  loadNotificationPrefs();
 });
 
 function updateSessionName(name){
@@ -173,6 +175,77 @@ function applyFontSize(val){
   document.body.style.fontSize = `calc(16px * ${document.documentElement.style.getPropertyValue('--font-scale') || 1})`;
 }
 
+function normalizeNotificationPrefs(raw){
+  const prefs = raw && typeof raw === 'object' ? raw : {};
+  return {
+    projectMaterialsReadyEmail: prefs.projectMaterialsReadyEmail !== false,
+    lowStockEmail: prefs.lowStockEmail !== false
+  };
+}
+
+function renderNotificationPrefs(prefs){
+  const resolved = normalizeNotificationPrefs(prefs);
+  const projectToggle = document.getElementById('prefProjectMaterialsReadyEmail');
+  const lowStockToggle = document.getElementById('prefLowStockEmail');
+  if(projectToggle) projectToggle.checked = resolved.projectMaterialsReadyEmail;
+  if(lowStockToggle) lowStockToggle.checked = resolved.lowStockEmail;
+}
+
+function readNotificationPrefs(){
+  return normalizeNotificationPrefs({
+    projectMaterialsReadyEmail: !!document.getElementById('prefProjectMaterialsReadyEmail')?.checked,
+    lowStockEmail: !!document.getElementById('prefLowStockEmail')?.checked
+  });
+}
+
+function updateNotificationSession(prefs){
+  const session = window.utils?.getSession?.();
+  if(!session) return;
+  utils.setSession?.({ ...session, notificationPrefs: normalizeNotificationPrefs(prefs) });
+}
+
+async function loadNotificationPrefs(){
+  const msg = document.getElementById('empSettingsMsg');
+  try{
+    const response = await fetch('/api/users/me/notifications');
+    if(!response.ok) throw new Error('Failed to load notifications');
+    const data = await response.json();
+    renderNotificationPrefs(data.notificationPrefs);
+    updateNotificationSession(data.notificationPrefs);
+  }catch(e){
+    renderNotificationPrefs(window.utils?.getSession?.()?.notificationPrefs || {});
+    if(msg) msg.textContent = 'Unable to load notification settings.';
+  }
+}
+
+async function saveNotificationPrefs(){
+  const msg = document.getElementById('empSettingsMsg');
+  const button = document.getElementById('notificationPrefsSave');
+  const prefs = readNotificationPrefs();
+  if(button) button.disabled = true;
+  if(msg) msg.textContent = 'Saving notification settings...';
+  try{
+    const response = await fetch('/api/users/me/notifications', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notificationPrefs: prefs })
+    });
+    if(!response.ok){
+      const data = await response.json().catch(()=>({ error: 'Unable to save notification settings' }));
+      throw new Error(data.error || 'Unable to save notification settings');
+    }
+    const user = await response.json();
+    if(user?.id) utils.setSession?.(user);
+    else updateNotificationSession(prefs);
+    renderNotificationPrefs(user?.notificationPrefs || prefs);
+    if(msg) msg.textContent = 'Notification settings saved';
+  }catch(e){
+    if(msg) msg.textContent = e.message || 'Unable to save notification settings';
+  }finally{
+    if(button) button.disabled = false;
+  }
+}
+
 async function fileToDataUrl(file){
   return new Promise((resolve,reject)=>{
     const reader = new FileReader();
@@ -188,6 +261,7 @@ function setupTabs(){
     profile: document.getElementById('panelProfile'),
     shortcuts: document.getElementById('panelShortcuts'),
     locale: document.getElementById('panelLocale'),
+    notifications: document.getElementById('panelNotifications'),
     users: document.getElementById('panelUsers')
   };
   const buttons = {
@@ -195,6 +269,7 @@ function setupTabs(){
     profile: document.getElementById('tabProfile'),
     shortcuts: document.getElementById('tabShortcuts'),
     locale: document.getElementById('tabLocale'),
+    notifications: document.getElementById('tabNotifications'),
     users: document.getElementById('tabUsers')
   };
   const show = (key)=>{
@@ -207,6 +282,7 @@ function setupTabs(){
   if(buttons.profile) buttons.profile.addEventListener('click',()=>show('profile'));
   if(buttons.shortcuts) buttons.shortcuts.addEventListener('click',()=>show('shortcuts'));
   if(buttons.locale) buttons.locale.addEventListener('click',()=>show('locale'));
+  if(buttons.notifications) buttons.notifications.addEventListener('click',()=>show('notifications'));
   show('appearance');
 }
 

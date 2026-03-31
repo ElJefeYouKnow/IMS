@@ -587,6 +587,257 @@ async function sendInviteEmail(user, inviter) {
   return { ...result, token };
 }
 
+function formatProjectDateLabel(startDate, endDate) {
+  const start = String(startDate || '').trim();
+  const end = String(endDate || '').trim();
+  if (start && end) return `${start} to ${end}`;
+  return start || end || 'Not scheduled';
+}
+
+function jobMaterialsAllReceived(materials) {
+  const rows = Array.isArray(materials) ? materials : [];
+  if (!rows.length) return false;
+  return rows.every((row) => {
+    const required = roundQty(row?.qtyrequired ?? row?.qtyRequired);
+    const received = roundQty(row?.qtyreceived ?? row?.qtyReceived);
+    return required > 0 && received >= required;
+  });
+}
+
+async function markJobMaterialsReadyTransitionTx(client, tenantIdVal, jobId) {
+  const jobCode = String(jobId || '').trim();
+  if (!jobCode) return null;
+  const jobResult = await client.query(
+    'SELECT code,name,startDate,endDate,status,location,notes,materialsReadyNotifiedAt FROM jobs WHERE code=$1 AND tenantId=$2 FOR UPDATE',
+    [jobCode, tenantIdVal]
+  );
+  const job = jobResult.rows?.[0];
+  if (!job) return null;
+  const materialRows = await client.query(
+    'SELECT * FROM job_materials WHERE tenantId=$1 AND jobId=$2 ORDER BY sortOrder ASC, createdAt ASC, code ASC',
+    [tenantIdVal, jobCode]
+  );
+  const materials = (materialRows.rows || []).map(normalizeJobMaterialRow);
+  if (!jobMaterialsAllReceived(materials)) return null;
+  const notifiedAt = job.materialsreadynotifiedat ?? job.materialsReadyNotifiedAt;
+  if (notifiedAt) return null;
+  const nextTs = Date.now();
+  await client.query(
+    'UPDATE jobs SET materialsReadyNotifiedAt=$1 WHERE code=$2 AND tenantId=$3',
+    [nextTs, jobCode, tenantIdVal]
+  );
+  return {
+    tenantId: tenantIdVal,
+    jobCode,
+    jobName: job.name || '',
+    startDate: job.startdate || job.startDate || '',
+    endDate: job.enddate || job.endDate || '',
+    location: job.location || '',
+    status: job.status || '',
+    notes: job.notes || '',
+    materials,
+    notifiedAt: nextTs
+  };
+}
+
+async function sendProjectMaterialsReadyEmails(notification) {
+  if (!notification?.tenantId || !notification?.jobCode) return { ok: false, skipped: true };
+  const admins = await allAsync(
+    `SELECT email,name,notificationPrefs,role FROM users
+     WHERE tenantId=$1 AND LOWER(role) IN ('admin','dev') AND email IS NOT NULL AND email <> ''
+     ORDER BY email ASC`,
+    [notification.tenantId]
+  );
+  const recipients = admins.filter((user) => normalizeNotificationPrefs(user.notificationprefs ?? user.notificationPrefs).projectMaterialsReadyEmail !== false);
+  if (!recipients.length) return { ok: false, skipped: true };
+  const tenant = await getAsync('SELECT name FROM tenants WHERE id=$1', [notification.tenantId]);
+  const tenantName = (tenant?.name || '').trim();
+  const projectLabel = notification.jobName
+    ? `${notification.jobCode} · ${notification.jobName}`
+    : notification.jobCode;
+  const totalLines = notification.materials.length;
+  const totalRequired = roundQty(notification.materials.reduce((sum, row) => sum + roundQty(row.qtyRequired), 0));
+  const totalReceived = roundQty(notification.materials.reduce((sum, row) => sum + roundQty(row.qtyReceived), 0));
+  const scheduleLabel = formatProjectDateLabel(notification.startDate, notification.endDate);
+  const detailRows = [
+    ['Project', projectLabel],
+    tenantName ? ['Workspace', tenantName] : null,
+    ['Material lines', String(totalLines)],
+    ['Received', `${totalReceived} / ${totalRequired}`],
+    ['Schedule', scheduleLabel],
+    notification.location ? ['Location', notification.location] : null
+  ].filter(Boolean);
+  const projectLink = `${buildAppLink('job-creator.html', { search: notification.jobCode })}#report`;
+  const subject = `All materials received for project ${notification.jobCode}`;
+  let sent = 0;
+  for (const admin of recipients) {
+    const recipientName = (admin?.name || '').trim();
+    const introLine = tenantName
+      ? `All materials for project ${projectLabel} in ${tenantName} have now been received.`
+      : `All materials for project ${projectLabel} have now been received.`;
+    const text = [
+      recipientName ? `Hi ${recipientName},` : 'Hello,',
+      '',
+      introLine,
+      `Material lines: ${totalLines}`,
+      `Received: ${totalReceived} / ${totalRequired}`,
+      `Schedule: ${scheduleLabel}`,
+      notification.location ? `Location: ${notification.location}` : null,
+      '',
+      `Open project manager: ${projectLink}`
+    ].filter(Boolean).join('\n');
+    const html = `
+      <div style="margin:0;padding:24px;background:#f4f7f6;font-family:Arial,sans-serif;color:#173229;">
+        <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #d7e4de;border-radius:18px;overflow:hidden;">
+          <div style="padding:28px 32px 22px;background:linear-gradient(135deg,#10372d 0%,#1d5a48 100%);color:#ffffff;">
+            <div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;opacity:0.78;">Modulr</div>
+            <h1 style="margin:12px 0 0;font-size:28px;line-height:1.2;font-weight:700;">Project materials received</h1>
+          </div>
+          <div style="padding:28px 32px 32px;">
+            <p style="margin:0 0 12px;font-size:16px;line-height:1.6;">${recipientName ? `Hi ${escapeHtml(recipientName)},` : 'Hello,'}</p>
+            <p style="margin:0 0 20px;font-size:16px;line-height:1.6;">${escapeHtml(introLine)}</p>
+            <div style="margin:0 0 22px;padding:18px 20px;background:#f7fbf9;border:1px solid #d7e4de;border-radius:14px;">
+              ${detailRows.map(([label, value]) => `
+                <div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;padding:6px 0;border-bottom:${label === 'Location' || (!notification.location && label === 'Schedule') ? '0' : '1px solid #e3ece8'};">
+                  <span style="font-size:13px;line-height:1.4;color:#5b746a;">${escapeHtml(label)}</span>
+                  <span style="font-size:14px;line-height:1.4;color:#173229;font-weight:600;text-align:right;">${escapeHtml(value)}</span>
+                </div>
+              `).join('')}
+            </div>
+            <div style="margin:0 0 18px;">
+              <a href="${projectLink}" style="display:inline-block;padding:14px 22px;background:#173f33;border-radius:12px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;">Open project manager</a>
+            </div>
+            <p style="margin:0;font-size:13px;line-height:1.6;color:#5b746a;">This notification was sent because every required material line for this project is now fully received.</p>
+          </div>
+        </div>
+      </div>
+    `;
+    const result = await sendEmail({ to: admin.email, subject, text, html });
+    if (result.ok) sent += 1;
+    if (!result.ok && result.skipped && !IS_PROD) {
+      console.log('Project ready link:', projectLink);
+    }
+  }
+  return { ok: sent > 0, sent };
+}
+
+async function collectLowStockTransitionsTx(client, tenantIdVal, codes) {
+  const uniqueCodes = Array.from(new Set((codes || []).map((code) => String(code || '').trim()).filter(Boolean)));
+  if (!uniqueCodes.length) return [];
+  const notifications = [];
+  for (const code of uniqueCodes) {
+    const itemResult = await client.query(
+      `SELECT i.code,i.name,i.category,i.reorderPoint,i.lowStockEnabled,i.lowStockNotifiedAt,c.rules AS categoryRules
+       FROM items i
+       LEFT JOIN categories c ON c.tenantId = i.tenantId AND LOWER(c.name)=LOWER(COALESCE(NULLIF(i.category,''), $3))
+       WHERE i.code=$1 AND i.tenantId=$2
+       LIMIT 1
+       FOR UPDATE`,
+      [code, tenantIdVal, DEFAULT_CATEGORY_NAME]
+    );
+    const item = itemResult.rows?.[0];
+    if (!item) continue;
+    const rulesMap = new Map([
+      [String(item.category || DEFAULT_CATEGORY_NAME).trim().toLowerCase(), normalizeCategoryRules(item.categoryrules || item.categoryRules)]
+    ]);
+    const lowStockEnabled = resolveLowStockEnabled(item, rulesMap);
+    const threshold = resolveLowStockThreshold(item, rulesMap);
+    const available = roundQty(await calcAvailabilityTx(client, code, tenantIdVal));
+    const notifiedAt = item.lowstocknotifiedat ?? item.lowStockNotifiedAt;
+    if (!lowStockEnabled) {
+      if (notifiedAt) {
+        await client.query('UPDATE items SET lowStockNotifiedAt=NULL WHERE code=$1 AND tenantId=$2', [code, tenantIdVal]);
+      }
+      continue;
+    }
+    if (available <= threshold) {
+      if (!notifiedAt) {
+        const nextTs = Date.now();
+        await client.query('UPDATE items SET lowStockNotifiedAt=$1 WHERE code=$2 AND tenantId=$3', [nextTs, code, tenantIdVal]);
+        notifications.push({
+          code,
+          name: item.name || code,
+          available,
+          threshold
+        });
+      }
+    } else if (notifiedAt) {
+      await client.query('UPDATE items SET lowStockNotifiedAt=NULL WHERE code=$1 AND tenantId=$2', [code, tenantIdVal]);
+    }
+  }
+  return notifications;
+}
+
+async function sendLowStockAlertEmails({ tenantId, items }) {
+  const rows = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!tenantId || !rows.length) return { ok: false, skipped: true };
+  const admins = await allAsync(
+    `SELECT email,name,notificationPrefs,role FROM users
+     WHERE tenantId=$1 AND LOWER(role) IN ('admin','dev') AND email IS NOT NULL AND email <> ''
+     ORDER BY email ASC`,
+    [tenantId]
+  );
+  const recipients = admins.filter((user) => normalizeNotificationPrefs(user.notificationprefs ?? user.notificationPrefs).lowStockEmail !== false);
+  if (!recipients.length) return { ok: false, skipped: true };
+  const tenant = await getAsync('SELECT name FROM tenants WHERE id=$1', [tenantId]);
+  const tenantName = (tenant?.name || '').trim();
+  const inventoryLink = buildAppLink('inventory-list.html');
+  const subject = rows.length === 1
+    ? `Low stock alert: ${rows[0].code}`
+    : `Low stock alert: ${rows.length} items need attention`;
+  let sent = 0;
+  for (const admin of recipients) {
+    const recipientName = (admin?.name || '').trim();
+    const introLine = tenantName
+      ? `The following low-stock item${rows.length === 1 ? ' is' : 's are'} now below the configured threshold in ${tenantName}.`
+      : `The following low-stock item${rows.length === 1 ? ' is' : 's are'} now below the configured threshold.`;
+    const text = [
+      recipientName ? `Hi ${recipientName},` : 'Hello,',
+      '',
+      introLine,
+      '',
+      ...rows.map((item) => `${item.code} - ${item.name}: ${item.available} available (threshold ${item.threshold})`),
+      '',
+      `Review inventory: ${inventoryLink}`
+    ].join('\n');
+    const html = `
+      <div style="margin:0;padding:24px;background:#f4f7f6;font-family:Arial,sans-serif;color:#173229;">
+        <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #d7e4de;border-radius:18px;overflow:hidden;">
+          <div style="padding:28px 32px 22px;background:linear-gradient(135deg,#10372d 0%,#1d5a48 100%);color:#ffffff;">
+            <div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;opacity:0.78;">Modulr</div>
+            <h1 style="margin:12px 0 0;font-size:28px;line-height:1.2;font-weight:700;">Low stock alert</h1>
+          </div>
+          <div style="padding:28px 32px 32px;">
+            <p style="margin:0 0 12px;font-size:16px;line-height:1.6;">${recipientName ? `Hi ${escapeHtml(recipientName)},` : 'Hello,'}</p>
+            <p style="margin:0 0 20px;font-size:16px;line-height:1.6;">${escapeHtml(introLine)}</p>
+            <div style="margin:0 0 22px;padding:18px 20px;background:#f7fbf9;border:1px solid #d7e4de;border-radius:14px;">
+              ${rows.map((item, index) => `
+                <div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:${index === rows.length - 1 ? '0' : '1px solid #e3ece8'};">
+                  <div>
+                    <div style="font-size:14px;font-weight:700;color:#173229;">${escapeHtml(item.code)}</div>
+                    <div style="font-size:13px;line-height:1.5;color:#5b746a;">${escapeHtml(item.name || item.code)}</div>
+                  </div>
+                  <div style="text-align:right;">
+                    <div style="font-size:14px;font-weight:700;color:#173229;">${escapeHtml(String(item.available))} available</div>
+                    <div style="font-size:13px;line-height:1.5;color:#5b746a;">Threshold ${escapeHtml(String(item.threshold))}</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+            <div style="margin:0 0 18px;">
+              <a href="${inventoryLink}" style="display:inline-block;padding:14px 22px;background:#173f33;border-radius:12px;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;">Review inventory</a>
+            </div>
+            <p style="margin:0;font-size:13px;line-height:1.6;color:#5b746a;">This notification was sent because these items crossed into a low-stock state.</p>
+          </div>
+        </div>
+      </div>
+    `;
+    const result = await sendEmail({ to: admin.email, subject, text, html });
+    if (result.ok) sent += 1;
+  }
+  return { ok: sent > 0, sent };
+}
+
 function normalizeUserRole(role) {
   const r = (role || '').toString().trim().toLowerCase();
   if (!r || r === 'user') return 'employee';
@@ -602,7 +853,8 @@ function safeUser(u) {
     role: normalizeUserRole(u.role),
     tenantId: u.tenantid || u.tenantId,
     createdAt: u.createdat || u.createdAt,
-    emailVerified: u.emailverified ?? u.emailVerified ?? false
+    emailVerified: u.emailverified ?? u.emailVerified ?? false,
+    notificationPrefs: normalizeNotificationPrefs(u.notificationprefs ?? u.notificationPrefs)
   };
 }
 function normalizeTenantCode(code) {
@@ -719,6 +971,31 @@ function resolveLowStockEnabled(item, categoryRulesMap) {
   const catName = (item?.category || DEFAULT_CATEGORY_NAME || '').toString().trim().toLowerCase();
   const rules = categoryRulesMap.get(catName);
   return rules ? !!rules.lowStockEnabled : false;
+}
+function parseNotificationPrefs(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch (e) { return {}; }
+  }
+  if (typeof raw === 'object') return raw;
+  return {};
+}
+function normalizeNotificationPrefs(raw) {
+  const input = parseNotificationPrefs(raw);
+  return {
+    projectMaterialsReadyEmail: input.projectMaterialsReadyEmail !== false,
+    lowStockEmail: input.lowStockEmail !== false
+  };
+}
+function resolveLowStockThreshold(item, categoryRulesMap) {
+  const reorderPoint = Number(item?.reorderpoint ?? item?.reorderPoint);
+  if (Number.isFinite(reorderPoint) && reorderPoint >= 0) return Math.floor(reorderPoint);
+  const catName = (item?.category || DEFAULT_CATEGORY_NAME || '').toString().trim().toLowerCase();
+  const rules = categoryRulesMap.get(catName);
+  const threshold = Number(rules?.lowStockThreshold);
+  return Number.isFinite(threshold) && threshold >= 0
+    ? Math.floor(threshold)
+    : DEFAULT_CATEGORY_RULES.lowStockThreshold;
 }
 
 function dashboardParseTs(val) {
@@ -2131,6 +2408,7 @@ async function initDb() {
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS description TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS tags JSONB`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS lowStockEnabled BOOLEAN`);
+  await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS lowStockNotifiedAt BIGINT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS supplierId TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS supplierSku TEXT`);
   await runAsync(`ALTER TABLE items ADD COLUMN IF NOT EXISTS supplierUrl TEXT`);
@@ -2192,6 +2470,7 @@ async function initDb() {
     status TEXT,
     location TEXT,
     notes TEXT,
+    materialsReadyNotifiedAt BIGINT,
     updatedAt BIGINT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
@@ -2222,6 +2501,7 @@ async function initDb() {
     emailVerified BOOLEAN,
     emailVerifiedAt BIGINT,
     invitedAt BIGINT,
+    notificationPrefs JSONB,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'
   )`);
   await runAsync(`CREATE TABLE IF NOT EXISTS sessions(
@@ -2342,6 +2622,7 @@ async function initDb() {
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS status TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS location TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS notes TEXT`);
+  await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS materialsReadyNotifiedAt BIGINT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE job_materials ADD COLUMN IF NOT EXISTS jobId TEXT`);
@@ -2371,6 +2652,7 @@ async function initDb() {
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerified BOOLEAN`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emailVerifiedAt BIGINT`);
   await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS invitedAt BIGINT`);
+  await runAsync(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notificationPrefs JSONB`);
   await runAsync(`ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`UPDATE items SET tenantId='default' WHERE tenantId IS NULL`);
   await runAsync(`UPDATE items SET category=$1 WHERE category IS NULL OR category=''`, [DEFAULT_CATEGORY_NAME]);
@@ -2875,6 +3157,8 @@ app.post('/api/inventory', async (req, res) => {
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    let materialsReadyNotification = null;
+    let lowStockNotifications = [];
     const entry = await withTransaction(async (client) => {
       const source = await loadSourceEvent(client, sourceType, sourceId, t);
       if (!source) throw new Error('source not found');
@@ -2921,9 +3205,13 @@ app.post('/api/inventory', async (req, res) => {
           await changeJobMaterialQtyTx(client, t, jobIdVal, jobMaterialId, 'qtyAllocated', reserveQty);
         }
       }
+      materialsReadyNotification = await markJobMaterialsReadyTransitionTx(client, t, jobIdVal);
+      lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return checkin;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { code, qty, jobId, location, sourceType, sourceId } });
+    if (materialsReadyNotification) await sendProjectMaterialsReadyEmails(materialsReadyNotification);
+    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
@@ -2933,14 +3221,18 @@ app.post('/api/inventory-checkout', async (req, res) => {
     const { code, jobId, qty, reason, notes, ts } = req.body;
     const t = tenantId(req);
     const actor = actorInfo(req);
+    let lowStockNotifications = [];
     const entry = await withTransaction(async (client) => {
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'checkout', jobId, notes: notes || reason, qty });
       const tsNow = ts || Date.now();
       const due = tsNow + getReturnWindowMs(rules);
-      return processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const result = await processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
+      return result;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty, jobId } });
+    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
@@ -2975,14 +3267,17 @@ app.post('/api/inventory-reserve', async (req, res) => {
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    let lowStockNotifications = [];
     const entry = await withTransaction(async (client) => {
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'reserve', jobId, notes, qty });
       const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
       await changeJobMaterialQtyTx(client, t, normalizeJobId(jobId), jobMaterialId, 'qtyAllocated', Number(qty));
+      lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty, jobId, returnDate } });
+    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
@@ -2997,6 +3292,7 @@ app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) =
     const t = tenantId(req);
     const actor = actorInfo(req);
     const results = [];
+    let lowStockNotifications = [];
     await withTransaction(async (client) => {
       for (const line of entries) {
         const code = (line?.code || '').trim();
@@ -3008,8 +3304,10 @@ app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) =
         await changeJobMaterialQtyTx(client, t, normalizeJobId(jobId), line?.jobMaterialId || null, 'qtyAllocated', qty);
         results.push(ev);
       }
+      lowStockNotifications = await collectLowStockTransitionsTx(client, t, entries.map((line) => line?.code));
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { lines: results.length, jobId } });
+    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     res.status(201).json({ count: results.length, reserves: results });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
@@ -3033,6 +3331,7 @@ app.post('/api/inventory-reassign', requireRole('admin'), async (req, res) => {
     if (!reason) return res.status(400).json({ error: 'reason required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    let lowStockNotifications = [];
     const fromId = normalizeJobId(fromJobId);
     const toId = normalizeJobId(toJobId);
     const result = await withTransaction(async (client) => {
@@ -3045,9 +3344,11 @@ app.post('/api/inventory-reassign', requireRole('admin'), async (req, res) => {
       if (toId) {
         reserve = await processInventoryEvent(client, { type: 'reserve', code, jobId: toId, qty: qtyNum, notes: `reassign: ${reason}`, ts: release.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
       }
+      lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return { release, reserve };
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty: qtyNum, fromJobId, toJobId, reason } });
+    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     res.status(201).json(result);
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
@@ -3067,13 +3368,17 @@ app.post('/api/inventory-return', async (req, res) => {
     if (!code) return res.status(400).json({ error: 'code required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    let lowStockNotifications = [];
     const entry = await withTransaction(async (client) => {
       const resolvedJobId = await resolveReturnJobIdTx(client, code, t, jobId);
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'return', jobId: resolvedJobId, location, notes: notes || reason, qty });
-      return processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, requireRecentReturn: true, returnWindowDays: rules.returnWindowDays });
+      const ev = await processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, requireRecentReturn: true, returnWindowDays: rules.returnWindowDays });
+      lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
+      return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.return', details: { code, qty, jobId: entry.jobId || null, reason } });
+    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
@@ -3176,10 +3481,14 @@ app.post('/api/inventory-consume', requireRole('admin'), async (req, res) => {
     if (!reason) return res.status(400).json({ error: 'reason required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    let lowStockNotifications = [];
     const entry = await withTransaction(async (client) => {
-      return processInventoryEvent(client, { type: 'consume', code, qty, reason, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const ev = await processInventoryEvent(client, { type: 'consume', code, qty, reason, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
+      return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty, reason } });
+    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     res.status(201).json(entry);
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
@@ -3193,13 +3502,14 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
     const deltaNum = Number(delta);
     const t = tenantId(req);
     const actor = actorInfo(req);
+    let lowStockNotifications = [];
     const entry = await withTransaction(async (client) => {
       if (deltaNum > 0) {
         const categoryInfo = await getItemCategoryRulesTx(client, t, code);
         const adjustmentNotes = [`Adjustment: ${String(reason).trim()}`];
         if (notes && String(notes).trim()) adjustmentNotes.push(String(notes).trim());
         enforceCategoryRules(categoryInfo.rules, { action: 'checkin', jobId: null, location, notes: adjustmentNotes.join(' | '), qty: qtyNum });
-        return processInventoryEvent(client, {
+        const ev = await processInventoryEvent(client, {
           type: 'in',
           code,
           qty: qtyNum,
@@ -3210,8 +3520,10 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
           userName: actor.userName,
           tenantIdVal: t
         });
+        lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
+        return ev;
       }
-      return processInventoryEvent(client, {
+      const ev = await processInventoryEvent(client, {
         type: 'consume',
         code,
         qty: qtyNum,
@@ -3223,6 +3535,8 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
         tenantIdVal: t,
         consumeAgainstOnHand: true
       });
+      lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
+      return ev;
     });
     await logAudit({
       tenantId: t,
@@ -3230,6 +3544,7 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
       action: 'inventory.adjust',
       details: { code, delta: deltaNum, qty: qtyNum, reason, location: location || null }
     });
+    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     res.status(201).json(entry);
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
@@ -4042,6 +4357,30 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json(safeUser(req.user));
 });
 
+app.get('/api/users/me/notifications', requireAuth, async (req, res) => {
+  try {
+    const user = await getAsync('SELECT * FROM users WHERE id=$1 AND tenantId=$2', [req.user.id, tenantId(req)]);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+    res.json({ notificationPrefs: normalizeNotificationPrefs(user.notificationprefs ?? user.notificationPrefs) });
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+app.put('/api/users/me/notifications', requireAuth, async (req, res) => {
+  try {
+    const prefs = normalizeNotificationPrefs(req.body?.notificationPrefs || req.body || {});
+    await runAsync(
+      'UPDATE users SET notificationPrefs=$1 WHERE id=$2 AND tenantId=$3',
+      [prefs, req.user.id, tenantId(req)]
+    );
+    const updated = await getAsync('SELECT * FROM users WHERE id=$1 AND tenantId=$2', [req.user.id, tenantId(req)]);
+    res.json(safeUser(updated));
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 app.get('/api/users', requireRole('admin'), async (req, res) => {
   try {
     const rows = await allAsync('SELECT * FROM users WHERE tenantId=$1', [tenantId(req)]);
@@ -4179,18 +4518,21 @@ app.post('/api/jobs', requireRole('admin'), async (req, res) => {
     const start = startDate || scheduleDate || null;
     const statusValue = (status || 'planned').toString().trim().toLowerCase();
     const updatedAt = Date.now();
+    let materialsReadyNotification = null;
     await withTransaction(async (client) => {
       await client.query(`INSERT INTO jobs(code,name,startDate,endDate,status,location,notes,updatedAt,tenantId)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, startDate=EXCLUDED.startDate, endDate=EXCLUDED.endDate, status=EXCLUDED.status, location=EXCLUDED.location, notes=EXCLUDED.notes, updatedAt=EXCLUDED.updatedAt`, [code, name || '', start, endDate || null, statusValue, location || null, notes || null, updatedAt, t]);
       if (Array.isArray(materials)) {
         await replaceJobMaterialsTx(client, t, code, materials);
+        materialsReadyNotification = await markJobMaterialsReadyTransitionTx(client, t, code);
       }
     });
     const materialRows = Array.isArray(materials) ? await readJobMaterials(t, code) : [];
     if (Array.isArray(materials)) {
       await logAudit({ tenantId: t, userId: currentUserId(req), action: 'projects.materials.update', details: { jobId: code, count: materialRows.length } });
     }
+    if (materialsReadyNotification) await sendProjectMaterialsReadyEmails(materialsReadyNotification);
     res.status(201).json({ code, name: name || '', startDate: start || null, endDate: endDate || null, status: statusValue, location: location || null, notes: notes || null, updatedAt, tenantId: t, materials: materialRows });
   } catch (e) {
     console.warn('Job save failed', e.message || e);
@@ -4216,11 +4558,14 @@ app.put('/api/jobs/:code/materials', requireRole('admin'), async (req, res) => {
     const job = await getAsync('SELECT code FROM jobs WHERE code=$1 AND tenantId=$2', [req.params.code, t]);
     if (!job) return res.status(404).json({ error: 'project not found' });
     const materials = Array.isArray(req.body?.materials) ? req.body.materials : [];
+    let materialsReadyNotification = null;
     await withTransaction(async (client) => {
       await replaceJobMaterialsTx(client, t, req.params.code, materials);
+      materialsReadyNotification = await markJobMaterialsReadyTransitionTx(client, t, req.params.code);
     });
     const rows = await readJobMaterials(t, req.params.code);
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'projects.materials.update', details: { jobId: req.params.code, count: rows.length } });
+    if (materialsReadyNotification) await sendProjectMaterialsReadyEmails(materialsReadyNotification);
     res.json({ ok: true, materials: rows });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
@@ -4374,6 +4719,7 @@ app.post('/api/field-purchase', async (req, res) => {
     const t = tenantId(req);
     const actor = actorInfo(req);
     const results = [];
+    let lowStockNotifications = [];
     await withTransaction(async (client) => {
       for (const line of lines) {
         const code = (line?.code || '').trim();
@@ -4450,8 +4796,10 @@ app.post('/api/field-purchase', async (req, res) => {
         }
         results.push({ purchase, checkin });
       }
+      lowStockNotifications = await collectLowStockTransitionsTx(client, t, lines.map((line) => line?.code));
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { sourceType: 'purchase', count: results.length } });
+    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     res.status(201).json({ count: results.length, entries: results });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
@@ -5885,12 +6233,31 @@ async function readAllJobMaterials(tenantIdVal) {
 }
 async function replaceJobMaterialsTx(client, tenantIdVal, jobId, materials) {
   const existingRows = await client.query('SELECT * FROM job_materials WHERE tenantId=$1 AND jobId=$2', [tenantIdVal, jobId]);
-  const existingMap = new Map((existingRows.rows || []).map((row) => [row.id, row]));
+  const existingNormalized = (existingRows.rows || []).map(normalizeJobMaterialRow);
+  const existingMap = new Map(existingNormalized.map((row) => [row.id, row]));
+  const nextNormalized = [];
+  for (let i = 0; i < (materials || []).length; i += 1) {
+    nextNormalized.push(normalizeJobMaterialInput(materials[i], i));
+  }
+  const planSignature = (row) => JSON.stringify({
+    id: row.id,
+    code: row.code,
+    name: row.name || row.code,
+    supplierId: row.supplierId || '',
+    qtyRequired: roundQty(row.qtyRequired || 0),
+    notes: row.notes || '',
+    sortOrder: Number(row.sortOrder || 0) || 0
+  });
+  const existingSignature = existingNormalized.map(planSignature).join('|');
+  const nextSignature = nextNormalized.map(planSignature).join('|');
   await client.query('DELETE FROM job_materials WHERE tenantId=$1 AND jobId=$2', [tenantIdVal, jobId]);
+  if (existingSignature !== nextSignature) {
+    await client.query('UPDATE jobs SET materialsReadyNotifiedAt=NULL WHERE code=$1 AND tenantId=$2', [jobId, tenantIdVal]);
+  }
   const now = Date.now();
   const normalized = [];
-  for (let i = 0; i < (materials || []).length; i += 1) {
-    const material = normalizeJobMaterialInput(materials[i], i);
+  for (let i = 0; i < nextNormalized.length; i += 1) {
+    const material = nextNormalized[i];
     const existing = existingMap.get(material.id);
     if (material.supplierId) {
       const supplier = await client.query('SELECT id FROM suppliers WHERE id=$1 AND tenantId=$2 LIMIT 1', [material.supplierId, tenantIdVal]);

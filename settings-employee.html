@@ -52,6 +52,7 @@
           <button class="mode-btn" id="tabProfile" type="button">Profile</button>
           <button class="mode-btn" id="tabShortcuts" type="button">Shortcuts</button>
           <button class="mode-btn" id="tabLocale" type="button">Language &amp; Time</button>
+          <button class="mode-btn" id="tabNotifications" type="button">Notifications</button>
           <button class="mode-btn" id="tabUsers" type="button" disabled>User Management</button>
         </div>
 
@@ -147,6 +148,32 @@
           <div class="form-row">
             <button id="localeSave" type="button" class="settings-action">Save Language &amp; Time</button>
           </div>
+        </div>
+
+        <div id="panelNotifications" class="settings-panel" style="display:none;">
+          <section class="inventory-card">
+            <h3>Notifications</h3>
+            <p class="muted-text">Choose which email alerts you want to receive. Some operations alerts only apply to eligible roles.</p>
+            <div class="notification-pref-grid">
+              <label class="notification-pref-card">
+                <div class="notification-pref-copy">
+                  <strong>Project materials fully received</strong>
+                  <p>Send an email when a tracked project reaches full material receipt.</p>
+                </div>
+                <input id="prefProjectMaterialsReadyEmail" class="notification-pref-toggle" type="checkbox">
+              </label>
+              <label class="notification-pref-card">
+                <div class="notification-pref-copy">
+                  <strong>Low stock alerts</strong>
+                  <p>Send an email when inventory drops below the configured threshold.</p>
+                </div>
+                <input id="prefLowStockEmail" class="notification-pref-toggle" type="checkbox">
+              </label>
+            </div>
+            <div class="form-row">
+              <button id="notificationPrefsSave" type="button" class="settings-action">Save Notifications</button>
+            </div>
+          </section>
         </div>
 
         <div id="panelUsers" class="settings-panel" style="display:none;">

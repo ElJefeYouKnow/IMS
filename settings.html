@@ -52,6 +52,7 @@
           <button class="mode-btn settings-tab" data-tab="profile" type="button">Profile</button>
           <button class="mode-btn settings-tab" data-tab="shortcuts" type="button">Shortcuts</button>
           <button class="mode-btn settings-tab" data-tab="locale" type="button">Language &amp; Time</button>
+          <button class="mode-btn settings-tab" data-tab="notifications" type="button">Notifications</button>
           <button class="mode-btn settings-tab" data-tab="users" type="button">User Management</button>
           <button class="mode-btn settings-tab" data-tab="capabilities" type="button">Capabilities</button>
         </div>
@@ -154,6 +155,32 @@
             <div class="form-row">
               <button id="localeSave" type="button" class="settings-action">Save Language &amp; Time</button>
             </div>
+          </div>
+
+          <div id="panelNotifications" class="settings-panel" style="display:none;">
+            <section class="inventory-card">
+              <h3>Notifications</h3>
+              <p class="muted-text">Choose which email alerts Modulr should send to your account. Some operational alerts only send when your role is eligible.</p>
+              <div class="notification-pref-grid">
+                <label class="notification-pref-card">
+                  <div class="notification-pref-copy">
+                    <strong>Project materials fully received</strong>
+                    <p>Get an email when a project crosses into a fully received state and is ready for the next step.</p>
+                  </div>
+                  <input id="prefProjectMaterialsReadyEmail" class="notification-pref-toggle" type="checkbox">
+                </label>
+                <label class="notification-pref-card">
+                  <div class="notification-pref-copy">
+                    <strong>Low stock alerts</strong>
+                    <p>Get an email when an item drops below its configured stock threshold.</p>
+                  </div>
+                  <input id="prefLowStockEmail" class="notification-pref-toggle" type="checkbox">
+                </label>
+              </div>
+              <div class="form-row">
+                <button id="notificationPrefsSave" type="button" class="settings-action">Save Notifications</button>
+              </div>
+            </section>
           </div>
 
           <div id="panelUsers" class="settings-panel" style="display:none;">

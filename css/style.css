@@ -1347,6 +1347,15 @@ body.role-manager .admin-only{display:none}
 .settings-msg{font-size:0.9rem;color:#6b7280;margin-top:8px}
 .settings-action{padding:10px 12px;border-radius:10px;border:none;background:linear-gradient(135deg,#1f6f5c,#164d41);color:#fff;font-weight:800;box-shadow:0 8px 16px rgba(31,111,92,0.3);cursor:pointer;text-transform:uppercase;letter-spacing:0.12em;font-size:0.8rem}
 .settings-action:disabled{opacity:0.6;cursor:not-allowed;box-shadow:none}
+.notification-pref-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:12px}
+.notification-pref-card{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:16px 18px;border:1px solid #d7e4de;border-radius:16px;background:linear-gradient(180deg,#f7fbf9 0%,#edf5f1 100%);cursor:pointer}
+.notification-pref-copy{display:flex;flex-direction:column;gap:6px}
+.notification-pref-copy strong{font-size:0.95rem;color:#173229}
+.notification-pref-copy p{margin:0;font-size:0.9rem;line-height:1.55;color:#5b746a}
+.notification-pref-toggle{width:18px;height:18px;accent-color:#1f6f5c;flex:0 0 auto;margin-top:2px}
+.dark .notification-pref-card{border-color:#315145;background:linear-gradient(180deg,#1a2923 0%,#15211d 100%)}
+.dark .notification-pref-copy strong{color:#eef7f3}
+.dark .notification-pref-copy p{color:#aabbb4}
 .ticket-subject{font-weight:700;color:#1b2522}
 .ticket-body{color:var(--muted);font-size:0.85rem;margin-top:4px}
 .dark .ticket-subject{color:var(--ink)}
