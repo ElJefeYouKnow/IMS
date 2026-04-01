@@ -10,6 +10,7 @@ let openOrderGroupsMap = new Map();
 let pendingCheckout = null;
 let opsRefreshInFlight = null;
 let inventoryLocationOptions = [];
+let inventoryEntriesCache = [];
 const FALLBACK = 'N/A';
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const MIN_LINES = 1;
@@ -69,12 +70,67 @@ async function loadInventoryLocations(force = false){
   }));
   return inventoryLocationOptions;
 }
-function populateInventoryLocationSelect(selectId, preferredId){
+async function loadInventoryEntries(force = false){
+  if(inventoryEntriesCache.length && !force) return inventoryEntriesCache;
+  inventoryEntriesCache = await utils.fetchJsonSafe('/api/inventory', {}, []) || [];
+  return inventoryEntriesCache;
+}
+function normalizeLocationValue(value){
+  return String(value || '').trim().toLowerCase();
+}
+function resolveInventoryLocationOption(entry){
+  const ref = normalizeLocationValue(entry?.locationRef || entry?.locationref || '');
+  const rawLocation = normalizeLocationValue(entry?.location || '');
+  return inventoryLocationOptions.find((option)=>{
+    const optionId = normalizeLocationValue(option.id);
+    const optionRef = normalizeLocationValue(option.ref);
+    const optionName = normalizeLocationValue(option.name);
+    const optionLabel = normalizeLocationValue(option.label);
+    return (ref && (optionRef === ref || optionId === ref))
+      || (rawLocation && (optionName === rawLocation || optionLabel === rawLocation || optionId === rawLocation));
+  }) || null;
+}
+function getLocationStockDelta(entry){
+  const type = String(entry?.type || '').trim().toLowerCase();
+  const qty = Number(entry?.qty || 0) || 0;
+  if(qty <= 0) return 0;
+  if(type === 'in' || type === 'return') return qty;
+  if(type === 'out' || type === 'consume') return -qty;
+  return 0;
+}
+function getPickLocationIdsForCode(code){
+  const normalizedCode = String(code || '').trim();
+  const locationTotals = new Map();
+  inventoryEntriesCache.forEach((entry)=>{
+    if(String(entry?.code || '').trim() !== normalizedCode) return;
+    const option = resolveInventoryLocationOption(entry);
+    if(!option) return;
+    const delta = getLocationStockDelta(entry);
+    if(!delta) return;
+    locationTotals.set(option.id, (locationTotals.get(option.id) || 0) + delta);
+  });
+  return new Set(
+    [...locationTotals.entries()]
+      .filter(([, qty])=> qty > 0)
+      .map(([locationId])=> locationId)
+  );
+}
+function populateInventoryLocationSelect(selectId, preferredId, allowedIds = null){
   const select = document.getElementById(selectId);
   if(!select) return;
   const current = select.value || preferredId || '';
+  const hasFilter = Array.isArray(allowedIds);
+  const options = hasFilter
+    ? inventoryLocationOptions.filter((option)=> allowedIds.includes(option.id))
+    : inventoryLocationOptions;
+  select.disabled = false;
   select.innerHTML = '<option value="">Select location...</option>';
-  inventoryLocationOptions.forEach((option)=>{
+  if(hasFilter && !options.length){
+    select.innerHTML = '<option value="">No matching locations</option>';
+    select.disabled = true;
+    return;
+  }
+  options.forEach((option)=>{
     const el = document.createElement('option');
     el.value = option.id;
     el.textContent = option.label || option.name;
@@ -107,6 +163,22 @@ function getInventoryLocationPayload(selectId){
     locationType: option?.dataset.locationType || '',
     locationRef: option?.dataset.locationRef || ''
   };
+}
+function refreshCheckoutLocationOptions(preferredId = ''){
+  const selectedCodes = [...new Set(gatherLines('checkout').map((line)=> line.code).filter(Boolean))];
+  const currentSelect = document.getElementById('checkout-location');
+  const currentValue = currentSelect?.value || preferredId || 'primary';
+  if(!selectedCodes.length){
+    populateInventoryLocationSelect('checkout-location', currentValue || 'primary');
+    return;
+  }
+  const locationSets = selectedCodes.map((code)=> getPickLocationIdsForCode(code));
+  if(locationSets.some((set)=> !set.size)){
+    populateInventoryLocationSelect('checkout-location', '', []);
+    return;
+  }
+  const sharedIds = [...locationSets[0]].filter((locationId)=> locationSets.every((set)=> set.has(locationId)));
+  populateInventoryLocationSelect('checkout-location', currentValue, sharedIds);
 }
 function getOrderBatchId(entry){
   const sourceMeta = entry?.sourceMeta || entry?.sourcemeta || {};
@@ -458,6 +530,7 @@ function addLine(prefix){
     if(container.querySelectorAll('.line-row').length > MIN_LINES){
       row.remove();
       updateLineBadge(prefix);
+      if(prefix === 'checkout') refreshCheckoutLocationOptions();
     }
   });
   utils.attachItemLookup({
@@ -468,6 +541,7 @@ function addLine(prefix){
     suggestionsId: suggId
   });
   updateLineBadge(prefix);
+  if(prefix === 'checkout') refreshCheckoutLocationOptions();
 }
 
 function resetLines(prefix){
@@ -861,6 +935,7 @@ function fillCheckoutLines(items, { force } = {}){
     row.querySelector('input[name="qty"]').value = item.qty;
   });
   updateLineBadge('checkout');
+  refreshCheckoutLocationOptions();
 }
 async function loadReservedForJob(jobId, { force } = {}){
   if(!jobId) return [];
@@ -1179,6 +1254,7 @@ async function refreshOperationsWorkspace(){
         refreshBtn.textContent = 'Refreshing...';
       }
       await loadItems();
+      await loadInventoryEntries(true);
       await loadInventoryLocations();
       await loadCategories();
       await loadJobOptions();
@@ -1186,6 +1262,7 @@ async function refreshOperationsWorkspace(){
       populateInventoryLocationSelect('checkin-location', 'main');
       populateInventoryLocationSelect('checkout-location', 'primary');
       populateInventoryLocationSelect('return-location', 'main');
+      refreshCheckoutLocationOptions('primary');
       populateOrderSelect();
       await updateOpsMetrics();
       await renderCheckinTable();
@@ -1221,8 +1298,14 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   ['checkin','checkout','return'].forEach(prefix=>{
     const btn = document.getElementById(`${prefix}-addLine`);
     if(btn) btn.addEventListener('click', ()=> addLine(prefix));
-    document.getElementById(`${prefix}-lines`)?.addEventListener('input', ()=> updateLineBadge(prefix));
-    document.getElementById(`${prefix}-lines`)?.addEventListener('change', ()=> updateLineBadge(prefix));
+    document.getElementById(`${prefix}-lines`)?.addEventListener('input', ()=>{
+      updateLineBadge(prefix);
+      if(prefix === 'checkout') refreshCheckoutLocationOptions();
+    });
+    document.getElementById(`${prefix}-lines`)?.addEventListener('change', ()=>{
+      updateLineBadge(prefix);
+      if(prefix === 'checkout') refreshCheckoutLocationOptions();
+    });
   });
   switchMode(availableModes.includes(initialMode) ? initialMode : 'checkout');
   initTimerControls('checkin', { startBtnId: 'checkinStartBtn', finishBtnId: 'checkinFinishBtn', valueId: 'checkinTimerValue', prefix: 'checkin' });
@@ -1351,6 +1434,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     resetLines('checkin');
     await loadOpenOrders();
     populateOrderSelect();
+    await loadInventoryEntries(true);
+    refreshCheckoutLocationOptions();
     await updateOpsMetrics();
     updateSyncStamp(fmtDT(Date.now()));
   });
@@ -1378,6 +1463,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     checkoutForm.reset();
     resetLines('checkout');
     ensureJobOption(jobId);
+    await loadInventoryEntries(true);
+    refreshCheckoutLocationOptions();
     await updateOpsMetrics();
     updateSyncStamp(fmtDT(Date.now()));
     return okAll;
@@ -1457,6 +1544,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       reserveForm.reset();
       resetLines('reserve');
       ensureJobOption(jobId);
+      await loadInventoryEntries(true);
+      refreshCheckoutLocationOptions();
       await updateOpsMetrics();
     });
     
@@ -1500,6 +1589,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const select = document.getElementById('return-fromCheckout');
       if(select) await refreshReturnDropdown(select);
       ensureJobOption(jobId);
+      await loadInventoryEntries(true);
+      refreshCheckoutLocationOptions();
       await updateOpsMetrics();
       updateSyncStamp(fmtDT(Date.now()));
     });
