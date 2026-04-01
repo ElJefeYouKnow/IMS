@@ -3277,8 +3277,8 @@ async function calcAvailabilityAtLocationTx(client, code, { location, locationRe
     const rowRef = String(row.locationref || row.locationRef || '').trim();
     const rowLocation = String(row.location || '').trim();
     const matches = normalizedRef
-      ? rowRef === normalizedRef
-      : (!rowRef && rowLocation === normalizedLocation);
+      ? (rowRef === normalizedRef || rowLocation === normalizedLocation)
+      : rowLocation === normalizedLocation;
     if (!matches) return sum;
     const type = row.type;
     const qty = Number(row.qty) || 0;
