@@ -53,6 +53,7 @@
           <button class="mode-btn settings-tab" data-tab="shortcuts" type="button">Shortcuts</button>
           <button class="mode-btn settings-tab" data-tab="locale" type="button">Language &amp; Time</button>
           <button class="mode-btn settings-tab" data-tab="notifications" type="button">Notifications</button>
+          <button class="mode-btn settings-tab" data-tab="webhooks" type="button">Webhooks</button>
           <button class="mode-btn settings-tab" data-tab="locations" type="button">Locations</button>
           <button class="mode-btn settings-tab" data-tab="users" type="button">User Management</button>
           <button class="mode-btn settings-tab" data-tab="capabilities" type="button">Capabilities</button>
@@ -181,6 +182,86 @@
               <div class="form-row">
                 <button id="notificationPrefsSave" type="button" class="settings-action">Save Notifications</button>
               </div>
+            </section>
+          </div>
+
+          <div id="panelWebhooks" class="settings-panel" style="display:none;">
+            <section class="inventory-card">
+              <div class="card-header">
+                <div>
+                  <h3>Inbound Webhooks</h3>
+                  <p class="muted-text">Create signed intake endpoints so external systems can push operational events into Modulr.</p>
+                </div>
+                <button id="webhookRefreshBtn" type="button" class="muted">Refresh</button>
+              </div>
+              <div class="summary-grid">
+                <div class="summary-item"><span>Active Endpoints</span><strong id="webhookActiveCount">-</strong></div>
+                <div class="summary-item"><span>Total Endpoints</span><strong id="webhookTotalCount">-</strong></div>
+                <div class="summary-item"><span>Recent Events</span><strong id="webhookEventCount">-</strong></div>
+                <div class="summary-item"><span>Last Received</span><strong id="webhookLastReceived">-</strong></div>
+              </div>
+              <p class="muted-text">Signing format: compute `HMAC-SHA256(secret, timestamp + "." + rawBody)` and send it as `X-Modulr-Signature: sha256=&lt;hex&gt;` with `X-Modulr-Timestamp`.</p>
+            </section>
+
+            <section class="inventory-card">
+              <h3 id="webhookFormTitle">Create Inbound Webhook</h3>
+              <form id="webhookForm" class="inventory-form" autocomplete="off">
+                <input id="webhookId" type="hidden">
+                <div class="form-row">
+                  <label>Name
+                    <input id="webhookName" type="text" placeholder="Supplier Portal" required>
+                  </label>
+                  <label>Source
+                    <input id="webhookSource" type="text" placeholder="generic">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label style="flex:1;">Notes
+                    <textarea id="webhookNotes" rows="2" placeholder="Optional provider notes"></textarea>
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label class="toggle-inline"><input id="webhookActive" type="checkbox" checked> Active</label>
+                </div>
+                <div class="form-row">
+                  <button id="webhookSaveBtn" type="submit" class="settings-action">Save Webhook</button>
+                  <button id="webhookResetBtn" type="button" class="muted">Clear</button>
+                </div>
+                <div id="webhookMsg" class="muted-text"></div>
+              </form>
+
+              <div id="webhookSecretCard" class="webhook-secret-card" style="display:none;">
+                <strong>Webhook Secret</strong>
+                <p class="muted-text">Copy this now. The full secret is only shown right after create or rotate.</p>
+                <div class="webhook-secret-row">
+                  <input id="webhookUrlValue" type="text" readonly>
+                  <button id="copyWebhookUrlBtn" type="button" class="action-btn">Copy URL</button>
+                </div>
+                <div class="webhook-secret-row">
+                  <input id="webhookSecretValue" type="text" readonly>
+                  <button id="copyWebhookSecretBtn" type="button" class="action-btn">Copy Secret</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="card">
+              <div class="card-header">
+                <div>
+                  <h3>Configured Endpoints</h3>
+                  <p class="muted-text">Use a separate endpoint for each external system so secrets stay isolated.</p>
+                </div>
+              </div>
+              <div id="webhookEndpointList" class="webhook-endpoint-list"></div>
+            </section>
+
+            <section class="card">
+              <div class="card-header">
+                <div>
+                  <h3>Recent Inbound Events</h3>
+                  <p class="muted-text">This logs accepted webhook calls so you can confirm delivery before deeper automation is added.</p>
+                </div>
+              </div>
+              <div id="webhookEventList" class="webhook-event-list"></div>
             </section>
           </div>
 

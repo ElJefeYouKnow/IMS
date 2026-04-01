@@ -87,6 +87,7 @@ const AUDIT_ACTIONS = [
   'fleet.vehicle.create',
   'fleet.vehicle.update',
   'fleet.vehicle.delete',
+  'webhooks.inbound.received',
   'ops.pick.start',
   'ops.pick.finish',
   'ops.checkin.start',
@@ -113,6 +114,7 @@ const DEFAULT_CATEGORY_RULES = {
   lowStockThreshold: 5,
   lowStockEnabled: false
 };
+const INBOUND_WEBHOOK_SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const INVENTORY_LOCATION_TYPE_LABELS = {
   warehouse: 'Warehouse',
   bin: 'Bin / Shelf / Zone',
@@ -208,7 +210,12 @@ app.use((req, res, next) => {
   return next();
 });
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf?.length ? buf.toString('utf8') : '';
+  }
+}));
 // Disable etags and caching for HTML/CSS/JS so UI changes propagate immediately
 app.disable('etag');
 app.use((req, res, next) => {
@@ -254,6 +261,7 @@ const tenantLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHea
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/auth')) return next();
   if (req.path.startsWith('/api/tenants')) return next();
+  if (req.path.startsWith('/api/webhooks/inbound')) return next();
   if (req.path.startsWith('/api/dev')) {
     const devToken = req.headers['x-dev-token'] || req.headers['x-dev-reset'];
     if (devToken && devToken === DEV_RESET_TOKEN) return next();
@@ -268,6 +276,81 @@ function newId() {
 }
 function newSellerId(prefix = 'seller_') {
   return prefix + Math.random().toString(16).slice(2, 10) + Date.now().toString(16);
+}
+function newInboundWebhookSecret() {
+  return crypto.randomBytes(24).toString('hex');
+}
+function normalizeInboundWebhookName(value) {
+  return String(value || '').trim();
+}
+function normalizeInboundWebhookSource(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return 'generic';
+  return raw.replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'generic';
+}
+function maskSecret(secret) {
+  const value = String(secret || '').trim();
+  if (!value) return '';
+  if (value.length <= 8) return '********';
+  return `${value.slice(0, 4)}${'*'.repeat(Math.max(4, value.length - 8))}${value.slice(-4)}`;
+}
+function buildInboundWebhookReceiveUrl(id) {
+  return `${PUBLIC_BASE_URL}/api/webhooks/inbound/${encodeURIComponent(id)}`;
+}
+function formatInboundWebhookRow(row, { includeSecret = false } = {}) {
+  if (!row) return null;
+  const activeValue = Object.prototype.hasOwnProperty.call(row, 'isactive') ? row.isactive : row.isActive;
+  const formatted = {
+    id: row.id,
+    tenantId: row.tenantid || row.tenantId || '',
+    name: row.name || 'Inbound Webhook',
+    source: row.source || 'generic',
+    notes: row.notes || '',
+    isActive: activeValue !== false,
+    createdAt: Number(row.createdat || row.createdAt || 0) || 0,
+    updatedAt: Number(row.updatedat || row.updatedAt || 0) || 0,
+    lastReceivedAt: Number(row.lastreceivedat || row.lastReceivedAt || 0) || 0,
+    eventCount: Number(row.eventcount || row.eventCount || 0) || 0,
+    receiveUrl: buildInboundWebhookReceiveUrl(row.id),
+    maskedSecret: maskSecret(row.secret)
+  };
+  if (includeSecret) formatted.secret = row.secret || '';
+  return formatted;
+}
+function createInboundWebhookSignature(secret, timestamp, rawBody) {
+  return crypto.createHmac('sha256', String(secret || ''))
+    .update(`${String(timestamp || '')}.${String(rawBody || '')}`)
+    .digest('hex');
+}
+function signaturesMatch(left, right) {
+  const a = Buffer.from(String(left || ''), 'utf8');
+  const b = Buffer.from(String(right || ''), 'utf8');
+  if (!a.length || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+function verifyInboundWebhookSignature(secret, timestamp, rawBody, signatureHeader) {
+  const provided = String(signatureHeader || '').trim().replace(/^sha256=/i, '');
+  const expected = createInboundWebhookSignature(secret, timestamp, rawBody);
+  return signaturesMatch(provided, expected);
+}
+function pickInboundWebhookHeaders(req) {
+  return {
+    contentType: req.get('content-type') || '',
+    userAgent: req.get('user-agent') || '',
+    signature: req.get('x-modulr-signature') || '',
+    timestamp: req.get('x-modulr-timestamp') || '',
+    event: req.get('x-modulr-event') || '',
+    deliveryId: req.get('x-modulr-delivery-id') || ''
+  };
+}
+async function getInboundWebhookEndpoint(id, tenantIdVal) {
+  const params = [id];
+  let sql = 'SELECT * FROM inbound_webhook_endpoints WHERE id=$1';
+  if (tenantIdVal) {
+    params.push(tenantIdVal);
+    sql += ` AND tenantId=$${params.length}`;
+  }
+  return getAsync(sql, params);
 }
 function seedSellerStore() {
   const now = Date.now();
@@ -2326,6 +2409,46 @@ function enforceCategoryRules(rules, { action, jobId, location, notes, qty }) {
     if (Number.isFinite(max) && max > 0 && Number(qty) > max) throw new Error(`max checkout qty is ${max}`);
   }
 }
+function normalizeItemStorageValue(value) {
+  const trimmed = String(value ?? '').trim();
+  return trimmed || null;
+}
+function itemStorageSnapshot(source) {
+  return {
+    warehouse: normalizeItemStorageValue(source?.warehouse),
+    zone: normalizeItemStorageValue(source?.zone),
+    bin: normalizeItemStorageValue(source?.bin)
+  };
+}
+function itemStorageLabel(source) {
+  const snapshot = itemStorageSnapshot(source);
+  const parts = [snapshot.warehouse, snapshot.zone, snapshot.bin].filter(Boolean);
+  return parts.length ? parts.join(' / ') : 'Unassigned';
+}
+function itemStorageChanged(before, after) {
+  const previous = itemStorageSnapshot(before);
+  const next = itemStorageSnapshot(after);
+  return previous.warehouse !== next.warehouse
+    || previous.zone !== next.zone
+    || previous.bin !== next.bin;
+}
+function buildItemStorageAuditDetails(code, before, after) {
+  const previous = itemStorageSnapshot(before);
+  const next = itemStorageSnapshot(after);
+  return {
+    code,
+    storageChanged: true,
+    storageBefore: previous,
+    storageAfter: next,
+    storageFromLabel: itemStorageLabel(previous),
+    storageToLabel: itemStorageLabel(next),
+    storageFieldsChanged: {
+      warehouse: { from: previous.warehouse, to: next.warehouse },
+      zone: { from: previous.zone, to: next.zone },
+      bin: { from: previous.bin, to: next.bin }
+    }
+  };
+}
 async function logAudit({ tenantId: tid, userId, action, details }) {
   const tenantId = tid || 'default';
   if (!AUDIT_ACTIONS.includes(action)) return;
@@ -2957,8 +3080,35 @@ async function initDb() {
     details JSONB,
     ts BIGINT
   )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS inbound_webhook_endpoints(
+    id TEXT PRIMARY KEY,
+    tenantId TEXT REFERENCES tenants(id),
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    secret TEXT NOT NULL,
+    isActive BOOLEAN DEFAULT true,
+    notes TEXT,
+    createdAt BIGINT,
+    updatedAt BIGINT,
+    lastReceivedAt BIGINT
+  )`);
+  await runAsync(`CREATE TABLE IF NOT EXISTS inbound_webhook_events(
+    id TEXT PRIMARY KEY,
+    endpointId TEXT REFERENCES inbound_webhook_endpoints(id) ON DELETE CASCADE,
+    tenantId TEXT REFERENCES tenants(id),
+    source TEXT,
+    eventType TEXT,
+    externalId TEXT,
+    payload JSONB,
+    headers JSONB,
+    status TEXT,
+    receivedAt BIGINT
+  )`);
   await runAsync('CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_events(tenantId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_events(ts)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inbound_webhook_endpoints_tenant ON inbound_webhook_endpoints(tenantId)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inbound_webhook_events_tenant_received ON inbound_webhook_events(tenantId, receivedAt DESC)');
+  await runAsync('CREATE INDEX IF NOT EXISTS idx_inbound_webhook_events_endpoint_received ON inbound_webhook_events(endpointId, receivedAt DESC)');
   // Multi-tenant safety: unique per tenant and FKs
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_items_code_tenant ON items(code, tenantId)');
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_code_tenant ON jobs(code, tenantId)');
@@ -3982,6 +4132,9 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
     if (!code || !name) return res.status(400).json({ error: 'code and name required' });
     const t = tenantId(req);
     const exists = await itemExists(code, t);
+    const existingItem = exists
+      ? await getAsync('SELECT code, warehouse, zone, bin FROM items WHERE code=$1 AND tenantId=$2', [code, t])
+      : null;
     const categoryInfo = await resolveCategoryInput(t, category);
     const normalizedTags = normalizeItemTags(tags);
     const tagsJson = JSON.stringify(normalizedTags);
@@ -3992,9 +4145,9 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
     const brandValue = (brand || '').trim() || null;
     const notesValue = (notes || '').trim() || null;
     const uomValue = (uom || '').trim() || null;
-    const warehouseValue = (warehouse || '').trim() || null;
-    const zoneValue = (zone || '').trim() || null;
-    const binValue = (bin || '').trim() || null;
+    const warehouseValue = normalizeItemStorageValue(warehouse);
+    const zoneValue = normalizeItemStorageValue(zone);
+    const binValue = normalizeItemStorageValue(bin);
     const serializedValue = normalizeOptionalBool(serialized);
     const lotValue = normalizeOptionalBool(lot);
     const expiresValue = normalizeOptionalBool(expires);
@@ -4014,7 +4167,10 @@ app.post('/api/items', requireRole('admin'), async (req, res) => {
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
       ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category, unitPrice=EXCLUDED.unitPrice, material=EXCLUDED.material, shape=EXCLUDED.shape, brand=EXCLUDED.brand, notes=EXCLUDED.notes, uom=EXCLUDED.uom, serialized=EXCLUDED.serialized, lot=EXCLUDED.lot, expires=EXCLUDED.expires, warehouse=EXCLUDED.warehouse, zone=EXCLUDED.zone, bin=EXCLUDED.bin, reorderPoint=EXCLUDED.reorderPoint, minStock=EXCLUDED.minStock, description=EXCLUDED.description, tags=EXCLUDED.tags, lowStockEnabled=EXCLUDED.lowStockEnabled, supplierId=EXCLUDED.supplierId, supplierSku=EXCLUDED.supplierSku, supplierUrl=EXCLUDED.supplierUrl, tenantId=EXCLUDED.tenantId`,
       [code, name, categoryInfo.name, price, materialValue, shapeValue, brandValue, notesValue, uomValue, serializedValue, lotValue, expiresValue, warehouseValue, zoneValue, binValue, normalizedReorderPoint, normalizedMinStock, description, tagsJson, normalizedLowStockEnabled, normalizedSupplierId, normalizedSupplierSku, normalizedSupplierUrl, t]);
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: { code } });
+    const auditDetails = exists && itemStorageChanged(existingItem, { warehouse: warehouseValue, zone: zoneValue, bin: binValue })
+      ? buildItemStorageAuditDetails(code, existingItem, { warehouse: warehouseValue, zone: zoneValue, bin: binValue })
+      : { code };
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: exists ? 'items.update' : 'items.create', details: auditDetails });
     res.status(201).json({ code, name, category: categoryInfo.name, unitPrice: price, material: materialValue, shape: shapeValue, brand: brandValue, notes: notesValue, uom: uomValue, serialized: serializedValue, lot: lotValue, expires: expiresValue, warehouse: warehouseValue, zone: zoneValue, bin: binValue, reorderPoint: normalizedReorderPoint, minStock: normalizedMinStock, description, tags: normalizedTags, lowStockEnabled: normalizedLowStockEnabled, supplierId: normalizedSupplierId, supplierSku: normalizedSupplierSku, supplierUrl: normalizedSupplierUrl, tenantId: t });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
@@ -4107,9 +4263,9 @@ app.patch('/api/items/:code', requireRole('admin'), async (req, res) => {
       serialized: Object.prototype.hasOwnProperty.call(payload, 'serialized') ? !!payload.serialized : item.serialized,
       lot: Object.prototype.hasOwnProperty.call(payload, 'lot') ? !!payload.lot : item.lot,
       expires: Object.prototype.hasOwnProperty.call(payload, 'expires') ? !!payload.expires : item.expires,
-      warehouse: payload.warehouse ?? item.warehouse,
-      zone: payload.zone ?? item.zone,
-      bin: payload.bin ?? item.bin,
+      warehouse: Object.prototype.hasOwnProperty.call(payload, 'warehouse') ? normalizeItemStorageValue(payload.warehouse) : normalizeItemStorageValue(item.warehouse),
+      zone: Object.prototype.hasOwnProperty.call(payload, 'zone') ? normalizeItemStorageValue(payload.zone) : normalizeItemStorageValue(item.zone),
+      bin: Object.prototype.hasOwnProperty.call(payload, 'bin') ? normalizeItemStorageValue(payload.bin) : normalizeItemStorageValue(item.bin),
       supplierId: payload.supplierId ?? item.supplierid ?? item.supplierId,
       supplierSku: payload.supplierSku ?? item.suppliersku ?? item.supplierSku,
       supplierUrl: Object.prototype.hasOwnProperty.call(payload, 'supplierUrl') ? normalizeUrl(payload.supplierUrl) : (item.supplierurl ?? item.supplierUrl),
@@ -4155,6 +4311,15 @@ app.patch('/api/items/:code', requireRole('admin'), async (req, res) => {
         t
       ]
     );
+    const auditDetails = itemStorageChanged(item, updates)
+      ? buildItemStorageAuditDetails(code, item, updates)
+      : { code };
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'items.update',
+      details: auditDetails
+    });
     res.json({
       ok: true,
       item: {
@@ -4770,6 +4935,62 @@ app.post('/api/auth/logout', async (req, res) => {
   res.status(204).end();
 });
 
+app.post('/api/webhooks/inbound/:id', async (req, res) => {
+  try {
+    const endpoint = await getInboundWebhookEndpoint(req.params.id);
+    if (!endpoint || endpoint.isactive === false) return res.status(404).json({ error: 'webhook endpoint not found' });
+    const timestampHeader = String(req.get('x-modulr-timestamp') || '').trim();
+    const signatureHeader = String(req.get('x-modulr-signature') || '').trim();
+    const timestamp = Number(timestampHeader);
+    if (!Number.isFinite(timestamp)) return res.status(400).json({ error: 'invalid timestamp header' });
+    if (Math.abs(Date.now() - timestamp) > INBOUND_WEBHOOK_SIGNATURE_TTL_MS) {
+      return res.status(401).json({ error: 'stale webhook signature' });
+    }
+    const rawBody = typeof req.rawBody === 'string' ? req.rawBody : JSON.stringify(req.body || {});
+    if (!verifyInboundWebhookSignature(endpoint.secret, timestampHeader, rawBody, signatureHeader)) {
+      return res.status(401).json({ error: 'invalid webhook signature' });
+    }
+    const payload = req.body && typeof req.body === 'object' ? req.body : {};
+    const eventType = String(req.get('x-modulr-event') || payload.event || payload.type || 'generic.event').trim().slice(0, 120) || 'generic.event';
+    const externalId = String(req.get('x-modulr-delivery-id') || payload.id || payload.deliveryId || '').trim().slice(0, 160) || null;
+    const source = normalizeInboundWebhookSource(req.get('x-modulr-source') || payload.source || endpoint.source || 'generic');
+    const now = Date.now();
+    const eventId = newId();
+    await runAsync(
+      `INSERT INTO inbound_webhook_events(id,endpointId,tenantId,source,eventType,externalId,payload,headers,status,receivedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [
+        eventId,
+        endpoint.id,
+        endpoint.tenantid || endpoint.tenantId,
+        source,
+        eventType,
+        externalId,
+        payload,
+        pickInboundWebhookHeaders(req),
+        'accepted',
+        now
+      ]
+    );
+    await runAsync('UPDATE inbound_webhook_endpoints SET lastReceivedAt=$1, updatedAt=$1 WHERE id=$2', [now, endpoint.id]);
+    await logAudit({
+      tenantId: endpoint.tenantid || endpoint.tenantId,
+      userId: null,
+      action: 'webhooks.inbound.received',
+      details: {
+        endpointId: endpoint.id,
+        endpointName: endpoint.name,
+        source,
+        eventType,
+        externalId
+      }
+    });
+    res.status(202).json({ ok: true, received: true, eventId });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
 app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json(safeUser(req.user));
 });
@@ -4795,6 +5016,139 @@ app.put('/api/users/me/notifications', requireAuth, async (req, res) => {
     res.json(safeUser(updated));
   } catch (e) {
     res.status(500).json({ error: 'server error' });
+  }
+});
+
+app.get('/api/inbound-webhooks', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const rows = await allAsync(
+      `SELECT w.*,
+              COALESCE(evt.event_count, 0) AS eventCount
+       FROM inbound_webhook_endpoints w
+       LEFT JOIN (
+         SELECT endpointId, COUNT(*)::int AS event_count
+         FROM inbound_webhook_events
+         WHERE tenantId=$1
+         GROUP BY endpointId
+       ) evt ON evt.endpointId = w.id
+       WHERE w.tenantId=$1
+       ORDER BY w.createdAt DESC`,
+      [t]
+    );
+    res.json(rows.map((row) => formatInboundWebhookRow(row)));
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.get('/api/inbound-webhooks/events', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const limit = Math.min(100, Math.max(10, Number(req.query.limit || 25)));
+    const rows = await allAsync(
+      `SELECT e.*, w.name AS endpointName
+       FROM inbound_webhook_events e
+       LEFT JOIN inbound_webhook_endpoints w ON w.id = e.endpointId
+       WHERE e.tenantId=$1
+       ORDER BY e.receivedAt DESC
+       LIMIT $2`,
+      [t, limit]
+    );
+    res.json(rows.map((row) => ({
+      id: row.id,
+      endpointId: row.endpointid || row.endpointId,
+      endpointName: row.endpointname || row.endpointName || 'Webhook',
+      source: row.source || 'generic',
+      eventType: row.eventtype || row.eventType || 'generic.event',
+      externalId: row.externalid || row.externalId || '',
+      status: row.status || 'accepted',
+      receivedAt: Number(row.receivedat || row.receivedAt || 0) || 0
+    })));
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.post('/api/inbound-webhooks', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const now = Date.now();
+    const name = normalizeInboundWebhookName(req.body?.name);
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const row = {
+      id: newId(),
+      tenantId: t,
+      name,
+      source: normalizeInboundWebhookSource(req.body?.source),
+      secret: newInboundWebhookSecret(),
+      isActive: req.body?.isActive !== false,
+      notes: String(req.body?.notes || '').trim() || '',
+      createdAt: now,
+      updatedAt: now
+    };
+    await runAsync(
+      `INSERT INTO inbound_webhook_endpoints(id,tenantId,name,source,secret,isActive,notes,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [row.id, row.tenantId, row.name, row.source, row.secret, row.isActive, row.notes, row.createdAt, row.updatedAt]
+    );
+    res.status(201).json(formatInboundWebhookRow(row, { includeSecret: true }));
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.patch('/api/inbound-webhooks/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getInboundWebhookEndpoint(req.params.id, t);
+    if (!existing) return res.status(404).json({ error: 'webhook endpoint not found' });
+    const name = normalizeInboundWebhookName(req.body?.name || existing.name);
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const source = normalizeInboundWebhookSource(req.body?.source || existing.source);
+    const notes = Object.prototype.hasOwnProperty.call(req.body || {}, 'notes') ? String(req.body?.notes || '').trim() : (existing.notes || '');
+    const isActive = Object.prototype.hasOwnProperty.call(req.body || {}, 'isActive') ? req.body?.isActive !== false : existing.isactive !== false;
+    const updatedAt = Date.now();
+    await runAsync(
+      `UPDATE inbound_webhook_endpoints
+       SET name=$1, source=$2, notes=$3, isActive=$4, updatedAt=$5
+       WHERE id=$6 AND tenantId=$7`,
+      [name, source, notes, isActive, updatedAt, req.params.id, t]
+    );
+    const refreshed = await getInboundWebhookEndpoint(req.params.id, t);
+    res.json(formatInboundWebhookRow(refreshed));
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.post('/api/inbound-webhooks/:id/rotate-secret', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getInboundWebhookEndpoint(req.params.id, t);
+    if (!existing) return res.status(404).json({ error: 'webhook endpoint not found' });
+    const secret = newInboundWebhookSecret();
+    const updatedAt = Date.now();
+    await runAsync(
+      'UPDATE inbound_webhook_endpoints SET secret=$1, updatedAt=$2 WHERE id=$3 AND tenantId=$4',
+      [secret, updatedAt, req.params.id, t]
+    );
+    const refreshed = await getInboundWebhookEndpoint(req.params.id, t);
+    res.json(formatInboundWebhookRow({ ...refreshed, secret }, { includeSecret: true }));
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.delete('/api/inbound-webhooks/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const existing = await getInboundWebhookEndpoint(req.params.id, t);
+    if (!existing) return res.status(404).json({ error: 'webhook endpoint not found' });
+    await runAsync('DELETE FROM inbound_webhook_endpoints WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
+    res.json({ ok: true, id: req.params.id });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
   }
 });
 
@@ -6134,6 +6488,7 @@ function auditActionArea(action) {
   if (normalized.startsWith('inventory.')) return { key: 'inventory', label: 'Inventory' };
   if (normalized.startsWith('ops.')) return { key: 'operations', label: 'Operations' };
   if (normalized.startsWith('procurement.')) return { key: 'procurement', label: 'Procurement' };
+  if (normalized.startsWith('webhooks.')) return { key: 'integrations', label: 'Integrations' };
   if (normalized.startsWith('fleet.')) return { key: 'fleet', label: 'Fleet' };
   if (normalized.startsWith('items.')) return { key: 'catalog', label: 'Catalog' };
   if (normalized.startsWith('suppliers.')) return { key: 'suppliers', label: 'Suppliers' };
@@ -6161,6 +6516,7 @@ function auditActionLabel(action) {
     'fleet.vehicle.create': 'Vehicle Created',
     'fleet.vehicle.update': 'Vehicle Updated',
     'fleet.vehicle.delete': 'Vehicle Deleted',
+    'webhooks.inbound.received': 'Inbound Webhook Received',
     'items.create': 'Item Created',
     'items.update': 'Item Updated',
     'items.delete': 'Item Deleted',
@@ -6215,6 +6571,9 @@ function auditBuildSummary(action, details) {
   const sourceType = auditNormalizeText(details?.sourceType);
   const sourceId = auditNormalizeText(details?.sourceId);
   const supplierName = auditNormalizeText(details?.supplierName || details?.name || details?.id);
+  const endpointName = auditNormalizeText(details?.endpointName);
+  const eventType = auditNormalizeText(details?.eventType);
+  const externalId = auditNormalizeText(details?.externalId);
   const lineCount = Number(details?.lines || details?.count || 0) || 0;
   const bulkCount = Number(details?.bulk || 0) || 0;
   const duration = auditFormatDuration(details?.durationMs || details?.duration);
@@ -6263,6 +6622,13 @@ function auditBuildSummary(action, details) {
     const target = supplierName || sourceId || auditNormalizeText(details?.url) || 'supplier';
     return `Opened vendor site for ${target}${Number.isFinite(qty) && qty > 0 ? ` | ${qty} lines` : ''}`;
   }
+  if (normalized === 'webhooks.inbound.received') {
+    const target = endpointName || sourceType || sourceId || 'endpoint';
+    const parts = [`Received inbound webhook for ${target}`];
+    if (eventType) parts.push(eventType);
+    if (externalId) parts.push(`delivery ${externalId}`);
+    return parts.join(' | ');
+  }
   if (normalized.startsWith('fleet.')) {
     const assetName = auditNormalizeText(details?.name);
     const assetLabel = code || assetName || 'asset';
@@ -6276,6 +6642,12 @@ function auditBuildSummary(action, details) {
   if (normalized === 'items.create') return `Created item ${code || sourceId || 'record'}`.trim();
   if (normalized === 'items.update') {
     if ((lineCount || bulkCount) && !code) return `Updated ${lineCount || bulkCount} item records`;
+    if (details?.storageChanged) {
+      const itemLabel = code || sourceId || 'record';
+      const fromLabel = auditNormalizeText(details?.storageFromLabel) || 'Unassigned';
+      const toLabel = auditNormalizeText(details?.storageToLabel) || 'Unassigned';
+      return `Changed storage for ${itemLabel} | ${fromLabel} -> ${toLabel}`;
+    }
     return `Updated item ${code || sourceId || 'record'}`.trim();
   }
   if (normalized === 'items.delete') return `Deleted item ${code || sourceId || 'record'}`.trim();

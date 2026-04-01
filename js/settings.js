@@ -29,11 +29,22 @@ function normalizeNotificationPrefs(raw){
   };
 }
 
+function escapeMarkup(value){
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function getAdminSettingsMsg(){
   return document.getElementById('adminSettingsMsg');
 }
 
 let locationRowsCache = [];
+let webhookRowsCache = [];
+let webhookEventsCache = [];
 
 function normalizeLocationRefInput(value, fallbackName = ''){
   const raw = String(value || fallbackName || '').trim().toLowerCase();
@@ -228,6 +239,254 @@ function initLocations(){
   resetBtn?.addEventListener('click', resetLocationForm);
   refreshBtn?.addEventListener('click', loadLocations);
   loadLocations();
+}
+
+function getWebhookMsg(){
+  return document.getElementById('webhookMsg');
+}
+
+function formatWebhookDate(ts){
+  const value = Number(ts);
+  if(!Number.isFinite(value) || value <= 0) return 'Never';
+  try{
+    return new Date(value).toLocaleString();
+  }catch(e){
+    return 'Never';
+  }
+}
+
+function resetWebhookForm(){
+  document.getElementById('webhookForm')?.reset();
+  const id = document.getElementById('webhookId');
+  const title = document.getElementById('webhookFormTitle');
+  const saveBtn = document.getElementById('webhookSaveBtn');
+  const active = document.getElementById('webhookActive');
+  if(id) id.value = '';
+  if(active) active.checked = true;
+  if(title) title.textContent = 'Create Inbound Webhook';
+  if(saveBtn) saveBtn.textContent = 'Save Webhook';
+  const msg = getWebhookMsg();
+  if(msg) msg.textContent = '';
+}
+
+function hideWebhookSecretCard(){
+  const card = document.getElementById('webhookSecretCard');
+  if(card) card.style.display = 'none';
+}
+
+function showWebhookSecretCard(row){
+  const card = document.getElementById('webhookSecretCard');
+  const url = document.getElementById('webhookUrlValue');
+  const secret = document.getElementById('webhookSecretValue');
+  if(url) url.value = row?.receiveUrl || '';
+  if(secret) secret.value = row?.secret || '';
+  if(card) card.style.display = row?.secret ? '' : 'none';
+}
+
+function updateWebhookSummary(rows, events){
+  const activeCount = (rows || []).filter((row)=> row.isActive !== false).length;
+  const setText = (id, value)=>{
+    const el = document.getElementById(id);
+    if(el) el.textContent = value;
+  };
+  setText('webhookActiveCount', `${activeCount}`);
+  setText('webhookTotalCount', `${(rows || []).length}`);
+  setText('webhookEventCount', `${(events || []).length}`);
+  setText('webhookLastReceived', formatWebhookDate((events || [])[0]?.receivedAt || 0));
+}
+
+function renderWebhookEndpointList(rows){
+  const wrap = document.getElementById('webhookEndpointList');
+  if(!wrap) return;
+  if(!rows.length){
+    wrap.innerHTML = '<div class="muted-text">No inbound webhook endpoints configured yet.</div>';
+    return;
+  }
+  wrap.innerHTML = rows.map((row)=>`
+    <div class="webhook-endpoint-card">
+      <div class="webhook-endpoint-main">
+        <div class="webhook-endpoint-head">
+          <strong>${escapeMarkup(row.name)}</strong>
+          <div class="webhook-chip-row">
+            <span class="badge info">${escapeMarkup(row.source || 'generic')}</span>
+            <span class="status-pill ${row.isActive !== false ? 'active' : 'closed'}">${row.isActive !== false ? 'active' : 'inactive'}</span>
+          </div>
+        </div>
+        <div class="webhook-meta-line">URL: <span class="webhook-inline-code">${escapeMarkup(row.receiveUrl)}</span></div>
+        <div class="webhook-meta-line">Secret: <span class="webhook-inline-code">${escapeMarkup(row.maskedSecret || 'Hidden')}</span></div>
+        <div class="webhook-meta-grid">
+          <span>Events: ${row.eventCount || 0}</span>
+          <span>Last received: ${formatWebhookDate(row.lastReceivedAt)}</span>
+        </div>
+        ${row.notes ? `<p class="webhook-notes">${escapeMarkup(row.notes)}</p>` : ''}
+      </div>
+      <div class="webhook-actions">
+        <button type="button" class="action-btn webhook-edit" data-id="${row.id}">Edit</button>
+        <button type="button" class="action-btn webhook-rotate" data-id="${row.id}">Rotate Secret</button>
+        <button type="button" class="action-btn webhook-delete" data-id="${row.id}">Delete</button>
+      </div>
+    </div>
+  `).join('');
+
+  wrap.querySelectorAll('.webhook-edit').forEach((button)=>{
+    button.addEventListener('click', ()=>{
+      const row = webhookRowsCache.find((entry)=> entry.id === button.dataset.id);
+      if(!row) return;
+      document.getElementById('webhookId').value = row.id;
+      document.getElementById('webhookName').value = row.name || '';
+      document.getElementById('webhookSource').value = row.source || 'generic';
+      document.getElementById('webhookNotes').value = row.notes || '';
+      document.getElementById('webhookActive').checked = row.isActive !== false;
+      document.getElementById('webhookFormTitle').textContent = `Edit ${row.name}`;
+      document.getElementById('webhookSaveBtn').textContent = 'Update Webhook';
+      hideWebhookSecretCard();
+      document.getElementById('webhookName')?.focus();
+      const msg = getWebhookMsg();
+      if(msg) msg.textContent = '';
+    });
+  });
+
+  wrap.querySelectorAll('.webhook-rotate').forEach((button)=>{
+    button.addEventListener('click', async ()=>{
+      const row = webhookRowsCache.find((entry)=> entry.id === button.dataset.id);
+      if(!row) return;
+      const msg = getWebhookMsg();
+      if(msg) msg.textContent = `Rotating secret for ${row.name}...`;
+      try{
+        const response = await fetch(`/api/inbound-webhooks/${encodeURIComponent(row.id)}/rotate-secret`, { method:'POST' });
+        const data = await response.json().catch(()=>({}));
+        if(!response.ok) throw new Error(data.error || 'Unable to rotate secret');
+        showWebhookSecretCard(data);
+        await loadWebhookWorkspace();
+        if(msg) msg.textContent = 'Webhook secret rotated';
+      }catch(e){
+        if(msg) msg.textContent = e.message || 'Unable to rotate secret';
+      }
+    });
+  });
+
+  wrap.querySelectorAll('.webhook-delete').forEach((button)=>{
+    button.addEventListener('click', async ()=>{
+      const row = webhookRowsCache.find((entry)=> entry.id === button.dataset.id);
+      if(!row) return;
+      if(!confirm(`Delete inbound webhook "${row.name}"?`)) return;
+      const msg = getWebhookMsg();
+      if(msg) msg.textContent = `Deleting ${row.name}...`;
+      try{
+        const response = await fetch(`/api/inbound-webhooks/${encodeURIComponent(row.id)}`, { method:'DELETE' });
+        const data = await response.json().catch(()=>({}));
+        if(!response.ok) throw new Error(data.error || 'Unable to delete webhook');
+        hideWebhookSecretCard();
+        await loadWebhookWorkspace();
+        resetWebhookForm();
+        if(msg) msg.textContent = 'Webhook deleted';
+      }catch(e){
+        if(msg) msg.textContent = e.message || 'Unable to delete webhook';
+      }
+    });
+  });
+}
+
+function renderWebhookEvents(rows){
+  const wrap = document.getElementById('webhookEventList');
+  if(!wrap) return;
+  if(!rows.length){
+    wrap.innerHTML = '<div class="muted-text">No inbound webhook events received yet.</div>';
+    return;
+  }
+  wrap.innerHTML = rows.map((row)=>`
+    <div class="webhook-event-card">
+      <div class="webhook-event-head">
+        <strong>${escapeMarkup(row.eventType || 'generic.event')}</strong>
+        <span class="badge info">${escapeMarkup(row.source || 'generic')}</span>
+      </div>
+      <div class="webhook-meta-grid">
+        <span>Endpoint: ${escapeMarkup(row.endpointName || 'Webhook')}</span>
+        <span>Status: ${escapeMarkup(row.status || 'accepted')}</span>
+        <span>Received: ${formatWebhookDate(row.receivedAt)}</span>
+        <span>Delivery ID: ${escapeMarkup(row.externalId || 'n/a')}</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function loadWebhookWorkspace(){
+  try{
+    const [endpointResponse, eventResponse] = await Promise.all([
+      fetch('/api/inbound-webhooks'),
+      fetch('/api/inbound-webhooks/events')
+    ]);
+    if(!endpointResponse.ok) throw new Error('Unable to load webhooks');
+    if(!eventResponse.ok) throw new Error('Unable to load webhook events');
+    webhookRowsCache = await endpointResponse.json();
+    webhookEventsCache = await eventResponse.json();
+    updateWebhookSummary(webhookRowsCache, webhookEventsCache);
+    renderWebhookEndpointList(webhookRowsCache);
+    renderWebhookEvents(webhookEventsCache);
+  }catch(e){
+    renderWebhookEndpointList([]);
+    renderWebhookEvents([]);
+    updateWebhookSummary([], []);
+    const msg = getWebhookMsg();
+    if(msg) msg.textContent = e.message || 'Unable to load inbound webhooks';
+  }
+}
+
+function initWebhooks(){
+  const form = document.getElementById('webhookForm');
+  if(!form) return;
+  const refreshBtn = document.getElementById('webhookRefreshBtn');
+  const resetBtn = document.getElementById('webhookResetBtn');
+  const copyUrlBtn = document.getElementById('copyWebhookUrlBtn');
+  const copySecretBtn = document.getElementById('copyWebhookSecretBtn');
+
+  form.addEventListener('submit', async (event)=>{
+    event.preventDefault();
+    const id = document.getElementById('webhookId').value.trim();
+    const payload = {
+      name: document.getElementById('webhookName').value.trim(),
+      source: document.getElementById('webhookSource').value.trim(),
+      notes: document.getElementById('webhookNotes').value.trim(),
+      isActive: !!document.getElementById('webhookActive').checked
+    };
+    const msg = getWebhookMsg();
+    if(msg) msg.textContent = id ? 'Updating webhook...' : 'Creating webhook...';
+    try{
+      const response = await fetch(id ? `/api/inbound-webhooks/${encodeURIComponent(id)}` : '/api/inbound-webhooks', {
+        method: id ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json().catch(()=>({}));
+      if(!response.ok) throw new Error(data.error || 'Unable to save webhook');
+      if(id) hideWebhookSecretCard();
+      else showWebhookSecretCard(data);
+      await loadWebhookWorkspace();
+      resetWebhookForm();
+      if(msg) msg.textContent = id ? 'Webhook updated' : 'Webhook created';
+    }catch(e){
+      if(msg) msg.textContent = e.message || 'Unable to save webhook';
+    }
+  });
+
+  resetBtn?.addEventListener('click', ()=>{
+    hideWebhookSecretCard();
+    resetWebhookForm();
+  });
+  refreshBtn?.addEventListener('click', loadWebhookWorkspace);
+  copyUrlBtn?.addEventListener('click', async ()=>{
+    const value = document.getElementById('webhookUrlValue')?.value || '';
+    if(!value) return;
+    try{ await navigator.clipboard.writeText(value); }catch(e){}
+  });
+  copySecretBtn?.addEventListener('click', async ()=>{
+    const value = document.getElementById('webhookSecretValue')?.value || '';
+    if(!value) return;
+    try{ await navigator.clipboard.writeText(value); }catch(e){}
+  });
+
+  hideWebhookSecretCard();
+  loadWebhookWorkspace();
 }
 
 function renderNotificationPrefs(prefs){
@@ -475,6 +734,7 @@ function setupTabs(){
     shortcuts: document.getElementById('panelShortcuts'),
     locale: document.getElementById('panelLocale'),
     notifications: document.getElementById('panelNotifications'),
+    webhooks: document.getElementById('panelWebhooks'),
     locations: document.getElementById('panelLocations'),
     users: document.getElementById('panelUsers'),
     capabilities: document.getElementById('panelCapabilities')
@@ -854,6 +1114,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   initAppearanceSettings();
   initInstallLink();
   loadNotificationPrefs();
+  initWebhooks();
   initLocations();
   refreshUsers();
   loadCapabilities();
