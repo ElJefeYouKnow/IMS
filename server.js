@@ -2229,6 +2229,9 @@ function normalizeInventoryLocationLabel(location, locationType) {
   const system = SYSTEM_INVENTORY_LOCATIONS.find((entry) => entry.type === type);
   return system?.name || '';
 }
+function isUnspecifiedInventoryLocation(value) {
+  return String(value || '').trim().toLowerCase() === 'unspecified';
+}
 function buildInventoryLocationId(tenantIdVal, ref) {
   return `invloc:${tenantIdVal}:${ref}`;
 }
@@ -3269,6 +3272,7 @@ async function calcAvailabilityTx(client, code, tenantIdVal) {
 async function calcAvailabilityAtLocationTx(client, code, { location, locationRef }, tenantIdVal) {
   const normalizedRef = String(locationRef || '').trim();
   const normalizedLocation = String(location || '').trim();
+  const wantsUnspecified = isUnspecifiedInventoryLocation(normalizedLocation) || isUnspecifiedInventoryLocation(normalizedRef);
   const rows = await client.query(
     `SELECT type, qty, location, locationRef FROM inventory WHERE code=$1 AND tenantId=$2 FOR UPDATE`,
     [code, tenantIdVal]
@@ -3276,9 +3280,11 @@ async function calcAvailabilityAtLocationTx(client, code, { location, locationRe
   return (rows.rows || []).reduce((sum, row) => {
     const rowRef = String(row.locationref || row.locationRef || '').trim();
     const rowLocation = String(row.location || '').trim();
-    const matches = normalizedRef
-      ? (rowRef === normalizedRef || rowLocation === normalizedLocation)
-      : rowLocation === normalizedLocation;
+    const matches = wantsUnspecified
+      ? (!rowRef && !rowLocation)
+      : normalizedRef
+        ? (rowRef === normalizedRef || rowLocation === normalizedLocation)
+        : rowLocation === normalizedLocation;
     if (!matches) return sum;
     const type = row.type;
     const qty = Number(row.qty) || 0;
