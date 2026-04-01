@@ -4969,6 +4969,40 @@ app.get('/api/jobs/:code/materials', async (req, res) => {
   }
 });
 
+app.get('/api/jobs/open-material-needs', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const [jobs, materials] = await Promise.all([
+      readJobs(t),
+      readAllJobMaterials(t)
+    ]);
+    const jobMeta = new Map((jobs || []).map((job) => [job.code, job]));
+    const rows = new Map();
+    (materials || []).forEach((material) => {
+      const jobId = normalizeJobId(material.jobId || material.jobid || '');
+      if (!jobId) return;
+      const job = jobMeta.get(jobId);
+      const status = String(job?.status || '').trim().toLowerCase();
+      if (CLOSED_PROJECT_STATUSES.has(status)) return;
+      const outstandingQty = Number(material.outstandingQty || 0) || 0;
+      if (outstandingQty <= 0) return;
+      const current = rows.get(jobId) || {
+        jobId,
+        name: job?.name || '',
+        status: job?.status || '',
+        openLines: 0,
+        openQty: 0
+      };
+      current.openLines += 1;
+      current.openQty = roundQty(current.openQty + outstandingQty);
+      rows.set(jobId, current);
+    });
+    res.json(Array.from(rows.values()).sort((a, b) => a.jobId.localeCompare(b.jobId)));
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
 app.put('/api/jobs/:code/materials', requireRole('admin'), async (req, res) => {
   try {
     const t = tenantId(req);
@@ -5718,6 +5752,9 @@ function fleetNormalizeTags(value) {
     .map((tag) => fleetTrimText(tag))
     .filter(Boolean);
 }
+function fleetSerializeTags(value) {
+  return JSON.stringify(fleetNormalizeTags(value));
+}
 
 function fleetNormalizeEquipmentPayload(body = {}) {
   const code = fleetTrimText(body.code);
@@ -5818,7 +5855,7 @@ app.post('/api/fleet/equipment', requireRole('admin'), async (req, res) => {
         row.lastActivityAt,
         row.assignedProject,
         row.notes,
-        row.tags,
+        fleetSerializeTags(row.tags),
         row.tenantId
       ]
     );
@@ -5864,7 +5901,7 @@ app.put('/api/fleet/equipment/:id', requireRole('admin'), async (req, res) => {
         payload.lastActivityAt,
         payload.assignedProject,
         payload.notes,
-        payload.tags,
+        fleetSerializeTags(payload.tags),
         req.params.id,
         t
       ]
@@ -5942,7 +5979,7 @@ app.post('/api/fleet/vehicles', requireRole('admin'), async (req, res) => {
         row.lastActivityAt,
         row.assignedProject,
         row.notes,
-        row.tags,
+        fleetSerializeTags(row.tags),
         row.tenantId
       ]
     );
@@ -5986,7 +6023,7 @@ app.put('/api/fleet/vehicles/:id', requireRole('admin'), async (req, res) => {
         payload.lastActivityAt,
         payload.assignedProject,
         payload.notes,
-        payload.tags,
+        fleetSerializeTags(payload.tags),
         req.params.id,
         t
       ]

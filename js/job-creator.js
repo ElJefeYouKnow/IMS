@@ -994,7 +994,7 @@ function getReportDetail(btn){
 function openProjectDetail(btn){
   const { card, detail } = getReportDetail(btn);
   if(detail){
-    detail.style.display = '';
+    detail.style.display = 'block';
     card?.classList.add('expanded');
     btn.textContent = 'Hide Project Detail';
   }
@@ -1281,9 +1281,6 @@ async function renderReport(){
     list.appendChild(card);
   });
 
-  document.querySelectorAll('.report-toggle').forEach(btn=>{
-    btn.addEventListener('click', ()=> toggleProjectDetail(btn));
-  });
   if(isAdmin){
     document.querySelectorAll('.complete-btn').forEach(btn=>{
       btn.addEventListener('click', async ()=>{
@@ -1448,6 +1445,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('reportIncludeGeneral')?.addEventListener('change', renderReport);
   document.getElementById('reportHasActivity')?.addEventListener('change', renderReport);
   document.getElementById('reportExportBtn')?.addEventListener('click', exportReportCSV);
+  document.getElementById('reportCards')?.addEventListener('click', (event)=>{
+    const toggle = event.target.closest('.report-toggle');
+    if(!toggle) return;
+    event.preventDefault();
+    toggleProjectDetail(toggle);
+  });
   document.getElementById('reportExpandAll')?.addEventListener('click', ()=>{
     const toggles = document.querySelectorAll('.report-toggle');
     if(!toggles.length) return;

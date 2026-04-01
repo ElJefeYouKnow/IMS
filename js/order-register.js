@@ -12,6 +12,7 @@ function uid(){ return Math.random().toString(16).slice(2,8); }
 let itemsCache = [];
 let suppliersCache = [];
 let jobOptions = [];
+let openMaterialJobOptions = [];
 let availabilityMap = new Map();
 let inventoryCache = [];
 let projectMaterialsCache = new Map();
@@ -177,14 +178,19 @@ function fillNameIfKnown(codeInput, nameInput){
 
 async function loadJobs(){
   try{
-    const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
+    const [jobs, openMaterialJobs] = await Promise.all([
+      utils.fetchJsonSafe('/api/jobs', {}, []),
+      utils.fetchJsonSafe('/api/jobs/open-material-needs', {}, [])
+    ]);
     jobOptions = (jobs || []).map(j=> j.code).filter(Boolean).sort();
+    openMaterialJobOptions = (openMaterialJobs || []).map((job)=> job.jobId).filter(Boolean).sort();
     const selects = ['orderJob','orderMaterialsJob','reserve-jobId','reassign-from','reassign-to'].map(id=> document.getElementById(id)).filter(Boolean);
     selects.forEach(sel=>{
       const current = sel.value;
       const projectOnly = sel.id === 'orderMaterialsJob' || sel.id === 'reserve-jobId' || sel.id === 'reassign-from';
+      const optionSource = sel.id === 'orderMaterialsJob' && openMaterialJobOptions.length ? openMaterialJobOptions : jobOptions;
       sel.innerHTML = projectOnly ? '<option value="">Select project...</option>' : '<option value="">General Inventory</option>';
-      jobOptions.forEach(job=>{
+      optionSource.forEach(job=>{
         const opt = document.createElement('option');
         opt.value = job;
         opt.textContent = job;

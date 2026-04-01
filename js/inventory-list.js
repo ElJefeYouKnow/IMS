@@ -392,7 +392,6 @@ function formatLocationSummary(locations){
 
 function renderLocationBreakdown(locations){
   const rows = Array.isArray(locations) ? locations : [];
-  const locationBreakdown = renderLocationBreakdown(summary.locations || item.locations || []);
   return `
     <div class="panel-section">
       <div class="drawer-section-head">
