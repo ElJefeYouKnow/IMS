@@ -72,11 +72,17 @@ async function loadInventoryLocations(force = false){
   return inventoryLocationOptions;
 }
 
-function renderInventoryLocationSelect(selectEl, preferred){
+function renderInventoryLocationSelect(selectEl, preferred, options = inventoryLocationOptions, emptyLabel = 'Select location...'){
   if(!selectEl) return;
   const current = selectEl.value || preferred || '';
-  selectEl.innerHTML = '<option value="">Select location...</option>';
-  inventoryLocationOptions.forEach((option)=>{
+  const rows = Array.isArray(options) ? options : [];
+  selectEl.disabled = false;
+  selectEl.innerHTML = `<option value="">${emptyLabel}</option>`;
+  if(!rows.length){
+    selectEl.disabled = true;
+    return;
+  }
+  rows.forEach((option)=>{
     const el = document.createElement('option');
     el.value = option.id;
     el.textContent = option.label || option.name;
@@ -99,6 +105,17 @@ function getSelectedInventoryLocation(selectEl){
     locationType: option?.dataset.locationType || '',
     locationRef: option?.dataset.locationRef || ''
   };
+}
+function getDrawerTransferSourceOptions(){
+  return (drawerState.cache?.overview?.summary?.locations || drawerState.cache?.overview?.item?.locations || [])
+    .filter((location)=> Number(location.available || 0) > 0)
+    .map((location)=>({
+      id: location.key || location.ref || location.name,
+      name: location.name,
+      label: `${location.name} (${location.available} avail)`,
+      type: location.type || '',
+      ref: location.ref || ''
+    }));
 }
 
 function updateSyncStatus(offline, ts){
@@ -509,6 +526,42 @@ function renderTabOverview(data){
           <button type="submit" class="action-btn primary">Apply Adjustment</button>
         </div>
       </form>
+      <div class="drawer-form-divider"></div>
+      <div class="drawer-section-head" style="margin-top:4px;">
+        <h3>Change Location</h3>
+        <span class="panel-kicker">Move Stock</span>
+      </div>
+      <form id="drawerTransferForm" class="drawer-adjust-form">
+        <div class="form-row">
+          <label style="flex:1;">From
+            <select name="fromLocation">
+              <option value="">Select source...</option>
+            </select>
+          </label>
+          <label style="flex:1;">To
+            <select name="toLocation">
+              <option value="">Select destination...</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label style="flex:1;">Quantity
+            <input name="qty" type="number" min="1" step="1" required>
+          </label>
+          <label style="flex:1;">Reason
+            <input name="reason" placeholder="Move reason" required>
+          </label>
+        </div>
+        <div class="form-row">
+          <label style="flex:1;">Notes
+            <textarea class="drawer-textarea" name="notes" rows="2" placeholder="Optional notes"></textarea>
+          </label>
+        </div>
+        <div class="form-row" style="justify-content:flex-end;">
+          <span id="drawerTransferMsg" class="muted-text"></span>
+          <button type="submit" class="action-btn primary">Move Stock</button>
+        </div>
+      </form>
     </div>
   ` : '';
   const catalogCards = [
@@ -891,6 +944,7 @@ function bindTabEvents(tab){
   if(tab === 'overview'){
     els.body.querySelector('[data-action="view-activity"]')?.addEventListener('click',(e)=>{e.preventDefault(); setActiveTab('activity');});
     const adjustForm = els.body.querySelector('#drawerAdjustForm');
+    const transferForm = els.body.querySelector('#drawerTransferForm');
     if(adjustForm){
       const locationSelect = adjustForm.querySelector('select[name="location"]');
       loadInventoryLocations().then(()=>{
@@ -922,6 +976,75 @@ function bindTabEvents(tab){
           return;
         }
         if(msg) msg.textContent = 'Saved';
+        await refreshAll();
+        reopenDrawerForCode(drawerState.itemCode);
+      });
+    }
+    if(transferForm){
+      const fromSelect = transferForm.querySelector('select[name="fromLocation"]');
+      const toSelect = transferForm.querySelector('select[name="toLocation"]');
+      const syncTransferOptions = ()=>{
+        const sourceOptions = getDrawerTransferSourceOptions();
+        const selectedSource = fromSelect?.value || '';
+        renderInventoryLocationSelect(fromSelect, selectedSource, sourceOptions, 'Select source...');
+        const sourceRef = fromSelect?.selectedOptions?.[0]?.dataset.locationRef || '';
+        const destinationOptions = inventoryLocationOptions.filter((option)=>{
+          if(!selectedSource) return true;
+          if(option.id === selectedSource) return false;
+          if(sourceRef && option.ref === sourceRef) return false;
+          return true;
+        });
+        const preferredDestination = destinationOptions.some((option)=> option.id === toSelect?.value) ? toSelect.value : '';
+        renderInventoryLocationSelect(toSelect, preferredDestination, destinationOptions, 'Select destination...');
+      };
+      loadInventoryLocations().then(syncTransferOptions);
+      fromSelect?.addEventListener('change', syncTransferOptions);
+      transferForm.addEventListener('submit', async (e)=>{
+        e.preventDefault();
+        const msg = transferForm.querySelector('#drawerTransferMsg');
+        const formData = new FormData(transferForm);
+        const qty = Number(formData.get('qty'));
+        const reason = String(formData.get('reason') || '').trim();
+        const notes = String(formData.get('notes') || '').trim();
+        const fromPayload = getSelectedInventoryLocation(fromSelect);
+        const toPayload = getSelectedInventoryLocation(toSelect);
+        if(!Number.isFinite(qty) || qty <= 0){
+          if(msg) msg.textContent = 'Enter a valid quantity.';
+          return;
+        }
+        if(!fromPayload.locationRef && !fromPayload.location){
+          if(msg) msg.textContent = 'Select a source location.';
+          return;
+        }
+        if(!toPayload.locationRef && !toPayload.location){
+          if(msg) msg.textContent = 'Select a destination location.';
+          return;
+        }
+        if((fromPayload.locationRef && fromPayload.locationRef === toPayload.locationRef) || (fromPayload.location && fromPayload.location === toPayload.location)){
+          if(msg) msg.textContent = 'Choose a different destination.';
+          return;
+        }
+        if(!reason){
+          if(msg) msg.textContent = 'Reason is required.';
+          return;
+        }
+        if(msg) msg.textContent = 'Moving...';
+        const res = await transferInventoryFromDrawer(drawerState.itemCode, {
+          qty,
+          reason,
+          notes,
+          fromLocation: fromPayload.location,
+          fromLocationType: fromPayload.locationType,
+          fromLocationRef: fromPayload.locationRef,
+          toLocation: toPayload.location,
+          toLocationType: toPayload.locationType,
+          toLocationRef: toPayload.locationRef
+        });
+        if(!res.ok){
+          if(msg) msg.textContent = res.error || 'Move failed.';
+          return;
+        }
+        if(msg) msg.textContent = 'Moved';
         await refreshAll();
         reopenDrawerForCode(drawerState.itemCode);
       });
@@ -1199,6 +1322,20 @@ async function adjustInventoryFromDrawer(code, payload){
     return { ok: res.ok, data, error: data?.error || '' };
   }catch(e){
     return { ok: false, error: 'Adjustment failed' };
+  }
+}
+
+async function transferInventoryFromDrawer(code, payload){
+  try{
+    const res = await fetch('/api/inventory-transfer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, ...payload, ts: Date.now() })
+    });
+    const data = await res.json().catch(()=> ({}));
+    return { ok: res.ok, data, error: data?.error || '' };
+  }catch(e){
+    return { ok: false, error: 'Move failed' };
   }
 }
 

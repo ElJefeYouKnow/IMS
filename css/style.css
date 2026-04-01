@@ -929,6 +929,7 @@ body:not(.panel-open) .drawer-floating-close{display:none}
 .drawer-body{padding:18px 20px;display:flex;flex-direction:column;gap:16px;min-width:520px}
 .drawer-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
 .drawer-section-head h3{margin:0}
+.drawer-form-divider{height:1px;background:var(--line);margin:16px 0}
 .drawer-adjust-form label{display:flex;flex-direction:column;gap:6px}
 .drawer-adjust-form input,.drawer-adjust-form select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);color:var(--ink)}
 .info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}

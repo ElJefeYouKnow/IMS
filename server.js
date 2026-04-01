@@ -74,6 +74,7 @@ const AUDIT_ACTIONS = [
   'inventory.order',
   'inventory.order.cancel',
   'inventory.adjust',
+  'inventory.transfer',
   'inventory.count',
   'items.create',
   'items.update',
@@ -3265,6 +3266,28 @@ async function calcAvailabilityTx(client, code, tenantIdVal) {
   },0);
 }
 
+async function calcAvailabilityAtLocationTx(client, code, { location, locationRef }, tenantIdVal) {
+  const normalizedRef = String(locationRef || '').trim();
+  const normalizedLocation = String(location || '').trim();
+  const rows = await client.query(
+    `SELECT type, qty, location, locationRef FROM inventory WHERE code=$1 AND tenantId=$2 FOR UPDATE`,
+    [code, tenantIdVal]
+  );
+  return (rows.rows || []).reduce((sum, row) => {
+    const rowRef = String(row.locationref || row.locationRef || '').trim();
+    const rowLocation = String(row.location || '').trim();
+    const matches = normalizedRef
+      ? rowRef === normalizedRef
+      : (!rowRef && rowLocation === normalizedLocation);
+    if (!matches) return sum;
+    const type = row.type;
+    const qty = Number(row.qty) || 0;
+    if (type === 'in' || type === 'return' || type === 'reserve_release') return sum + qty;
+    if (type === 'reserve' || type === 'out' || type === 'consume') return sum - qty;
+    return sum;
+  }, 0);
+}
+
 async function calcOnHandTx(client, code, tenantIdVal) {
   const rows = await client.query(
     `SELECT id,type,qty FROM inventory WHERE code = $1 AND tenantId=$2 FOR UPDATE`,
@@ -4115,6 +4138,108 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
     res.status(201).json(entry);
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.post('/api/inventory-transfer', requireRole('admin'), async (req, res) => {
+  try {
+    const {
+      code,
+      qty,
+      reason,
+      notes,
+      fromLocation,
+      fromLocationType,
+      fromLocationRef,
+      toLocation,
+      toLocationType,
+      toLocationRef,
+      ts
+    } = req.body || {};
+    const qtyNum = Number(qty);
+    if (!code || !Number.isFinite(qtyNum) || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
+    if (!reason || !String(reason).trim()) return res.status(400).json({ error: 'reason required' });
+    const normalizedFromType = normalizeInventoryLocationType(fromLocationType) || inferInventoryLocationType(fromLocation);
+    const normalizedFromLocation = normalizeInventoryLocationLabel(fromLocation, normalizedFromType);
+    const normalizedFromRef = String(fromLocationRef || '').trim() || null;
+    const normalizedToType = normalizeInventoryLocationType(toLocationType) || inferInventoryLocationType(toLocation);
+    const normalizedToLocation = normalizeInventoryLocationLabel(toLocation, normalizedToType);
+    const normalizedToRef = String(toLocationRef || '').trim() || null;
+    if (!normalizedFromLocation || !normalizedToLocation) return res.status(400).json({ error: 'source and destination locations required' });
+    if ((normalizedFromRef && normalizedToRef && normalizedFromRef === normalizedToRef) || (!normalizedFromRef && !normalizedToRef && normalizedFromLocation === normalizedToLocation)) {
+      return res.status(400).json({ error: 'source and destination must be different' });
+    }
+    const t = tenantId(req);
+    const actor = actorInfo(req);
+    const transferTs = ts || Date.now();
+    const transferId = newId();
+    await withTransaction(async (client) => {
+      const availableAtSource = await calcAvailabilityAtLocationTx(
+        client,
+        code,
+        { location: normalizedFromLocation, locationRef: normalizedFromRef },
+        t
+      );
+      if (qtyNum > availableAtSource) throw new Error('insufficient available stock in source location');
+      await processInventoryEvent(client, {
+        type: 'consume',
+        code,
+        qty: qtyNum,
+        reason: 'location transfer',
+        notes: [`Transfer out: ${String(reason).trim()}`, notes && String(notes).trim()].filter(Boolean).join(' | '),
+        location: normalizedFromLocation,
+        locationType: normalizedFromType,
+        locationRef: normalizedFromRef,
+        ts: transferTs,
+        userEmail: actor.userEmail,
+        userName: actor.userName,
+        tenantIdVal: t,
+        sourceType: 'transfer',
+        sourceId: transferId,
+        sourceMeta: {
+          fromLocation: normalizedFromLocation,
+          fromLocationRef: normalizedFromRef,
+          toLocation: normalizedToLocation,
+          toLocationRef: normalizedToRef
+        }
+      });
+      await processInventoryEvent(client, {
+        type: 'in',
+        code,
+        qty: qtyNum,
+        location: normalizedToLocation,
+        locationType: normalizedToType,
+        locationRef: normalizedToRef,
+        notes: [`Transfer in: ${String(reason).trim()}`, notes && String(notes).trim()].filter(Boolean).join(' | '),
+        ts: transferTs + 1,
+        userEmail: actor.userEmail,
+        userName: actor.userName,
+        tenantIdVal: t,
+        sourceType: 'transfer',
+        sourceId: transferId,
+        sourceMeta: {
+          fromLocation: normalizedFromLocation,
+          fromLocationRef: normalizedFromRef,
+          toLocation: normalizedToLocation,
+          toLocationRef: normalizedToRef
+        }
+      });
+    });
+    await logAudit({
+      tenantId: t,
+      userId: currentUserId(req),
+      action: 'inventory.transfer',
+      details: {
+        code,
+        qty: qtyNum,
+        reason: String(reason).trim(),
+        fromLocation: normalizedFromLocation,
+        toLocation: normalizedToLocation
+      }
+    });
+    res.status(201).json({ ok: true, code, qty: qtyNum });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'unable to move stock' });
   }
 });
 
@@ -6509,6 +6634,7 @@ function auditActionLabel(action) {
     'inventory.return': 'Inventory Returned',
     'inventory.order': 'Incoming Order Created',
     'inventory.order.cancel': 'Incoming Order Cancelled',
+    'inventory.transfer': 'Inventory Moved',
     'inventory.count': 'Cycle Count Submitted',
     'fleet.equipment.create': 'Equipment Created',
     'fleet.equipment.update': 'Equipment Updated',
@@ -6568,6 +6694,8 @@ function auditBuildSummary(action, details) {
   const toJobId = auditNormalizeText(details?.toJobId);
   const reason = auditNormalizeText(details?.reason);
   const location = auditNormalizeText(details?.location);
+  const fromLocation = auditNormalizeText(details?.fromLocation);
+  const toLocation = auditNormalizeText(details?.toLocation);
   const sourceType = auditNormalizeText(details?.sourceType);
   const sourceId = auditNormalizeText(details?.sourceId);
   const supplierName = auditNormalizeText(details?.supplierName || details?.name || details?.id);
@@ -6609,6 +6737,11 @@ function auditBuildSummary(action, details) {
     if (reason) return `${base} | ${reason}`;
     if (location) return `${base} at ${location}`;
     return base;
+  }
+  if (normalized === 'inventory.transfer') {
+    const base = `Moved ${qtyLabel ? `${qtyLabel} ` : ''}${code || 'inventory'}`.trim();
+    const route = fromLocation || toLocation ? ` | ${fromLocation || 'Unknown'} -> ${toLocation || 'Unknown'}` : '';
+    return reason ? `${base}${route} | ${reason}` : `${base}${route}`;
   }
   if (normalized === 'inventory.order') {
     if (lineCount && !code) return `Created ${lineCount} incoming orders${jobId ? ` for ${jobId}` : ''}`;
