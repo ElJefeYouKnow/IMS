@@ -529,6 +529,7 @@ function renderTabOverview(data){
     { label: 'Expiration Tracked', value: meta.expires ? 'Yes' : 'No' },
     { label: 'Tags / Flags', value: staticTags.length ? staticTags.join(', ') : '—', wide: true }
   ];
+  const locationBreakdown = renderLocationBreakdown(summary.locations || item.locations || []);
 
   return `
     <div class="panel-section">

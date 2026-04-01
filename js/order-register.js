@@ -188,7 +188,7 @@ async function loadJobs(){
     selects.forEach(sel=>{
       const current = sel.value;
       const projectOnly = sel.id === 'orderMaterialsJob' || sel.id === 'reserve-jobId' || sel.id === 'reassign-from';
-      const optionSource = sel.id === 'orderMaterialsJob' && openMaterialJobOptions.length ? openMaterialJobOptions : jobOptions;
+      const optionSource = sel.id === 'orderMaterialsJob' ? openMaterialJobOptions : jobOptions;
       sel.innerHTML = projectOnly ? '<option value="">Select project...</option>' : '<option value="">General Inventory</option>';
       optionSource.forEach(job=>{
         const opt = document.createElement('option');
@@ -196,7 +196,7 @@ async function loadJobs(){
         opt.textContent = job;
         sel.appendChild(opt);
       });
-      if(current) sel.value = current;
+      if(current && optionSource.includes(current)) sel.value = current;
     });
     refreshOrderLineJobOptions();
   }catch(e){}
