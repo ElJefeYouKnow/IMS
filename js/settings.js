@@ -62,8 +62,10 @@ function resetLocationForm(){
   const title = document.getElementById('locationFormTitle');
   const saveBtn = document.getElementById('locationSaveBtn');
   const active = document.getElementById('locationActive');
+  const consumptionPoint = document.getElementById('locationConsumptionPoint');
   if(id) id.value = '';
   if(active) active.checked = true;
+  if(consumptionPoint) consumptionPoint.checked = false;
   if(title) title.textContent = 'Create Location';
   if(saveBtn) saveBtn.textContent = 'Save Location';
   const msg = getLocationMsg();
@@ -90,6 +92,7 @@ function updateLocationSummary(rows){
   const roots = rows.filter((row)=> !row.parentId).length;
   const bins = rows.filter((row)=> row.type === 'bin').length;
   const vehicles = rows.filter((row)=> row.type === 'vehicle').length;
+  const consumptionPoints = rows.filter((row)=> row.isConsumptionPoint === true).length;
   const setText = (id, value)=>{
     const el = document.getElementById(id);
     if(el) el.textContent = `${value}`;
@@ -98,6 +101,7 @@ function updateLocationSummary(rows){
   setText('locationRoots', roots);
   setText('locationBins', bins);
   setText('locationVehicles', vehicles);
+  setText('locationConsumptionPoints', consumptionPoints);
 }
 
 function renderLocationTree(rows){
@@ -109,12 +113,14 @@ function renderLocationTree(rows){
   }
   wrap.innerHTML = rows.map((row)=>{
     const childrenLabel = row.parentName ? `Child of ${row.parentName}` : 'Top level';
+    const consumptionBadge = row.isConsumptionPoint ? '<span class="badge success">Consumption Point</span>' : '';
     return `
       <div class="location-row-card" style="--location-depth:${Math.max(0, row.depth || 0)};">
         <div class="location-row-main">
           <div class="location-row-head">
             <strong>${row.name}</strong>
             <span class="badge ${row.type === 'writeoff' ? 'warn' : 'info'}">${row.typeLabel || row.type}</span>
+            ${consumptionBadge}
           </div>
           <div class="location-row-meta">
             <span>${row.label}</span>
@@ -142,6 +148,7 @@ function renderLocationTree(rows){
       document.getElementById('locationSortOrder').value = row.sortOrder ?? 0;
       document.getElementById('locationNotes').value = row.notes || '';
       document.getElementById('locationActive').checked = row.isActive !== false;
+      document.getElementById('locationConsumptionPoint').checked = row.isConsumptionPoint === true;
       document.getElementById('locationFormTitle').textContent = `Edit ${row.name}`;
       document.getElementById('locationSaveBtn').textContent = 'Update Location';
       populateLocationParentSelect(locationRowsCache, row.parentId || '', row.id);
@@ -216,7 +223,8 @@ function initLocations(){
       parentId: document.getElementById('locationParent').value || '',
       sortOrder: Number(document.getElementById('locationSortOrder').value || 0),
       notes: document.getElementById('locationNotes').value.trim(),
-      isActive: !!document.getElementById('locationActive').checked
+      isActive: !!document.getElementById('locationActive').checked,
+      isConsumptionPoint: !!document.getElementById('locationConsumptionPoint').checked
     };
     const msg = getLocationMsg();
     if(msg) msg.textContent = id ? 'Updating location...' : 'Creating location...';

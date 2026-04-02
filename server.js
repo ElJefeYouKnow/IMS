@@ -2272,6 +2272,7 @@ function decorateInventoryLocationRows(rows) {
     parentId: row.parentid || row.parentId || null,
     sortOrder: Number(row.sortorder || row.sortOrder || 0) || 0,
     isActive: row.isactive !== false && row.isActive !== false,
+    isConsumptionPoint: row.isconsumptionpoint === true || row.isConsumptionPoint === true,
     notes: row.notes || '',
     createdAt: row.createdat || row.createdAt || null,
     updatedAt: row.updatedat || row.updatedAt || null
@@ -2310,7 +2311,7 @@ function decorateInventoryLocationRows(rows) {
 async function listManagedInventoryLocations(tenantIdVal) {
   await ensureDefaultInventoryLocations(tenantIdVal);
   const rows = await allAsync(
-    `SELECT id, ref, name, type, parentId, sortOrder, isActive, notes, createdAt, updatedAt
+    `SELECT id, ref, name, type, parentId, sortOrder, isActive, isConsumptionPoint, notes, createdAt, updatedAt
      FROM inventory_locations
      WHERE tenantId=$1 AND COALESCE(isActive, true)=true`,
     [tenantIdVal]
@@ -2346,7 +2347,7 @@ async function listInventoryLocations(tenantIdVal) {
 async function getInventoryLocationById(locationId, tenantIdVal) {
   if (!locationId) return null;
   return getAsync(
-    `SELECT id, ref, name, type, parentId, sortOrder, isActive, notes, createdAt, updatedAt
+    `SELECT id, ref, name, type, parentId, sortOrder, isActive, isConsumptionPoint, notes, createdAt, updatedAt
      FROM inventory_locations WHERE id=$1 AND tenantId=$2`,
     [locationId, tenantIdVal]
   );
@@ -2355,10 +2356,17 @@ async function getInventoryLocationByRef(locationRef, tenantIdVal) {
   const ref = normalizeInventoryLocationRef(locationRef);
   if (!ref) return null;
   return getAsync(
-    `SELECT id, ref, name, type, parentId, sortOrder, isActive, notes, createdAt, updatedAt
+    `SELECT id, ref, name, type, parentId, sortOrder, isActive, isConsumptionPoint, notes, createdAt, updatedAt
      FROM inventory_locations WHERE ref=$1 AND tenantId=$2`,
     [ref, tenantIdVal]
   );
+}
+async function getConsumptionPointLocationById(locationId, tenantIdVal) {
+  const row = await getInventoryLocationById(locationId, tenantIdVal);
+  if (!row) throw new Error('consumption point location not found');
+  if (!(row.isconsumptionpoint === true || row.isConsumptionPoint === true)) throw new Error('selected location is not a consumption point');
+  if (row.isactive === false || row.isActive === false) throw new Error('selected consumption point is inactive');
+  return row;
 }
 async function assertInventoryLocationHierarchy({ tenantIdVal, locationId = null, parentId = null }) {
   if (!parentId) return null;
@@ -2384,6 +2392,7 @@ function normalizeInventoryLocationInput(body = {}) {
   const sortOrderRaw = Number(body.sortOrder);
   const sortOrder = Number.isFinite(sortOrderRaw) ? Math.round(sortOrderRaw) : 0;
   const isActive = body.isActive === undefined ? true : !!body.isActive;
+  const isConsumptionPoint = body.isConsumptionPoint === undefined ? false : !!body.isConsumptionPoint;
   return {
     name,
     type,
@@ -2391,7 +2400,8 @@ function normalizeInventoryLocationInput(body = {}) {
     parentId: String(body.parentId || '').trim() || null,
     notes,
     sortOrder,
-    isActive
+    isActive,
+    isConsumptionPoint
   };
 }
 function getReturnWindowMs(rules) {
@@ -2805,6 +2815,7 @@ async function initDb() {
     parentId TEXT,
     sortOrder INTEGER DEFAULT 0,
     isActive BOOLEAN DEFAULT true,
+    isConsumptionPoint BOOLEAN DEFAULT false,
     notes TEXT,
     tenantId TEXT REFERENCES tenants(id) DEFAULT 'default',
     createdAt BIGINT,
@@ -2923,6 +2934,7 @@ async function initDb() {
     vin TEXT,
     plate TEXT,
     location TEXT,
+    consumptionLocationId TEXT,
     status TEXT,
     mileage INTEGER,
     lastServiceAt BIGINT,
@@ -2973,6 +2985,7 @@ async function initDb() {
   await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS parentId TEXT`);
   await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS sortOrder INTEGER DEFAULT 0`);
   await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS isActive BOOLEAN DEFAULT true`);
+  await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS isConsumptionPoint BOOLEAN DEFAULT false`);
   await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS notes TEXT`);
   await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS tenantId TEXT REFERENCES tenants(id) DEFAULT 'default'`);
   await runAsync(`ALTER TABLE inventory_locations ADD COLUMN IF NOT EXISTS createdAt BIGINT`);
@@ -2993,6 +3006,7 @@ async function initDb() {
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS endDate TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS status TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS location TEXT`);
+  await runAsync(`ALTER TABLE vehicle_assets ADD COLUMN IF NOT EXISTS consumptionLocationId TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS notes TEXT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS materialsReadyNotifiedAt BIGINT`);
   await runAsync(`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS updatedAt BIGINT`);
@@ -3665,11 +3679,11 @@ app.post('/api/locations', requireRole('admin'), async (req, res) => {
       updatedAt: now
     };
     await runAsync(
-      `INSERT INTO inventory_locations(id,ref,name,type,parentId,sortOrder,isActive,notes,tenantId,createdAt,updatedAt)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [row.id, row.ref, row.name, row.type, row.parentId, row.sortOrder, row.isActive, row.notes, row.tenantId, row.createdAt, row.updatedAt]
+      `INSERT INTO inventory_locations(id,ref,name,type,parentId,sortOrder,isActive,isConsumptionPoint,notes,tenantId,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [row.id, row.ref, row.name, row.type, row.parentId, row.sortOrder, row.isActive, row.isConsumptionPoint, row.notes, row.tenantId, row.createdAt, row.updatedAt]
     );
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'locations.create', details: { location: row.name, ref: row.ref, type: row.type, parentId: row.parentId } });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'locations.create', details: { location: row.name, ref: row.ref, type: row.type, parentId: row.parentId, isConsumptionPoint: row.isConsumptionPoint } });
     const rows = await listManagedInventoryLocations(t);
     const created = rows.find((entry) => entry.id === row.id) || row;
     res.status(201).json(created);
@@ -3702,11 +3716,11 @@ app.patch('/api/locations/:id', requireRole('admin'), async (req, res) => {
     }
     await runAsync(
       `UPDATE inventory_locations
-       SET ref=$1, name=$2, type=$3, parentId=$4, sortOrder=$5, isActive=$6, notes=$7, updatedAt=$8
-       WHERE id=$9 AND tenantId=$10`,
-      [payload.ref, payload.name, payload.type, payload.parentId, payload.sortOrder, payload.isActive, payload.notes, Date.now(), existing.id, t]
+       SET ref=$1, name=$2, type=$3, parentId=$4, sortOrder=$5, isActive=$6, isConsumptionPoint=$7, notes=$8, updatedAt=$9
+       WHERE id=$10 AND tenantId=$11`,
+      [payload.ref, payload.name, payload.type, payload.parentId, payload.sortOrder, payload.isActive, payload.isConsumptionPoint, payload.notes, Date.now(), existing.id, t]
     );
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'locations.update', details: { location: payload.name, ref: payload.ref, type: payload.type, parentId: payload.parentId } });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'locations.update', details: { location: payload.name, ref: payload.ref, type: payload.type, parentId: payload.parentId, isConsumptionPoint: payload.isConsumptionPoint } });
     const rows = await listManagedInventoryLocations(t);
     const updated = rows.find((entry) => entry.id === existing.id);
     res.json(updated || { ...existing, ...payload });
@@ -6279,6 +6293,7 @@ function fleetNormalizeVehiclePayload(body = {}) {
     vin: fleetOptionalText(body.vin),
     plate: fleetOptionalText(body.plate),
     location: fleetOptionalText(body.location),
+    consumptionLocationId: fleetOptionalText(body.consumptionLocationId),
     status: fleetOptionalText(body.status) || 'active',
     mileage: fleetParseInt(body.mileage),
     lastServiceAt: fleetParseTsInput(body.lastServiceAt),
@@ -6293,6 +6308,53 @@ function fleetNormalizeVehiclePayload(body = {}) {
 function fleetConflictMessage(err, fallback) {
   if (err?.code === '23505') return fallback;
   return err?.message || 'server error';
+}
+
+function mapVehicleAssetRow(row, statsByRef = new Map()) {
+  const consumptionLocationRef = row.consumptionlocationref || row.consumptionLocationRef || '';
+  const stats = consumptionLocationRef ? (statsByRef.get(consumptionLocationRef) || null) : null;
+  return {
+    ...row,
+    consumptionLocationId: row.consumptionlocationid || row.consumptionLocationId || null,
+    consumptionLocationRef: consumptionLocationRef || null,
+    consumptionLocationName: row.consumptionlocationname || row.consumptionLocationName || '',
+    consumptionQty: Number(stats?.qty || 0) || 0,
+    consumptionLines: Number(stats?.lines || 0) || 0,
+    lastConsumedAt: stats?.lastts || stats?.lastTs || null
+  };
+}
+
+async function listFleetVehiclesWithConsumption(tenantIdVal) {
+  const rows = await allAsync(
+    `SELECT v.*,
+            loc.ref AS consumptionLocationRef,
+            loc.name AS consumptionLocationName
+       FROM vehicle_assets v
+       LEFT JOIN inventory_locations loc
+         ON loc.id = v.consumptionLocationId
+        AND loc.tenantId = v.tenantId
+      WHERE v.tenantId=$1
+      ORDER BY v.name ASC NULLS LAST, v.code ASC`,
+    [tenantIdVal]
+  );
+  const refs = [...new Set((rows || []).map((row) => row.consumptionlocationref || row.consumptionLocationRef).filter(Boolean))];
+  const statsByRef = new Map();
+  if (refs.length) {
+    const statsRows = await allAsync(
+      `SELECT locationRef, SUM(qty)::numeric AS qty, COUNT(*)::int AS lines, MAX(ts) AS lastTs
+         FROM inventory
+        WHERE tenantId=$1
+          AND type='consume'
+          AND locationRef = ANY($2::text[])
+        GROUP BY locationRef`,
+      [tenantIdVal, refs]
+    );
+    for (const row of statsRows || []) {
+      const ref = String(row.locationref || row.locationRef || '').trim();
+      if (ref) statsByRef.set(ref, row);
+    }
+  }
+  return (rows || []).map((row) => mapVehicleAssetRow(row, statsByRef));
 }
 
 app.get('/api/fleet/equipment', async (req, res) => {
@@ -6423,10 +6485,7 @@ app.delete('/api/fleet/equipment/:id', requireRole('admin'), async (req, res) =>
 
 app.get('/api/fleet/vehicles', async (req, res) => {
   try {
-    const rows = await allAsync(
-      'SELECT * FROM vehicle_assets WHERE tenantId=$1 ORDER BY name ASC NULLS LAST, code ASC',
-      [tenantId(req)]
-    );
+    const rows = await listFleetVehiclesWithConsumption(tenantId(req));
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
@@ -6436,6 +6495,7 @@ app.post('/api/fleet/vehicles', requireRole('admin'), async (req, res) => {
     const payload = fleetNormalizeVehiclePayload(req.body || {});
     if (payload.error) return res.status(400).json({ error: payload.error });
     const t = tenantId(req);
+    if (payload.consumptionLocationId) await getConsumptionPointLocationById(payload.consumptionLocationId, t);
     const id = newId();
     const row = {
       id,
@@ -6444,9 +6504,9 @@ app.post('/api/fleet/vehicles', requireRole('admin'), async (req, res) => {
     };
     await runAsync(
       `INSERT INTO vehicle_assets(
-        id, code, name, make, model, year, vin, plate, location, status, mileage,
+        id, code, name, make, model, year, vin, plate, location, consumptionLocationId, status, mileage,
         lastServiceAt, nextServiceAt, lastActivityAt, assignedProject, notes, tags, tenantId
-      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
       [
         row.id,
         row.code,
@@ -6457,6 +6517,7 @@ app.post('/api/fleet/vehicles', requireRole('admin'), async (req, res) => {
         row.vin,
         row.plate,
         row.location,
+        row.consumptionLocationId,
         row.status,
         row.mileage,
         row.lastServiceAt,
@@ -6472,9 +6533,10 @@ app.post('/api/fleet/vehicles', requireRole('admin'), async (req, res) => {
       tenantId: t,
       userId: currentUserId(req),
       action: 'fleet.vehicle.create',
-      details: { code: row.code, name: row.name, status: row.status, location: row.location || '' }
+      details: { code: row.code, name: row.name, status: row.status, location: row.location || '', consumptionLocationId: row.consumptionLocationId || '' }
     });
-    res.status(201).json(row);
+    const created = await listFleetVehiclesWithConsumption(t);
+    res.status(201).json(created.find((entry) => entry.id === id) || row);
   } catch (e) {
     res.status(e?.code === '23505' ? 409 : 500).json({ error: fleetConflictMessage(e, 'vehicle code already exists') });
   }
@@ -6487,11 +6549,12 @@ app.put('/api/fleet/vehicles/:id', requireRole('admin'), async (req, res) => {
     const t = tenantId(req);
     const existing = await getAsync('SELECT id, code FROM vehicle_assets WHERE id=$1 AND tenantId=$2', [req.params.id, t]);
     if (!existing) return res.status(404).json({ error: 'vehicle not found' });
+    if (payload.consumptionLocationId) await getConsumptionPointLocationById(payload.consumptionLocationId, t);
     await runAsync(
       `UPDATE vehicle_assets SET
-        code=$1, name=$2, make=$3, model=$4, year=$5, vin=$6, plate=$7, location=$8, status=$9,
-        mileage=$10, lastServiceAt=$11, nextServiceAt=$12, lastActivityAt=$13, assignedProject=$14, notes=$15, tags=$16
-       WHERE id=$17 AND tenantId=$18`,
+        code=$1, name=$2, make=$3, model=$4, year=$5, vin=$6, plate=$7, location=$8, consumptionLocationId=$9, status=$10,
+        mileage=$11, lastServiceAt=$12, nextServiceAt=$13, lastActivityAt=$14, assignedProject=$15, notes=$16, tags=$17
+       WHERE id=$18 AND tenantId=$19`,
       [
         payload.code,
         payload.name,
@@ -6501,6 +6564,7 @@ app.put('/api/fleet/vehicles/:id', requireRole('admin'), async (req, res) => {
         payload.vin,
         payload.plate,
         payload.location,
+        payload.consumptionLocationId,
         payload.status,
         payload.mileage,
         payload.lastServiceAt,
@@ -6517,9 +6581,10 @@ app.put('/api/fleet/vehicles/:id', requireRole('admin'), async (req, res) => {
       tenantId: t,
       userId: currentUserId(req),
       action: 'fleet.vehicle.update',
-      details: { code: payload.code, name: payload.name, status: payload.status, location: payload.location || '' }
+      details: { code: payload.code, name: payload.name, status: payload.status, location: payload.location || '', consumptionLocationId: payload.consumptionLocationId || '' }
     });
-    res.json({ id: req.params.id, tenantId: t, ...payload });
+    const rows = await listFleetVehiclesWithConsumption(t);
+    res.json(rows.find((entry) => entry.id === req.params.id) || { id: req.params.id, tenantId: t, ...payload });
   } catch (e) {
     res.status(e?.code === '23505' ? 409 : 500).json({ error: fleetConflictMessage(e, 'vehicle code already exists') });
   }

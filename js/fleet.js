@@ -5,6 +5,7 @@
   const state = {
     equipmentRows: [],
     vehicleRows: [],
+    consumptionPoints: [],
     activeTab: 'equipment',
     selectedType: null,
     selectedId: null,
@@ -145,6 +146,7 @@
         row.name,
         row.category,
         row.location,
+        row.consumptionlocationname || row.consumptionLocationName,
         row.status,
         row.assignedproject || row.assignedProject,
         row.plate,
@@ -211,7 +213,7 @@
     if(!tbody) return;
     tbody.innerHTML = '';
     if(!rows.length){
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#6b7280;">No vehicles found</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#6b7280;">No vehicles found</td></tr>';
       return;
     }
     rows.forEach((item)=>{
@@ -219,6 +221,7 @@
       const project = item.assignedproject || item.assignedProject || FALLBACK;
       const service = serviceMeta(item);
       const nextService = item.nextserviceat || item.nextServiceAt;
+      const consumptionPoint = item.consumptionlocationname || item.consumptionLocationName || FALLBACK;
       const tr = document.createElement('tr');
       tr.className = 'fleet-row';
       tr.dataset.type = 'vehicle';
@@ -228,9 +231,11 @@
         <td>${escapeHtml(make)}</td>
         <td>${escapeHtml(item.plate || FALLBACK)}</td>
         <td>${escapeHtml(item.location || FALLBACK)}</td>
+        <td>${escapeHtml(consumptionPoint)}</td>
         <td><span class="badge ${isOperationalStatus(item.status) ? 'info' : 'warn'}">${escapeHtml(item.status || 'active')}</span></td>
         <td>${escapeHtml(project)}</td>
         <td>${escapeHtml(fmtNumber(item.mileage))}</td>
+        <td>${escapeHtml(fmtNumber(item.consumptionqty || item.consumptionQty || 0))}</td>
         <td><div class="fleet-service-cell"><strong>${escapeHtml(fmtDate(nextService))}</strong><span class="badge ${escapeHtml(service.tone)}">${escapeHtml(service.label)}</span></div></td>
         <td>${escapeHtml(fmtDate(item.lastactivityat || item.lastActivityAt))}</td>
       `;
@@ -284,6 +289,7 @@
       ['Assigned Project', item.assignedproject || item.assignedProject || FALLBACK]
     ];
     if(isVehicle){
+      rows.push(['Consumption Point', item.consumptionlocationname || item.consumptionLocationName || FALLBACK]);
       rows.push(['Make', item.make || FALLBACK]);
       rows.push(['Model', item.model || FALLBACK]);
       rows.push(['Year', item.year || FALLBACK]);
@@ -308,6 +314,9 @@
     const metrics = isVehicle
       ? [
         ['Mileage', fmtNumber(item.mileage)],
+        ['Consumed', fmtNumber(item.consumptionqty || item.consumptionQty || 0)],
+        ['Consumption Entries', fmtNumber(item.consumptionlines || item.consumptionLines || 0)],
+        ['Last Consumed', fmtDate(item.lastconsumedat || item.lastConsumedAt)],
         ['Last Service', fmtDate(item.lastserviceat || item.lastServiceAt)],
         ['Next Service', fmtDate(item.nextserviceat || item.nextServiceAt)],
         ['Service State', service.label]
@@ -379,6 +388,12 @@
             <label>Location<input name="location" value="${escapeHtml(inputValue(item, 'location'))}" /></label>
           </div>
           <div class="form-row">
+            <label>Consumption Point
+              <select name="consumptionLocationId">
+                <option value="">No consumption point</option>
+                ${state.consumptionPoints.map((point)=> `<option value="${escapeHtml(point.id || '')}" ${String(inputValue(item, 'consumptionLocationId', 'consumptionlocationid')) === String(point.id || '') ? 'selected' : ''}>${escapeHtml(point.label || point.name || 'Consumption Point')}</option>`).join('')}
+              </select>
+            </label>
             <label>Status<input name="status" value="${escapeHtml(inputValue(item, 'status') || 'active')}" /></label>
             <label>Assigned Project<input name="assignedProject" value="${escapeHtml(inputValue(item, 'assignedProject', 'assignedproject'))}" /></label>
           </div>
@@ -547,12 +562,23 @@
   async function loadData({ force = false } = {}){
     try{
       if(force) window.utils?.invalidateApiCache?.('/api/fleet/');
-      const [equipment, vehicles] = await Promise.all([
+      const [equipment, vehicles, locations] = await Promise.all([
         window.utils?.fetchJsonSafe ? utils.fetchJsonSafe('/api/fleet/equipment', { cacheTtlMs: 5000, forceRefresh: force }, []) : fetch('/api/fleet/equipment').then((r)=> r.ok ? r.json() : []),
-        window.utils?.fetchJsonSafe ? utils.fetchJsonSafe('/api/fleet/vehicles', { cacheTtlMs: 5000, forceRefresh: force }, []) : fetch('/api/fleet/vehicles').then((r)=> r.ok ? r.json() : [])
+        window.utils?.fetchJsonSafe ? utils.fetchJsonSafe('/api/fleet/vehicles', { cacheTtlMs: 5000, forceRefresh: force }, []) : fetch('/api/fleet/vehicles').then((r)=> r.ok ? r.json() : []),
+        state.isAdmin
+          ? (window.utils?.fetchJsonSafe ? utils.fetchJsonSafe('/api/locations', { cacheTtlMs: 5000, forceRefresh: force }, []) : fetch('/api/locations').then((r)=> r.ok ? r.json() : []))
+          : Promise.resolve([])
       ]);
       state.equipmentRows = Array.isArray(equipment) ? equipment : [];
       state.vehicleRows = Array.isArray(vehicles) ? vehicles : [];
+      state.consumptionPoints = (Array.isArray(locations) ? locations : [])
+        .filter((row)=> row?.isConsumptionPoint === true)
+        .map((row)=> ({
+          id: row.id,
+          name: row.name || 'Consumption Point',
+          label: row.label || row.name || 'Consumption Point',
+          ref: row.ref || ''
+        }));
       populateStatusOptions();
       renderTables();
       syncDrawerAfterRefresh();
