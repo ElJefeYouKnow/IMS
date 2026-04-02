@@ -2200,6 +2200,10 @@ function normalizeOptionalBool(input) {
   if (['true', '1', 'yes', 'on', 'enabled'].includes(value)) return true;
   return null;
 }
+function normalizeBool(input, fallback = false) {
+  const normalized = normalizeOptionalBool(input);
+  return normalized === null ? fallback : normalized;
+}
 function normalizeInventoryLocationType(input) {
   const raw = String(input || '').trim().toLowerCase();
   if (!raw) return '';
@@ -2271,8 +2275,8 @@ function decorateInventoryLocationRows(rows) {
     type: row.type,
     parentId: row.parentid || row.parentId || null,
     sortOrder: Number(row.sortorder || row.sortOrder || 0) || 0,
-    isActive: row.isactive !== false && row.isActive !== false,
-    isConsumptionPoint: row.isconsumptionpoint === true || row.isConsumptionPoint === true,
+    isActive: normalizeBool(row.isactive ?? row.isActive, true),
+    isConsumptionPoint: normalizeBool(row.isconsumptionpoint ?? row.isConsumptionPoint, false),
     notes: row.notes || '',
     createdAt: row.createdat || row.createdAt || null,
     updatedAt: row.updatedat || row.updatedAt || null
@@ -2364,8 +2368,8 @@ async function getInventoryLocationByRef(locationRef, tenantIdVal) {
 async function getConsumptionPointLocationById(locationId, tenantIdVal) {
   const row = await getInventoryLocationById(locationId, tenantIdVal);
   if (!row) throw new Error('consumption point location not found');
-  if (!(row.isconsumptionpoint === true || row.isConsumptionPoint === true)) throw new Error('selected location is not a consumption point');
-  if (row.isactive === false || row.isActive === false) throw new Error('selected consumption point is inactive');
+  if (!normalizeBool(row.isconsumptionpoint ?? row.isConsumptionPoint, false)) throw new Error('selected location is not a consumption point');
+  if (!normalizeBool(row.isactive ?? row.isActive, true)) throw new Error('selected consumption point is inactive');
   return row;
 }
 async function assertInventoryLocationHierarchy({ tenantIdVal, locationId = null, parentId = null }) {
