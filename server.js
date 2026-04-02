@@ -6158,6 +6158,120 @@ app.get('/api/export/inventory', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
+app.get('/api/export/pilot-snapshot', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const exportedAt = Date.now();
+    const [
+      tenantRow,
+      capabilities,
+      users,
+      categories,
+      suppliers,
+      items,
+      jobs,
+      jobMaterials,
+      locations,
+      equipment,
+      vehicles,
+      counts,
+      webhooks,
+      webhookEvents,
+      inventory,
+      audits
+    ] = await Promise.all([
+      getAsync('SELECT id, code, name, createdAt FROM tenants WHERE id=$1', [t]),
+      getAsync('SELECT * FROM tenant_capabilities WHERE tenant_id=$1', [t]),
+      allAsync(
+        `SELECT id, email, name, role, createdAt, emailVerified, emailVerifiedAt, invitedAt, notificationPrefs
+         FROM users
+         WHERE tenantId=$1
+         ORDER BY createdAt ASC, email ASC`,
+        [t]
+      ),
+      allAsync('SELECT * FROM categories WHERE tenantId=$1 ORDER BY name ASC', [t]),
+      allAsync('SELECT * FROM suppliers WHERE tenantId=$1 ORDER BY name ASC', [t]),
+      allAsync('SELECT * FROM items WHERE tenantId=$1 ORDER BY code ASC', [t]),
+      allAsync('SELECT * FROM jobs WHERE tenantId=$1 ORDER BY code ASC', [t]),
+      allAsync('SELECT * FROM job_materials WHERE tenantId=$1 ORDER BY jobId ASC, code ASC', [t]),
+      allAsync('SELECT * FROM inventory_locations WHERE tenantId=$1 ORDER BY sortOrder ASC, name ASC', [t]),
+      allAsync('SELECT * FROM equipment_assets WHERE tenantId=$1 ORDER BY name ASC NULLS LAST, code ASC', [t]),
+      allAsync('SELECT * FROM vehicle_assets WHERE tenantId=$1 ORDER BY name ASC NULLS LAST, code ASC', [t]),
+      allAsync('SELECT * FROM inventory_counts WHERE tenantId=$1 ORDER BY countedAt DESC, code ASC', [t]),
+      allAsync(
+        `SELECT id, tenantId, name, source, isActive, notes, createdAt, updatedAt, lastReceivedAt
+         FROM inbound_webhook_endpoints
+         WHERE tenantId=$1
+         ORDER BY createdAt DESC`,
+        [t]
+      ),
+      allAsync(
+        `SELECT id, endpointId, tenantId, source, eventType, externalId, payload, status, receivedAt
+         FROM inbound_webhook_events
+         WHERE tenantId=$1
+         ORDER BY receivedAt DESC
+         LIMIT 250`,
+        [t]
+      ),
+      allAsync('SELECT * FROM inventory WHERE tenantId=$1 ORDER BY ts ASC, id ASC', [t]),
+      allAsync(
+        `SELECT id, action, details, ts, userId
+         FROM audit_events
+         WHERE tenantId=$1
+         ORDER BY ts DESC
+         LIMIT 1000`,
+        [t]
+      )
+    ]);
+
+    const payload = {
+      exportedAt,
+      exportedAtIso: new Date(exportedAt).toISOString(),
+      tenant: tenantRow || { id: t },
+      summary: {
+        users: users.length,
+        categories: categories.length,
+        suppliers: suppliers.length,
+        items: items.length,
+        jobs: jobs.length,
+        jobMaterials: jobMaterials.length,
+        inventoryLocations: locations.length,
+        equipmentAssets: equipment.length,
+        vehicleAssets: vehicles.length,
+        inventoryCounts: counts.length,
+        webhooks: webhooks.length,
+        webhookEvents: webhookEvents.length,
+        inventoryEvents: inventory.length,
+        auditEvents: audits.length
+      },
+      data: {
+        capabilities: capabilities || null,
+        users,
+        categories,
+        suppliers,
+        items,
+        jobs,
+        jobMaterials,
+        inventoryLocations: locations,
+        equipmentAssets: equipment,
+        vehicleAssets: vehicles,
+        inventoryCounts: counts,
+        inboundWebhooks: webhooks,
+        recentWebhookEvents: webhookEvents,
+        inventory,
+        recentAuditEvents: audits
+      }
+    };
+
+    const stamp = new Date(exportedAt).toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="pilot-snapshot-${stamp}.json"`);
+    res.send(JSON.stringify(payload, null, 2));
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
 app.get('/api/notifications', async (req, res) => {
   try {
     const t = tenantId(req);

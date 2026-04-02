@@ -15,6 +15,8 @@ const FALLBACK = 'N/A';
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const MIN_LINES = 1;
 const SESSION_KEY = 'sessionUser';
+const OPS_DRAFTS_KEY = 'ims.ops.drafts.v1';
+const OPS_DEFAULTS_KEY = 'ims.ops.defaults.v1';
 let categoriesCache = [];
 const FALLBACK_LOCATION_OPTIONS = [
   { id: 'loc:warehouse:main', name: 'Main Warehouse', label: 'Main Warehouse', type: 'warehouse', ref: 'main' },
@@ -43,10 +45,198 @@ const OPS_MODE_META = {
     badge: 'Returns'
   }
 };
+const OPS_FORM_FIELDS = {
+  checkin: ['checkin-location', 'checkin-notes'],
+  checkout: ['checkout-upcomingJob', 'checkout-jobId', 'checkout-location', 'checkout-notes'],
+  return: ['return-jobId', 'return-reason', 'return-location', 'return-notes']
+};
+const OPS_DEFAULT_FIELDS = ['checkin-location', 'checkout-upcomingJob', 'checkout-jobId', 'checkout-location', 'return-jobId', 'return-reason', 'return-location'];
+const OPS_MEANINGFUL_DRAFT_FIELDS = {
+  checkin: ['checkin-notes'],
+  checkout: ['checkout-upcomingJob', 'checkout-jobId', 'checkout-notes'],
+  return: ['return-jobId', 'return-reason', 'return-notes']
+};
 
 function uid(){ return Math.random().toString(16).slice(2,8); }
 function getSessionUser(){
   try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; }
+}
+function readOpsStorage(key, fallback){
+  try{
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  }catch(e){
+    return fallback;
+  }
+}
+function writeOpsStorage(key, value){
+  if(value && typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length){
+    localStorage.removeItem(key);
+    return;
+  }
+  localStorage.setItem(key, JSON.stringify(value));
+}
+function getOpsDrafts(){
+  return readOpsStorage(OPS_DRAFTS_KEY, {});
+}
+function getOpsDefaults(){
+  return readOpsStorage(OPS_DEFAULTS_KEY, {});
+}
+function setOpsDrafts(next){
+  writeOpsStorage(OPS_DRAFTS_KEY, next);
+}
+function setOpsDefaults(next){
+  writeOpsStorage(OPS_DEFAULTS_KEY, next);
+}
+function getFieldValue(id){
+  const el = document.getElementById(id);
+  if(!el) return '';
+  return typeof el.value === 'string' ? el.value.trim() : String(el.value || '').trim();
+}
+function setFieldValue(id, value){
+  const el = document.getElementById(id);
+  if(!el || value === undefined || value === null) return;
+  el.value = String(value);
+}
+function buildLineDraft(row){
+  const code = row.querySelector('input[name="code"]')?.value.trim() || '';
+  const name = row.querySelector('input[name="name"]')?.value.trim() || '';
+  const category = row.querySelector('select[name="category"]')?.value.trim() || '';
+  const qty = parseInt(row.querySelector('input[name="qty"]')?.value || '0', 10) || 0;
+  const sourceId = row.querySelector('input[name="sourceId"]')?.value.trim() || '';
+  const sourceType = row.querySelector('input[name="sourceType"]')?.value.trim() || '';
+  const jobId = (row.dataset.jobId || '').trim();
+  const openQty = Number(row.dataset.openQty || 0) || 0;
+  return { code, name, category, qty, sourceId, sourceType, jobId, openQty };
+}
+function lineDraftHasData(line){
+  return !!(line?.code || line?.name || line?.sourceId || line?.jobId || Number(line?.qty || 0) > 1);
+}
+function collectLineDrafts(prefix){
+  return [...document.querySelectorAll(`#${prefix}-lines .line-row`)]
+    .map(buildLineDraft)
+    .filter(lineDraftHasData);
+}
+function draftHasMeaningfulData(prefix, draft){
+  if(!draft) return false;
+  if(Array.isArray(draft.lines) && draft.lines.some(lineDraftHasData)) return true;
+  const fields = draft.fields || {};
+  return (OPS_MEANINGFUL_DRAFT_FIELDS[prefix] || []).some((id)=> !!fields[id]);
+}
+function countOpsDrafts(){
+  return Object.entries(getOpsDrafts()).filter(([prefix, draft])=> draftHasMeaningfulData(prefix, draft)).length;
+}
+function updateOpsDraftStamp(message = ''){
+  const el = document.getElementById('opsDraftStamp');
+  if(!el) return;
+  if(message){
+    el.textContent = message;
+    return;
+  }
+  const count = countOpsDrafts();
+  el.textContent = count ? `${count} draft${count === 1 ? '' : 's'} saved` : 'No draft';
+}
+function captureOpsDefaults(){
+  const next = getOpsDefaults();
+  OPS_DEFAULT_FIELDS.forEach((id)=>{
+    const value = getFieldValue(id);
+    if(value) next[id] = value;
+    else delete next[id];
+  });
+  setOpsDefaults(next);
+}
+function captureOpsDraft(prefix){
+  const drafts = getOpsDrafts();
+  const fields = {};
+  (OPS_FORM_FIELDS[prefix] || []).forEach((id)=>{
+    const value = getFieldValue(id);
+    if(value) fields[id] = value;
+  });
+  const draft = {
+    fields,
+    lines: collectLineDrafts(prefix),
+    updatedAt: Date.now()
+  };
+  if(draftHasMeaningfulData(prefix, draft)) drafts[prefix] = draft;
+  else delete drafts[prefix];
+  setOpsDrafts(drafts);
+}
+function persistOpsState(prefix){
+  captureOpsDefaults();
+  captureOpsDraft(prefix);
+  updateOpsDraftStamp();
+}
+function clearOpsDraft(prefix){
+  const drafts = getOpsDrafts();
+  delete drafts[prefix];
+  setOpsDrafts(drafts);
+  updateOpsDraftStamp();
+}
+function clearOpsDraftsAndReapply(prefix){
+  clearOpsDraft(prefix);
+  applyOpsDefaultsForPrefix(prefix);
+}
+function applyLineDraft(row, prefix, draft = {}){
+  const codeInput = row.querySelector('input[name="code"]');
+  const nameInput = row.querySelector('input[name="name"]');
+  const categorySelect = row.querySelector('select[name="category"]');
+  const qtyInput = row.querySelector('input[name="qty"]');
+  if(codeInput) codeInput.value = draft.code || '';
+  if(nameInput) nameInput.value = draft.name || '';
+  if(categorySelect){
+    const target = draft.category || '';
+    if(target && [...categorySelect.options].some((option)=> option.value === target)) categorySelect.value = target;
+  }
+  if(qtyInput) qtyInput.value = Number(draft.qty || 0) > 0 ? String(draft.qty) : '1';
+  row.dataset.jobId = draft.jobId || '';
+  if(prefix === 'checkin'){
+    const sourceIdInput = row.querySelector('input[name="sourceId"]');
+    const sourceTypeInput = row.querySelector('input[name="sourceType"]');
+    if(sourceIdInput) sourceIdInput.value = draft.sourceId || '';
+    if(sourceTypeInput) sourceTypeInput.value = draft.sourceType || '';
+    if(Number(draft.openQty || 0) > 0) row.dataset.openQty = String(draft.openQty);
+    else delete row.dataset.openQty;
+    const locked = !!draft.sourceId;
+    if(codeInput) codeInput.readOnly = locked;
+    if(nameInput) nameInput.readOnly = locked;
+  }
+}
+async function restoreOpsWorkspace(){
+  const defaults = getOpsDefaults();
+  Object.entries(defaults).forEach(([id, value])=> setFieldValue(id, value));
+  const drafts = getOpsDrafts();
+  ['checkin', 'checkout', 'return'].forEach((prefix)=>{
+    const draft = drafts[prefix];
+    if(!draftHasMeaningfulData(prefix, draft)) return;
+    const container = document.getElementById(`${prefix}-lines`);
+    if(!container) return;
+    container.innerHTML = '';
+    (draft.lines || []).forEach((line)=> addLine(prefix, line));
+    if(prefix !== 'checkin' && !(draft.lines || []).length) addLine(prefix);
+    Object.entries(draft.fields || {}).forEach(([id, value])=> setFieldValue(id, value));
+    updateLineBadge(prefix);
+  });
+  refreshCheckoutLocationOptions(getFieldValue('checkout-location') || getOpsDefaults()['checkout-location'] || 'primary');
+  const checkoutJobId = getFieldValue('checkout-jobId') || getFieldValue('checkout-upcomingJob');
+  await refreshUpcomingMeta(checkoutJobId, { autoLoad: false, force: true });
+  updateOpsDraftStamp(countOpsDrafts() ? 'Drafts restored' : 'No draft');
+}
+function applyOpsDefaultsForPrefix(prefix){
+  const defaults = getOpsDefaults();
+  const ids = {
+    checkin: ['checkin-location'],
+    checkout: ['checkout-upcomingJob', 'checkout-jobId', 'checkout-location'],
+    return: ['return-jobId', 'return-reason', 'return-location']
+  }[prefix] || [];
+  ids.forEach((id)=> setFieldValue(id, defaults[id] || ''));
+  if(prefix === 'checkout'){
+    refreshCheckoutLocationOptions(getFieldValue('checkout-location') || defaults['checkout-location'] || 'primary');
+    refreshUpcomingMeta(getFieldValue('checkout-jobId') || getFieldValue('checkout-upcomingJob'), { autoLoad: false, force: true });
+  }
+  updateOpsDraftStamp();
+}
+function hasUnsavedOpsDrafts(){
+  return countOpsDrafts() > 0;
 }
 function normalizeJobId(value){
   const val = (value || '').toString().trim();
@@ -502,7 +692,7 @@ function initTimerControls(type, { startBtnId, finishBtnId, valueId, prefix }){
   setInterval(refresh, 60000);
 }
 
-function addLine(prefix){
+function addLine(prefix, preset = null){
   const container = document.getElementById(`${prefix}-lines`);
   if(!container) return;
   const codeId = `${prefix}-code-${uid()}`;
@@ -527,10 +717,12 @@ function addLine(prefix){
   container.appendChild(row);
   refreshCategorySelects();
   row.querySelector('.remove-line').addEventListener('click', ()=>{
-    if(container.querySelectorAll('.line-row').length > MIN_LINES){
+    const minLines = prefix === 'checkin' ? 0 : MIN_LINES;
+    if(container.querySelectorAll('.line-row').length > minLines){
       row.remove();
       updateLineBadge(prefix);
       if(prefix === 'checkout') refreshCheckoutLocationOptions();
+      persistOpsState(prefix);
     }
   });
   utils.attachItemLookup({
@@ -540,6 +732,7 @@ function addLine(prefix){
     categoryInputId: categoryId,
     suggestionsId: suggId
   });
+  if(preset) applyLineDraft(row, prefix, preset);
   updateLineBadge(prefix);
   if(prefix === 'checkout') refreshCheckoutLocationOptions();
 }
@@ -655,6 +848,7 @@ async function refreshReturnDropdown(select){
     }
     document.getElementById('return-jobId').value = co.jobId || '';
     document.getElementById('return-reason').value = 'unused';
+    persistOpsState('return');
   };
 }
 
@@ -838,6 +1032,7 @@ function addOrderGroup(batchId){
     container.innerHTML = '';
   }
   group.lines.forEach(line=> addOrderLine(line.sourceId));
+  persistOpsState('checkin');
 }
 
 async function addCheckin(e){
@@ -936,6 +1131,7 @@ function fillCheckoutLines(items, { force } = {}){
   });
   updateLineBadge('checkout');
   refreshCheckoutLocationOptions();
+  persistOpsState('checkout');
 }
 async function loadReservedForJob(jobId, { force } = {}){
   if(!jobId) return [];
@@ -1273,6 +1469,7 @@ async function refreshOperationsWorkspace(){
       if(returnSelect) await refreshReturnDropdown(returnSelect);
       ['checkin', 'checkout', 'return'].forEach(updateLineBadge);
       updateSyncStamp(fmtDT(Date.now()));
+      updateOpsDraftStamp();
     }finally{
       if(refreshBtn){
         refreshBtn.disabled = false;
@@ -1301,17 +1498,30 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     document.getElementById(`${prefix}-lines`)?.addEventListener('input', ()=>{
       updateLineBadge(prefix);
       if(prefix === 'checkout') refreshCheckoutLocationOptions();
+      persistOpsState(prefix);
     });
     document.getElementById(`${prefix}-lines`)?.addEventListener('change', ()=>{
       updateLineBadge(prefix);
       if(prefix === 'checkout') refreshCheckoutLocationOptions();
+      persistOpsState(prefix);
     });
+    const form = document.getElementById(`${prefix}Form`);
+    form?.addEventListener('input', ()=> persistOpsState(prefix));
+    form?.addEventListener('change', ()=> persistOpsState(prefix));
   });
   switchMode(availableModes.includes(initialMode) ? initialMode : 'checkout');
   initTimerControls('checkin', { startBtnId: 'checkinStartBtn', finishBtnId: 'checkinFinishBtn', valueId: 'checkinTimerValue', prefix: 'checkin' });
   initTimerControls('pick', { startBtnId: 'pickStartBtn', finishBtnId: 'pickFinishBtn', valueId: 'pickTimerValue', prefix: 'checkout' });
   document.getElementById('opsRefreshBtn')?.addEventListener('click', refreshOperationsWorkspace);
   await refreshOperationsWorkspace();
+  await restoreOpsWorkspace();
+  captureOpsDefaults();
+  updateOpsDraftStamp();
+  window.addEventListener('beforeunload', (event)=>{
+    if(!hasUnsavedOpsDrafts()) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
 
   const upcomingSelect = document.getElementById('checkout-upcomingJob');
   const upcomingLoadBtn = document.getElementById('checkout-loadReserved');
@@ -1321,6 +1531,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const jobId = upcomingSelect.value.trim();
       if(checkoutJobSelect) checkoutJobSelect.value = jobId;
       await refreshUpcomingMeta(jobId, { autoLoad: true });
+      persistOpsState('checkout');
     });
   }
   if(upcomingLoadBtn){
@@ -1329,6 +1540,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       if(!jobId){ alert('Select a project first'); return; }
       if(checkoutJobSelect) checkoutJobSelect.value = jobId;
       await refreshUpcomingMeta(jobId, { autoLoad: true, force: true });
+      persistOpsState('checkout');
     });
   }
   if(checkoutJobSelect && upcomingSelect){
@@ -1337,6 +1549,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const hasOption = !!upcomingSelect.querySelector(`option[value="${jobId}"]`);
       upcomingSelect.value = hasOption ? jobId : '';
       await refreshUpcomingMeta(jobId, { autoLoad: false, force: true });
+      persistOpsState('checkout');
     });
   }
 
@@ -1348,6 +1561,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       addOrderGroup(sel.value);
       sel.value = '';
       updateLineBadge('checkin');
+      persistOpsState('checkin');
     });
   }
   const refreshOrdersBtn = document.getElementById('checkin-refreshOrders');
@@ -1432,6 +1646,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(!okAll) alert('Some items failed to check in');
     checkinForm.reset();
     resetLines('checkin');
+    clearOpsDraft('checkin');
+    applyOpsDefaultsForPrefix('checkin');
     await loadOpenOrders();
     populateOrderSelect();
     await loadInventoryEntries(true);
@@ -1462,6 +1678,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(!okAll) alert(errors.join('\n') || 'Some items failed to check out');
     checkoutForm.reset();
     resetLines('checkout');
+    clearOpsDraft('checkout');
+    applyOpsDefaultsForPrefix('checkout');
     ensureJobOption(jobId);
     await loadInventoryEntries(true);
     refreshCheckoutLocationOptions();
@@ -1586,6 +1804,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       if(!okAll) alert(errors.join('\n') || 'Some items failed to return');
       returnForm.reset();
       resetLines('return');
+      clearOpsDraft('return');
+      applyOpsDefaultsForPrefix('return');
       const select = document.getElementById('return-fromCheckout');
       if(select) await refreshReturnDropdown(select);
       ensureJobOption(jobId);

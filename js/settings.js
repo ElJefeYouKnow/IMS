@@ -249,6 +249,89 @@ function initLocations(){
   loadLocations();
 }
 
+function setPilotText(id, value){
+  const el = document.getElementById(id);
+  if(el) el.textContent = `${value}`;
+}
+
+function parseDownloadFilename(disposition, fallback){
+  const raw = String(disposition || '');
+  const match = /filename="([^"]+)"/i.exec(raw) || /filename=([^;]+)/i.exec(raw);
+  const name = match?.[1] ? match[1].trim() : '';
+  return name || fallback;
+}
+
+function triggerBlobDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function loadPilotSummary(){
+  const msg = document.getElementById('pilotSummaryMsg');
+  if(msg) msg.textContent = 'Loading pilot readiness...';
+  try{
+    const response = await fetch('/api/dashboard/admin');
+    if(!response.ok) throw new Error('Unable to load pilot readiness');
+    const data = await response.json().catch(()=> ({}));
+    const metrics = data?.metrics || {};
+    const lowStock = Number(metrics.lowStockCount || 0);
+    const openOrders = Number(metrics.openOrdersCount || 0);
+    const overdue = Number(metrics.overdueCount || 0);
+    const countsDue = Number(metrics.countDueCount || 0);
+    setPilotText('pilotLowStockCount', lowStock);
+    setPilotText('pilotOpenOrdersCount', openOrders);
+    setPilotText('pilotOverdueCount', overdue);
+    setPilotText('pilotCountDueCount', countsDue);
+    const notices = [];
+    if(overdue > 0) notices.push(`${overdue} overdue return${overdue === 1 ? '' : 's'}`);
+    if(lowStock > 0) notices.push(`${lowStock} low-stock item${lowStock === 1 ? '' : 's'}`);
+    if(countsDue > 0) notices.push(`${countsDue} item${countsDue === 1 ? '' : 's'} due for count`);
+    if(msg) msg.textContent = notices.length ? `Attention today: ${notices.join(' | ')}` : 'Pilot status looks stable right now.';
+  }catch(e){
+    if(msg) msg.textContent = e.message || 'Unable to load pilot readiness.';
+  }
+}
+
+async function downloadPilotSnapshot(){
+  const msg = document.getElementById('pilotExportMsg');
+  if(msg) msg.textContent = 'Preparing snapshot...';
+  try{
+    const response = await fetch('/api/export/pilot-snapshot');
+    const errorData = !response.ok ? await response.json().catch(()=> ({})) : null;
+    if(!response.ok) throw new Error(errorData?.error || 'Unable to download snapshot');
+    const blob = await response.blob();
+    const filename = parseDownloadFilename(response.headers.get('Content-Disposition'), `pilot-snapshot-${new Date().toISOString().slice(0, 10)}.json`);
+    triggerBlobDownload(blob, filename);
+    if(msg) msg.textContent = `Downloaded ${filename}`;
+  }catch(e){
+    if(msg) msg.textContent = e.message || 'Unable to download snapshot.';
+  }
+}
+
+function exportPilotInventoryCsv(){
+  const msg = document.getElementById('pilotExportMsg');
+  const link = document.createElement('a');
+  link.href = '/api/export/inventory';
+  link.download = `inventory-all-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  if(msg) msg.textContent = 'Inventory CSV export started.';
+}
+
+function initPilotTools(){
+  document.getElementById('pilotRefreshBtn')?.addEventListener('click', loadPilotSummary);
+  document.getElementById('pilotDownloadSnapshotBtn')?.addEventListener('click', downloadPilotSnapshot);
+  document.getElementById('pilotExportInventoryBtn')?.addEventListener('click', exportPilotInventoryCsv);
+  loadPilotSummary();
+}
+
 function getWebhookMsg(){
   return document.getElementById('webhookMsg');
 }
@@ -744,6 +827,7 @@ function setupTabs(){
     notifications: document.getElementById('panelNotifications'),
     webhooks: document.getElementById('panelWebhooks'),
     locations: document.getElementById('panelLocations'),
+    pilot: document.getElementById('panelPilot'),
     users: document.getElementById('panelUsers'),
     capabilities: document.getElementById('panelCapabilities')
   };
@@ -1124,6 +1208,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   loadNotificationPrefs();
   initWebhooks();
   initLocations();
+  initPilotTools();
   refreshUsers();
   loadCapabilities();
   document.getElementById('notificationPrefsSave')?.addEventListener('click', saveNotificationPrefs);
