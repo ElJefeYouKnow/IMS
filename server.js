@@ -5676,6 +5676,94 @@ function estimateReceiptPhotoBytes(dataUrl = '') {
   return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
+function parseFieldPurchaseSourceMeta(rawMeta) {
+  if (!rawMeta) return {};
+  if (typeof rawMeta === 'string') {
+    try {
+      const parsed = JSON.parse(rawMeta);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  return typeof rawMeta === 'object' ? rawMeta : {};
+}
+
+function readFieldPurchaseReceiptPhotos(rawMeta) {
+  const meta = parseFieldPurchaseSourceMeta(rawMeta);
+  let photos = meta.receiptPhotos || meta.receiptphotos || meta.photos || [];
+  if (typeof photos === 'string') {
+    try {
+      photos = JSON.parse(photos);
+    } catch (e) {
+      photos = [];
+    }
+  }
+  if (!Array.isArray(photos)) return [];
+  return photos.map((photo, index) => {
+    const rawData = String(
+      photo?.dataUrl
+      || photo?.dataurl
+      || photo?.url
+      || photo?.src
+      || ''
+    ).trim();
+    const dataUrlMatch = /^data:(image\/(?:jpeg|png|webp));base64,([a-z0-9+/=\s]+)$/i.exec(rawData);
+    let dataUrl = '';
+    let type = String(photo?.type || photo?.mimeType || photo?.mimetype || '').trim().toLowerCase();
+    if (dataUrlMatch) {
+      type = dataUrlMatch[1].toLowerCase();
+      dataUrl = `data:${type};base64,${dataUrlMatch[2].replace(/\s+/g, '')}`;
+    } else if (/^[a-z0-9+/=\s]+$/i.test(rawData) && rawData.length > 64) {
+      type = /^image\/(?:jpeg|png|webp)$/i.test(type) ? type : 'image/jpeg';
+      dataUrl = `data:${type};base64,${rawData.replace(/\s+/g, '')}`;
+    }
+    if (!dataUrl) return null;
+    const sizeBytes = Number(photo?.sizeBytes || photo?.sizebytes || estimateReceiptPhotoBytes(dataUrl)) || estimateReceiptPhotoBytes(dataUrl);
+    return {
+      name: String(photo?.name || `receipt-${index + 1}.jpg`).trim().slice(0, 120) || `receipt-${index + 1}.jpg`,
+      type: type || 'image/jpeg',
+      sizeBytes,
+      width: Number.isFinite(Number(photo?.width)) ? Math.round(Number(photo.width)) : null,
+      height: Number.isFinite(Number(photo?.height)) ? Math.round(Number(photo.height)) : null,
+      dataUrl
+    };
+  }).filter(Boolean);
+}
+
+function mergeFieldPurchaseSourceMeta(entries) {
+  const merged = {
+    batchId: '',
+    vendor: '',
+    receipt: '',
+    purchasedAt: null,
+    cost: null,
+    receiptPhotos: []
+  };
+  const seenPhotos = new Set();
+  (entries || []).forEach((entry) => {
+    const meta = parseFieldPurchaseSourceMeta(entry?.sourcemeta || entry?.sourceMeta || {});
+    if (!merged.batchId) merged.batchId = String(meta.batchId || meta.batchid || '').trim();
+    if (!merged.vendor) merged.vendor = String(meta.vendor || meta.Vendor || '').trim();
+    if (!merged.receipt) merged.receipt = String(meta.receipt || meta.receiptNumber || meta.receiptnumber || '').trim();
+    if (merged.purchasedAt === null) {
+      const purchasedAt = Number(meta.purchasedAt || meta.purchasedat || entry?.ts || 0);
+      merged.purchasedAt = Number.isFinite(purchasedAt) && purchasedAt > 0 ? purchasedAt : null;
+    }
+    if (merged.cost === null) {
+      const cost = Number(meta.cost ?? meta.unitCost ?? meta.unitcost);
+      if (Number.isFinite(cost)) merged.cost = cost;
+    }
+    readFieldPurchaseReceiptPhotos(meta).forEach((photo) => {
+      const photoKey = `${photo.name}|${photo.dataUrl}`;
+      if (seenPhotos.has(photoKey)) return;
+      seenPhotos.add(photoKey);
+      merged.receiptPhotos.push(photo);
+    });
+  });
+  return merged;
+}
+
 function normalizeFieldPurchaseReceiptPhotos(rawPhotos) {
   const photos = Array.isArray(rawPhotos) ? rawPhotos : [];
   if (!photos.length) return [];
@@ -5704,6 +5792,57 @@ function normalizeFieldPurchaseReceiptPhotos(rawPhotos) {
   if (totalBytes > FIELD_PURCHASE_RECEIPT_PHOTO_TOTAL_BYTES) throw new Error('receipt photos are too large together');
   return normalized;
 }
+
+app.get('/api/field-purchases', async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const rows = await allAsync(
+      `SELECT * FROM inventory
+       WHERE tenantId=$1
+         AND sourceType='purchase'
+         AND type IN ('purchase','in')
+       ORDER BY ts DESC, id DESC`,
+      [t]
+    );
+    const groups = new Map();
+    const ensureGroup = (key) => {
+      if (!groups.has(key)) groups.set(key, { events: [], purchases: [] });
+      return groups.get(key);
+    };
+    (rows || []).forEach((row) => {
+      const meta = parseFieldPurchaseSourceMeta(row?.sourcemeta || row?.sourceMeta || {});
+      const batchId = String(meta.batchId || meta.batchid || '').trim();
+      const purchaseKey = row.type === 'purchase'
+        ? String(row.id || '').trim()
+        : String(row.sourceid || row.sourceId || '').trim();
+      const groupKey = batchId || purchaseKey || String(row.id || '').trim();
+      if (!groupKey) return;
+      const group = ensureGroup(groupKey);
+      group.events.push(row);
+      if (row.type === 'purchase') group.purchases.push(row);
+    });
+    const output = [];
+    groups.forEach((group) => {
+      if (!group.purchases.length) return;
+      const mergedMeta = mergeFieldPurchaseSourceMeta(group.events);
+      group.purchases.forEach((purchase) => {
+        const purchaseMeta = parseFieldPurchaseSourceMeta(purchase?.sourcemeta || purchase?.sourceMeta || {});
+        output.push({
+          ...purchase,
+          sourceMeta: {
+            ...purchaseMeta,
+            ...mergedMeta,
+            receiptPhotos: mergedMeta.receiptPhotos
+          }
+        });
+      });
+    });
+    output.sort((left, right) => Number(right?.ts || 0) - Number(left?.ts || 0));
+    res.json(output);
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
 
 // FIELD PURCHASES (employee intake)
 app.post('/api/field-purchase', async (req, res) => {

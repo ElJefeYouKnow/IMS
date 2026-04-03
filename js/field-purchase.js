@@ -930,7 +930,8 @@ async function refreshPurchaseRows(){
   const statusEl = document.getElementById('purchaseTableStatus');
   if(statusEl) statusEl.textContent = 'Loading field purchases...';
   try{
-    const rows = await utils.fetchJsonSafe('/api/inventory?type=purchase', {}, []) || [];
+    let rows = await utils.fetchJsonSafe('/api/field-purchases', {}, null);
+    if(!Array.isArray(rows)) rows = await utils.fetchJsonSafe('/api/inventory?type=purchase', {}, []) || [];
     purchaseRowsCache = normalizePurchaseRows(rows);
     updatePurchaseProjectFilter(purchaseRowsCache);
     renderPurchaseTable();
