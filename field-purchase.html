@@ -92,7 +92,57 @@
       </section>
 
       <section class="card">
-        <h3 style="margin:0 0 10px 0;">Recent Field Purchases</h3>
+        <h3 style="margin:0;">Field Purchase Log</h3>
+        <p class="muted-text" style="margin:6px 0 10px 0;">Sort, filter, and export field purchases with receipt references and photos.</p>
+        <div class="report-controls">
+          <div class="report-controls-main">
+            <label>Search
+              <input id="purchaseFilterSearch" type="search" placeholder="Code, name, vendor, receipt, project">
+            </label>
+            <label>Project
+              <select id="purchaseFilterProject">
+                <option value="">All projects</option>
+              </select>
+            </label>
+            <label>Vendor
+              <input id="purchaseFilterVendor" placeholder="Filter vendor">
+            </label>
+            <label>Receipt Status
+              <select id="purchaseFilterReceiptStatus">
+                <option value="all">All receipts</option>
+                <option value="with-receipt">With receipt ref or photo</option>
+                <option value="with-photo">With receipt photo</option>
+                <option value="missing">Missing receipt info</option>
+              </select>
+            </label>
+            <label>Date From
+              <input id="purchaseFilterDateFrom" type="date">
+            </label>
+            <label>Date To
+              <input id="purchaseFilterDateTo" type="date">
+            </label>
+            <label>Sort
+              <select id="purchaseSort">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="vendor">Vendor A-Z</option>
+                <option value="project">Project A-Z</option>
+                <option value="code">Code A-Z</option>
+                <option value="qty-high">Qty high-low</option>
+                <option value="qty-low">Qty low-high</option>
+                <option value="receipt">Receipt first</option>
+              </select>
+            </label>
+          </div>
+          <div class="report-controls-actions">
+            <div id="purchaseTableStatus" class="muted-text">Loading field purchases...</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button id="purchaseFilterReset" type="button" class="muted">Reset Filters</button>
+              <button id="purchaseDownloadCsv" type="button" class="muted">Download CSV</button>
+              <button id="purchaseDownloadReceipts" type="button" class="muted">Download Receipt Pack</button>
+            </div>
+          </div>
+        </div>
         <table id="purchaseTable">
           <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Project</th><th>When</th><th>Vendor</th><th>Receipt</th></tr></thead>
           <tbody></tbody>

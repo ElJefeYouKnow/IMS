@@ -5712,10 +5712,42 @@ app.post('/api/field-purchase', async (req, res) => {
     if (!lines.length) return res.status(400).json({ error: 'lines array required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const batchId = String(req.body?.batchId || '').trim().slice(0, 120) || `field-purchase-${newId()}`;
     const receiptPhotos = normalizeFieldPurchaseReceiptPhotos(req.body?.receiptPhotos);
     const results = [];
     let lowStockNotifications = [];
+    let deduped = false;
     await withTransaction(async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${t}:${batchId}`]);
+      const existingPurchasesRes = await client.query(
+        `SELECT * FROM inventory
+         WHERE tenantId=$1
+           AND type='purchase'
+           AND sourceType='purchase'
+           AND COALESCE(sourceMeta->>'batchId','')=$2
+         ORDER BY ts ASC, id ASC`,
+        [t, batchId]
+      );
+      const existingPurchases = existingPurchasesRes.rows || [];
+      if (existingPurchases.length) {
+        deduped = true;
+        const purchaseIds = existingPurchases.map((row) => row.id);
+        const existingCheckins = purchaseIds.length
+          ? (await client.query(
+              `SELECT * FROM inventory
+               WHERE tenantId=$1
+                 AND type='in'
+                 AND sourceType='purchase'
+                 AND sourceId = ANY($2::text[])`,
+              [t, purchaseIds]
+            )).rows || []
+          : [];
+        const checkinsBySourceId = new Map(existingCheckins.map((row) => [row.sourceid || row.sourceId || '', row]));
+        existingPurchases.forEach((purchase) => {
+          results.push({ purchase, checkin: checkinsBySourceId.get(purchase.id) || null });
+        });
+        return;
+      }
       for (const line of lines) {
         const code = (line?.code || '').trim();
         const name = (line?.name || '').trim();
@@ -5733,6 +5765,7 @@ app.post('/api/field-purchase', async (req, res) => {
         const categoryInfo = await getItemCategoryRulesTx(client, t, code, category);
         enforceCategoryRules(categoryInfo.rules, { action: 'field-purchase', jobId: jobIdVal, location, notes, qty: qtyNum });
         const sourceMeta = {
+          batchId,
           vendor: line?.vendor || req.body?.vendor || '',
           receipt: line?.receipt || req.body?.receipt || '',
           ...(receiptPhotos.length ? { receiptPhotos } : {}),
@@ -5803,9 +5836,11 @@ app.post('/api/field-purchase', async (req, res) => {
       }
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, lines.map((line) => line?.code));
     });
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { sourceType: 'purchase', count: results.length } });
-    if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
-    res.status(201).json({ count: results.length, entries: results });
+    if (!deduped) {
+      await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { sourceType: 'purchase', count: results.length } });
+      if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
+    }
+    res.status(deduped ? 200 : 201).json({ count: results.length, entries: results, batchId, deduped });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }

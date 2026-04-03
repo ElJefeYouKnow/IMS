@@ -2,15 +2,28 @@ let itemsCache = [];
 let jobOptions = [];
 let categoriesCache = [];
 let inventoryLocationOptions = [];
-let recentPurchaseRows = [];
+let purchaseRowsCache = [];
+let filteredPurchaseRows = [];
 let receiptPhotos = [];
 let receiptPhotoProcessing = false;
+let purchaseSubmitInFlight = false;
+let pendingPurchaseBatchId = '';
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const SESSION_KEY = 'sessionUser';
 const MAX_RECEIPT_PHOTOS = 2;
 const MAX_RECEIPT_PHOTO_BYTES = 260 * 1024;
 const MAX_RECEIPT_TOTAL_BYTES = 520 * 1024;
 const MAX_RECEIPT_DIMENSION = 1600;
+const purchaseCurrencyFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+const purchaseTableState = {
+  search: '',
+  project: '',
+  vendor: '',
+  receiptStatus: 'all',
+  dateFrom: '',
+  dateTo: '',
+  sort: 'newest'
+};
 const FALLBACK_LOCATION_OPTIONS = [
   { id: 'loc:warehouse:main', name: 'Main Warehouse', label: 'Main Warehouse', type: 'warehouse', ref: 'main' },
   { id: 'loc:bin:primary', name: 'Primary Bin', label: 'Primary Bin', type: 'bin', ref: 'primary' },
@@ -44,6 +57,63 @@ function formatBytes(bytes){
   return `${value} B`;
 }
 
+function normalizeText(value){
+  return String(value || '').trim().toLowerCase();
+}
+
+function formatLocalDateKey(value){
+  const date = new Date(Number(value || 0));
+  if(!Number.isFinite(date.getTime())) return '';
+  const pad = (part)=> String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function getPurchaseSourceMeta(entry){
+  return entry && typeof entry === 'object'
+    ? (entry.sourceMeta || entry.sourcemeta || {})
+    : {};
+}
+
+function getPurchaseTs(entry){
+  return Number(entry?.ts || 0) || 0;
+}
+
+function getPurchaseJobId(entry){
+  return String(entry?.jobId || entry?.jobid || '').trim();
+}
+
+function getPurchaseProjectLabel(entry){
+  return getPurchaseJobId(entry) || 'General';
+}
+
+function getPurchaseVendor(entry){
+  return String(getPurchaseSourceMeta(entry).vendor || '').trim();
+}
+
+function getPurchaseReceipt(entry){
+  return String(getPurchaseSourceMeta(entry).receipt || '').trim();
+}
+
+function getPurchaseBatchId(entry){
+  return String(
+    getPurchaseSourceMeta(entry).batchId
+    || entry?.sourceId
+    || entry?.sourceid
+    || entry?.id
+    || ''
+  ).trim();
+}
+
+function getPurchaseCost(entry){
+  const value = Number(getPurchaseSourceMeta(entry).cost);
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatPurchaseCost(entry){
+  const value = getPurchaseCost(entry);
+  return Number.isFinite(value) ? purchaseCurrencyFmt.format(value) : '';
+}
+
 function ensureReceiptPhotoName(name, index){
   const raw = String(name || `receipt-${index + 1}`).trim();
   const stem = raw.replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '');
@@ -69,8 +139,16 @@ function setReceiptPhotoMessage(message = '', tone = ''){
 function syncReceiptPhotoControls(){
   const input = document.getElementById('purchase-receiptPhotos');
   const submitBtn = document.getElementById('purchaseBtn');
-  if(input) input.disabled = receiptPhotoProcessing || receiptPhotos.length >= MAX_RECEIPT_PHOTOS;
-  if(submitBtn) submitBtn.disabled = receiptPhotoProcessing;
+  const addBtn = document.getElementById('purchase-addLine');
+  const clearBtn = document.getElementById('purchase-clearBtn');
+  const isBusy = receiptPhotoProcessing || purchaseSubmitInFlight;
+  if(input) input.disabled = isBusy || receiptPhotos.length >= MAX_RECEIPT_PHOTOS;
+  if(submitBtn){
+    submitBtn.disabled = isBusy;
+    submitBtn.textContent = purchaseSubmitInFlight ? 'Logging...' : 'Log Purchase';
+  }
+  if(addBtn) addBtn.disabled = purchaseSubmitInFlight;
+  if(clearBtn) clearBtn.disabled = purchaseSubmitInFlight;
 }
 
 function renderReceiptPhotoPreview(){
@@ -109,6 +187,11 @@ function resetReceiptPhotos(message = '', tone = ''){
   receiptPhotos = [];
   renderReceiptPhotoPreview();
   setReceiptPhotoMessage(message, tone);
+}
+
+function invalidatePendingPurchaseBatch(){
+  if(purchaseSubmitInFlight) return;
+  pendingPurchaseBatchId = '';
 }
 
 function loadImageFromUrl(url){
@@ -231,7 +314,7 @@ async function handleReceiptPhotoSelection(event){
 }
 
 function getReceiptPhotosFromEntry(entry){
-  const raw = entry?.sourceMeta?.receiptPhotos;
+  const raw = getPurchaseSourceMeta(entry).receiptPhotos;
   if(!Array.isArray(raw)) return [];
   return raw
     .map((photo, index)=>({
@@ -416,6 +499,318 @@ function gatherLines(){
   return output;
 }
 
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function csvCell(value){
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function buildPurchaseFilterSummary(){
+  const parts = [];
+  if(purchaseTableState.search) parts.push(`Search: ${purchaseTableState.search}`);
+  if(purchaseTableState.project === '__general__') parts.push('Project: General Inventory');
+  else if(purchaseTableState.project) parts.push(`Project: ${purchaseTableState.project}`);
+  if(purchaseTableState.vendor) parts.push(`Vendor: ${purchaseTableState.vendor}`);
+  if(purchaseTableState.receiptStatus !== 'all') parts.push(`Receipt: ${purchaseTableState.receiptStatus}`);
+  if(purchaseTableState.dateFrom) parts.push(`From: ${purchaseTableState.dateFrom}`);
+  if(purchaseTableState.dateTo) parts.push(`To: ${purchaseTableState.dateTo}`);
+  parts.push(`Sort: ${purchaseTableState.sort}`);
+  return parts.join(' | ');
+}
+
+function updatePurchaseProjectFilter(rows){
+  const select = document.getElementById('purchaseFilterProject');
+  if(!select) return;
+  const current = purchaseTableState.project;
+  const projects = Array.from(new Set(
+    (rows || [])
+      .map((entry)=> getPurchaseJobId(entry))
+      .filter(Boolean)
+  )).sort((a, b)=> a.localeCompare(b));
+  select.innerHTML = [
+    '<option value="">All projects</option>',
+    '<option value="__general__">General Inventory</option>',
+    ...projects.map((project)=> `<option value="${escapeHtml(project)}">${escapeHtml(project)}</option>`)
+  ].join('');
+  if(current === '__general__' || projects.includes(current)){
+    select.value = current;
+  }else{
+    purchaseTableState.project = '';
+    select.value = '';
+  }
+}
+
+function matchesPurchaseReceiptStatus(entry){
+  const receipt = getPurchaseReceipt(entry);
+  const photos = getReceiptPhotosFromEntry(entry);
+  if(purchaseTableState.receiptStatus === 'with-receipt') return !!(receipt || photos.length);
+  if(purchaseTableState.receiptStatus === 'with-photo') return photos.length > 0;
+  if(purchaseTableState.receiptStatus === 'missing') return !(receipt || photos.length);
+  return true;
+}
+
+function applyPurchaseFilters(rows){
+  const search = normalizeText(purchaseTableState.search);
+  const vendorFilter = normalizeText(purchaseTableState.vendor);
+  return (rows || []).filter((entry)=>{
+    const vendor = getPurchaseVendor(entry);
+    const receipt = getPurchaseReceipt(entry);
+    const projectLabel = getPurchaseProjectLabel(entry);
+    const jobId = getPurchaseJobId(entry);
+    const notes = String(entry?.notes || '').trim();
+    const location = String(entry?.location || '').trim();
+    const searchText = normalizeText([
+      entry?.code || '',
+      entry?.name || '',
+      projectLabel,
+      vendor,
+      receipt,
+      notes,
+      location
+    ].join(' '));
+    const dateKey = formatLocalDateKey(getPurchaseTs(entry));
+
+    if(search && !searchText.includes(search)) return false;
+    if(purchaseTableState.project === '__general__' && jobId) return false;
+    if(purchaseTableState.project && purchaseTableState.project !== '__general__' && jobId !== purchaseTableState.project) return false;
+    if(vendorFilter && !normalizeText(vendor).includes(vendorFilter)) return false;
+    if(!matchesPurchaseReceiptStatus(entry)) return false;
+    if(purchaseTableState.dateFrom && (!dateKey || dateKey < purchaseTableState.dateFrom)) return false;
+    if(purchaseTableState.dateTo && (!dateKey || dateKey > purchaseTableState.dateTo)) return false;
+    return true;
+  });
+}
+
+function sortPurchaseRows(rows){
+  const list = rows.slice();
+  const compareText = (a, b)=> String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
+  list.sort((left, right)=>{
+    const leftTs = getPurchaseTs(left);
+    const rightTs = getPurchaseTs(right);
+    const leftVendor = getPurchaseVendor(left);
+    const rightVendor = getPurchaseVendor(right);
+    const leftProject = getPurchaseProjectLabel(left);
+    const rightProject = getPurchaseProjectLabel(right);
+    const leftReceiptRank = Number(!!(getPurchaseReceipt(left) || getReceiptPhotosFromEntry(left).length));
+    const rightReceiptRank = Number(!!(getPurchaseReceipt(right) || getReceiptPhotosFromEntry(right).length));
+    const leftQty = Number(left?.qty || 0) || 0;
+    const rightQty = Number(right?.qty || 0) || 0;
+    switch(purchaseTableState.sort){
+      case 'oldest':
+        if(leftTs !== rightTs) return leftTs - rightTs;
+        break;
+      case 'vendor': {
+        const byVendor = compareText(leftVendor || 'Unknown Vendor', rightVendor || 'Unknown Vendor');
+        if(byVendor !== 0) return byVendor;
+        break;
+      }
+      case 'project': {
+        const byProject = compareText(leftProject, rightProject);
+        if(byProject !== 0) return byProject;
+        break;
+      }
+      case 'code': {
+        const byCode = compareText(left?.code || '', right?.code || '');
+        if(byCode !== 0) return byCode;
+        break;
+      }
+      case 'qty-high':
+        if(leftQty !== rightQty) return rightQty - leftQty;
+        break;
+      case 'qty-low':
+        if(leftQty !== rightQty) return leftQty - rightQty;
+        break;
+      case 'receipt':
+        if(leftReceiptRank !== rightReceiptRank) return rightReceiptRank - leftReceiptRank;
+        break;
+      case 'newest':
+      default:
+        if(leftTs !== rightTs) return rightTs - leftTs;
+        break;
+    }
+    if(rightTs !== leftTs) return rightTs - leftTs;
+    return compareText(left?.code || '', right?.code || '');
+  });
+  return list;
+}
+
+function updatePurchaseTableStatus(filteredRows, totalRows){
+  const el = document.getElementById('purchaseTableStatus');
+  if(!el) return;
+  if(!totalRows){
+    el.textContent = 'No field purchases logged yet.';
+    return;
+  }
+  const withReceipt = filteredRows.filter((entry)=> getPurchaseReceipt(entry) || getReceiptPhotosFromEntry(entry).length).length;
+  const withPhotos = filteredRows.filter((entry)=> getReceiptPhotosFromEntry(entry).length).length;
+  el.textContent = `Showing ${filteredRows.length} of ${totalRows} purchase lines | ${withReceipt} with receipt info | ${withPhotos} with photos`;
+}
+
+function groupPurchasesForReceiptPack(rows){
+  const groups = [];
+  const byKey = new Map();
+  rows.forEach((entry, index)=>{
+    const key = getPurchaseBatchId(entry) || `purchase-${index}`;
+    const vendor = getPurchaseVendor(entry);
+    const receipt = getPurchaseReceipt(entry);
+    const when = utils.formatDateTime?.(getPurchaseTs(entry)) || '';
+    const ts = getPurchaseTs(entry);
+    if(!byKey.has(key)){
+      const group = {
+        key,
+        vendor,
+        receipt,
+        when,
+        ts,
+        photos: getReceiptPhotosFromEntry(entry),
+        lines: [],
+        projects: new Set(),
+        locations: new Set(),
+        notes: new Set()
+      };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    const group = byKey.get(key);
+    group.projects.add(getPurchaseProjectLabel(entry));
+    group.locations.add(String(entry?.location || '').trim() || 'Unspecified');
+    if(String(entry?.notes || '').trim()) group.notes.add(String(entry.notes).trim());
+    group.lines.push({
+      code: entry?.code || '',
+      name: entry?.name || '',
+      qty: entry?.qty || '',
+      project: getPurchaseProjectLabel(entry),
+      cost: formatPurchaseCost(entry),
+      notes: String(entry?.notes || '').trim()
+    });
+  });
+  return groups.sort((left, right)=> right.ts - left.ts);
+}
+
+function buildReceiptPackHtml(rows){
+  const generatedAt = new Date();
+  const groups = groupPurchasesForReceiptPack(rows);
+  const summary = buildPurchaseFilterSummary() || 'All field purchases';
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Field Purchase Receipt Pack</title>
+  <style>
+    body{font-family:Segoe UI,Arial,sans-serif;background:#f4f7f6;color:#1b2522;margin:0;padding:24px}
+    .shell{max-width:1100px;margin:0 auto}
+    .header{margin-bottom:18px;padding:20px 22px;border-radius:18px;background:linear-gradient(135deg,#132a24,#1f6f5c);color:#fff}
+    .header h1{margin:0 0 8px;font-size:28px}
+    .header p{margin:0 0 6px;opacity:.92}
+    .receipt-card{margin-bottom:18px;padding:18px;border:1px solid #d8e2de;border-radius:18px;background:#fff;box-shadow:0 10px 24px rgba(24,36,32,.08)}
+    .receipt-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px}
+    .receipt-head h2{margin:0;font-size:18px}
+    .receipt-meta{display:flex;flex-wrap:wrap;gap:8px 12px;font-size:13px;color:#4a5b56;margin-bottom:12px}
+    .receipt-chip{display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;background:#eef4f1;border:1px solid #d5e2dc;font-size:12px;font-weight:700;color:#21453a}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{padding:8px 10px;border-bottom:1px solid #e4ece8;text-align:left;font-size:13px;vertical-align:top}
+    th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#5d716b}
+    .photos{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}
+    .photos img{width:100%;max-height:320px;object-fit:contain;border-radius:12px;border:1px solid #d8e2de;background:#fff}
+    .empty{margin-top:12px;padding:12px;border:1px dashed #d8e2de;border-radius:12px;background:#f8fbfa;color:#60736d}
+    @media print{body{background:#fff;padding:0}.receipt-card{box-shadow:none;break-inside:avoid-page}.header{border-radius:0}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <h1>Field Purchase Receipt Pack</h1>
+      <p>Generated ${escapeHtml(generatedAt.toLocaleString())}</p>
+      <p>${escapeHtml(summary)}</p>
+    </div>
+    ${groups.map((group, index)=> `
+      <section class="receipt-card">
+        <div class="receipt-head">
+          <div>
+            <h2>${escapeHtml(group.vendor || `Field Purchase ${index + 1}`)}</h2>
+            <div class="receipt-meta">
+              <span class="receipt-chip">When: ${escapeHtml(group.when || 'Unknown')}</span>
+              <span class="receipt-chip">Receipt: ${escapeHtml(group.receipt || 'Missing')}</span>
+              <span class="receipt-chip">Projects: ${escapeHtml(Array.from(group.projects).join(', ') || 'General')}</span>
+              <span class="receipt-chip">Locations: ${escapeHtml(Array.from(group.locations).join(', ') || 'Unspecified')}</span>
+              <span class="receipt-chip">Lines: ${escapeHtml(group.lines.length)}</span>
+            </div>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Code</th><th>Name</th><th>Qty</th><th>Project</th><th>Cost</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            ${group.lines.map((line)=> `
+              <tr>
+                <td>${escapeHtml(line.code)}</td>
+                <td>${escapeHtml(line.name)}</td>
+                <td>${escapeHtml(line.qty)}</td>
+                <td>${escapeHtml(line.project)}</td>
+                <td>${escapeHtml(line.cost)}</td>
+                <td>${escapeHtml(line.notes)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        ${group.photos.length ? `
+          <div class="photos">
+            ${group.photos.map((photo)=> `<img src="${escapeHtml(photo.dataUrl)}" alt="${escapeHtml(photo.name || 'Receipt photo')}">`).join('')}
+          </div>
+        ` : `
+          <div class="empty">No receipt photos attached for this purchase batch.</div>
+        `}
+      </section>
+    `).join('')}
+  </div>
+</body>
+</html>`;
+}
+
+function downloadPurchaseCsv(){
+  if(!filteredPurchaseRows.length){
+    alert('No field purchases match the current filters.');
+    return;
+  }
+  const headers = ['code','name','qty','project','vendor','receipt','receiptPhotos','cost','location','date','timestamp','notes','batchId'];
+  const rows = filteredPurchaseRows.map((entry)=>[
+    entry?.code || '',
+    entry?.name || '',
+    entry?.qty || '',
+    getPurchaseProjectLabel(entry),
+    getPurchaseVendor(entry),
+    getPurchaseReceipt(entry),
+    getReceiptPhotosFromEntry(entry).length ? 'Yes' : 'No',
+    getPurchaseCost(entry) ?? '',
+    entry?.location || '',
+    formatLocalDateKey(getPurchaseTs(entry)),
+    utils.formatDateTime?.(getPurchaseTs(entry)) || '',
+    entry?.notes || '',
+    getPurchaseBatchId(entry)
+  ]);
+  const csv = [headers.join(','), ...rows.map((row)=> row.map(csvCell).join(','))].join('\r\n');
+  downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), `field-purchases-${new Date().toISOString().slice(0, 10)}.csv`);
+}
+
+function downloadReceiptPack(){
+  if(!filteredPurchaseRows.length){
+    alert('No field purchases match the current filters.');
+    return;
+  }
+  const html = buildReceiptPackHtml(filteredPurchaseRows);
+  downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8;' }), `field-purchase-receipts-${new Date().toISOString().slice(0, 10)}.html`);
+}
+
 function closeReceiptModal(){
   const modal = document.getElementById('purchaseReceiptModal');
   const gallery = document.getElementById('purchaseReceiptGallery');
@@ -429,19 +824,19 @@ function closeReceiptModal(){
 }
 
 function openReceiptModal(index){
-  const entry = recentPurchaseRows[index];
+  const entry = filteredPurchaseRows[index];
   const photos = getReceiptPhotosFromEntry(entry);
   if(!entry || !photos.length) return;
   const modal = document.getElementById('purchaseReceiptModal');
   const gallery = document.getElementById('purchaseReceiptGallery');
   const meta = document.getElementById('purchaseReceiptMeta');
   if(!modal || !gallery || !meta) return;
-  const vendor = String(entry.sourceMeta?.vendor || '').trim();
-  const receipt = String(entry.sourceMeta?.receipt || '').trim();
-  const when = utils.formatDateTime?.(entry.ts) || '';
+  const vendor = getPurchaseVendor(entry);
+  const receipt = getPurchaseReceipt(entry);
+  const when = utils.formatDateTime?.(getPurchaseTs(entry)) || '';
   const parts = [
     entry.code || '',
-    entry.jobId || 'General Inventory',
+    getPurchaseProjectLabel(entry),
     vendor ? `Vendor: ${vendor}` : '',
     receipt ? `Receipt: ${receipt}` : '',
     when
@@ -461,29 +856,35 @@ function openReceiptModal(index){
   document.body.classList.add('panel-open');
 }
 
-async function renderPurchaseTable(){
+async function refreshPurchaseRows(){
+  purchaseRowsCache = await utils.fetchJsonSafe('/api/inventory?type=purchase', {}, []) || [];
+  updatePurchaseProjectFilter(purchaseRowsCache);
+  renderPurchaseTable();
+}
+
+function renderPurchaseTable(){
   const tbody = document.querySelector('#purchaseTable tbody');
   if(!tbody) return;
   tbody.innerHTML = '';
-  const rows = await utils.fetchJsonSafe('/api/inventory?type=purchase', {}, []) || [];
-  recentPurchaseRows = rows.slice().reverse().slice(0, 12);
-  if(!recentPurchaseRows.length){
+  filteredPurchaseRows = sortPurchaseRows(applyPurchaseFilters(purchaseRowsCache));
+  updatePurchaseTableStatus(filteredPurchaseRows, purchaseRowsCache.length);
+  if(!filteredPurchaseRows.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="7" style="text-align:center;color:#6b7280;">No field purchases yet</td>`;
+    tr.innerHTML = `<td colspan="7" style="text-align:center;color:#6b7280;">${purchaseRowsCache.length ? 'No field purchases match the current filters.' : 'No field purchases yet'}</td>`;
     tbody.appendChild(tr);
     return;
   }
-  recentPurchaseRows.forEach((entry, index)=>{
-    const when = utils.formatDateTime?.(entry.ts) || '';
-    const vendor = String(entry.sourceMeta?.vendor || '').trim();
-    const receipt = String(entry.sourceMeta?.receipt || '').trim();
+  filteredPurchaseRows.forEach((entry, index)=>{
+    const when = utils.formatDateTime?.(getPurchaseTs(entry)) || '';
+    const vendor = getPurchaseVendor(entry);
+    const receipt = getPurchaseReceipt(entry);
     const photos = getReceiptPhotosFromEntry(entry);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${escapeHtml(entry.code || '')}</td>
       <td>${escapeHtml(entry.name || '')}</td>
       <td>${escapeHtml(entry.qty || '')}</td>
-      <td>${escapeHtml(entry.jobId || 'General')}</td>
+      <td>${escapeHtml(getPurchaseProjectLabel(entry))}</td>
       <td>${escapeHtml(when)}</td>
       <td>${escapeHtml(vendor || '-')}</td>
       <td>
@@ -527,13 +928,47 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   populateInventoryLocationSelect('purchase-location', 'field');
   addLine();
   renderReceiptPhotoPreview();
-  renderPurchaseTable();
+  await refreshPurchaseRows();
 
   const addBtn = document.getElementById('purchase-addLine');
   addBtn?.addEventListener('click', addLine);
 
   const receiptPhotoInput = document.getElementById('purchase-receiptPhotos');
   receiptPhotoInput?.addEventListener('change', handleReceiptPhotoSelection);
+
+  const bindPurchaseTableControl = (id, eventName, apply)=>{
+    const el = document.getElementById(id);
+    el?.addEventListener(eventName, ()=>{
+      apply(el);
+      renderPurchaseTable();
+    });
+  };
+  bindPurchaseTableControl('purchaseFilterSearch', 'input', (el)=>{ purchaseTableState.search = el.value.trim(); });
+  bindPurchaseTableControl('purchaseFilterProject', 'change', (el)=>{ purchaseTableState.project = el.value; });
+  bindPurchaseTableControl('purchaseFilterVendor', 'input', (el)=>{ purchaseTableState.vendor = el.value.trim(); });
+  bindPurchaseTableControl('purchaseFilterReceiptStatus', 'change', (el)=>{ purchaseTableState.receiptStatus = el.value || 'all'; });
+  bindPurchaseTableControl('purchaseFilterDateFrom', 'change', (el)=>{ purchaseTableState.dateFrom = el.value || ''; });
+  bindPurchaseTableControl('purchaseFilterDateTo', 'change', (el)=>{ purchaseTableState.dateTo = el.value || ''; });
+  bindPurchaseTableControl('purchaseSort', 'change', (el)=>{ purchaseTableState.sort = el.value || 'newest'; });
+  document.getElementById('purchaseFilterReset')?.addEventListener('click', ()=>{
+    purchaseTableState.search = '';
+    purchaseTableState.project = '';
+    purchaseTableState.vendor = '';
+    purchaseTableState.receiptStatus = 'all';
+    purchaseTableState.dateFrom = '';
+    purchaseTableState.dateTo = '';
+    purchaseTableState.sort = 'newest';
+    document.getElementById('purchaseFilterSearch').value = '';
+    document.getElementById('purchaseFilterProject').value = '';
+    document.getElementById('purchaseFilterVendor').value = '';
+    document.getElementById('purchaseFilterReceiptStatus').value = 'all';
+    document.getElementById('purchaseFilterDateFrom').value = '';
+    document.getElementById('purchaseFilterDateTo').value = '';
+    document.getElementById('purchaseSort').value = 'newest';
+    renderPurchaseTable();
+  });
+  document.getElementById('purchaseDownloadCsv')?.addEventListener('click', downloadPurchaseCsv);
+  document.getElementById('purchaseDownloadReceipts')?.addEventListener('click', downloadReceiptPack);
 
   const receiptModal = document.getElementById('purchaseReceiptModal');
   receiptModal?.addEventListener('click', (event)=>{
@@ -542,8 +977,11 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('purchaseReceiptClose')?.addEventListener('click', closeReceiptModal);
 
   const form = document.getElementById('purchaseForm');
+  form?.addEventListener('input', invalidatePendingPurchaseBatch);
+  form?.addEventListener('change', invalidatePendingPurchaseBatch);
   form?.addEventListener('submit', async (event)=>{
     event.preventDefault();
+    if(purchaseSubmitInFlight) return;
     if(receiptPhotoProcessing){
       alert('Receipt photos are still being prepared. Please wait a moment and submit again.');
       return;
@@ -558,11 +996,15 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(!lines.length){ alert('Add at least one line'); return; }
     const missingName = lines.find((line)=> !itemsCache.find((item)=> item.code === line.code) && !line.name);
     if(missingName){ alert(`Name is required for new item ${missingName.code}`); return; }
+    if(!pendingPurchaseBatchId) pendingPurchaseBatchId = `field-purchase-${uid()}`;
+    purchaseSubmitInFlight = true;
+    syncReceiptPhotoControls();
     try{
       const response = await fetch('/api/field-purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          batchId: pendingPurchaseBatchId,
           lines,
           jobId,
           ...locationPayload,
@@ -586,22 +1028,27 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         alert(data.error || 'Failed to log purchase');
         return;
       }
+      pendingPurchaseBatchId = '';
       form.reset();
       populateInventoryLocationSelect('purchase-location', 'field');
       document.getElementById('purchase-lines').innerHTML = '';
       resetReceiptPhotos();
       addLine();
       await loadItems();
-      await renderPurchaseTable();
+      await refreshPurchaseRows();
       alert(`Logged ${data.count} purchase(s).`);
     }catch(e){
       alert('Failed to log purchase');
+    }finally{
+      purchaseSubmitInFlight = false;
+      syncReceiptPhotoControls();
     }
   });
 
   const clearBtn = document.getElementById('purchase-clearBtn');
   clearBtn?.addEventListener('click', ()=>{
     if(confirm('Clear all lines?')){
+      pendingPurchaseBatchId = '';
       document.getElementById('purchaseForm')?.reset();
       populateInventoryLocationSelect('purchase-location', 'field');
       document.getElementById('purchase-lines').innerHTML = '';
