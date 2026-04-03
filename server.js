@@ -5856,6 +5856,7 @@ app.post('/api/field-purchase', async (req, res) => {
     const results = [];
     let lowStockNotifications = [];
     let deduped = false;
+    let savedReceiptPhotoCount = 0;
     await withTransaction(async (client) => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${t}:${batchId}`]);
       const existingPurchasesRes = await client.query(
@@ -5870,6 +5871,10 @@ app.post('/api/field-purchase', async (req, res) => {
       const existingPurchases = existingPurchasesRes.rows || [];
       if (existingPurchases.length) {
         deduped = true;
+        savedReceiptPhotoCount = mergeFieldPurchaseSourceMeta(existingPurchases).receiptPhotos.length;
+        if (receiptPhotos.length && !savedReceiptPhotoCount) {
+          throw new Error('receipt photos were not saved to this purchase batch');
+        }
         const purchaseIds = existingPurchases.map((row) => row.id);
         const existingCheckins = purchaseIds.length
           ? (await client.query(
@@ -5973,13 +5978,27 @@ app.post('/api/field-purchase', async (req, res) => {
         }
         results.push({ purchase, checkin });
       }
+      const savedPurchasesRes = await client.query(
+        `SELECT * FROM inventory
+         WHERE tenantId=$1
+           AND type='purchase'
+           AND sourceType='purchase'
+           AND COALESCE(sourceMeta->>'batchId','')=$2
+         ORDER BY ts ASC, id ASC`,
+        [t, batchId]
+      );
+      const savedPurchases = savedPurchasesRes.rows || [];
+      savedReceiptPhotoCount = mergeFieldPurchaseSourceMeta(savedPurchases).receiptPhotos.length;
+      if (receiptPhotos.length && !savedReceiptPhotoCount) {
+        throw new Error('receipt photos were not saved to the purchase records');
+      }
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, lines.map((line) => line?.code));
     });
     if (!deduped) {
       await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { sourceType: 'purchase', count: results.length } });
       if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     }
-    res.status(deduped ? 200 : 201).json({ count: results.length, entries: results, batchId, deduped });
+    res.status(deduped ? 200 : 201).json({ count: results.length, entries: results, batchId, deduped, savedReceiptPhotoCount });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }

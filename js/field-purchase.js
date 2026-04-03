@@ -1180,6 +1180,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       alert('Receipt photos are still being prepared. Please wait a moment and submit again.');
       return;
     }
+    const submittedReceiptPhotoCount = receiptPhotos.length;
     const session = getSession();
     const lines = gatherLines();
     const jobId = document.getElementById('purchase-jobId').value.trim();
@@ -1222,6 +1223,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         alert(data.error || 'Failed to log purchase');
         return;
       }
+      if(submittedReceiptPhotoCount && !Number(data?.savedReceiptPhotoCount || 0)){
+        alert('Purchase logged, but the server did not confirm any saved receipt photos for that batch.');
+      }
       pendingPurchaseBatchId = '';
       form.reset();
       populateInventoryLocationSelect('purchase-location', 'field');
@@ -1230,7 +1234,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       addLine();
       await loadItems();
       await refreshPurchaseRows();
-      alert(`Logged ${data.count} purchase(s).`);
+      const photoNote = submittedReceiptPhotoCount
+        ? ` Saved receipt photos: ${Number(data?.savedReceiptPhotoCount || 0)}.`
+        : '';
+      alert(`Logged ${data.count} purchase(s).${photoNote}`);
     }catch(e){
       alert('Failed to log purchase');
     }finally{
