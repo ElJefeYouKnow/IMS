@@ -104,6 +104,45 @@ function updateLocationSummary(rows){
   setText('locationConsumptionPoints', consumptionPoints);
 }
 
+function compareLocationRows(a, b){
+  const bySort = (Number(a?.sortOrder || 0) || 0) - (Number(b?.sortOrder || 0) || 0);
+  if(bySort !== 0) return bySort;
+  const byName = String(a?.name || '').localeCompare(String(b?.name || ''));
+  if(byName !== 0) return byName;
+  const byRef = String(a?.ref || '').localeCompare(String(b?.ref || ''));
+  if(byRef !== 0) return byRef;
+  return String(a?.id || '').localeCompare(String(b?.id || ''));
+}
+
+function sortLocationRowsByHierarchy(rows){
+  const sourceRows = Array.isArray(rows) ? rows.slice() : [];
+  if(sourceRows.length < 2) return sourceRows;
+
+  const byId = new Map(sourceRows.map((row)=> [row.id, row]));
+  const childMap = new Map();
+  sourceRows.forEach((row)=>{
+    const parentKey = row.parentId && byId.has(row.parentId) ? row.parentId : '__root__';
+    if(!childMap.has(parentKey)) childMap.set(parentKey, []);
+    childMap.get(parentKey).push(row);
+  });
+
+  childMap.forEach((group)=> group.sort(compareLocationRows));
+
+  const ordered = [];
+  const seen = new Set();
+
+  const visit = (row)=>{
+    if(!row || seen.has(row.id)) return;
+    seen.add(row.id);
+    ordered.push(row);
+    (childMap.get(row.id) || []).forEach(visit);
+  };
+
+  (childMap.get('__root__') || []).forEach(visit);
+  sourceRows.slice().sort(compareLocationRows).forEach(visit);
+  return ordered;
+}
+
 function renderLocationTree(rows){
   const wrap = document.getElementById('locationTree');
   if(!wrap) return;
@@ -185,7 +224,7 @@ async function loadLocations(){
     const response = await fetch('/api/locations');
     if(!response.ok) throw new Error('Unable to load locations');
     const rows = await response.json();
-    locationRowsCache = Array.isArray(rows) ? rows : [];
+    locationRowsCache = sortLocationRowsByHierarchy(rows);
     updateLocationSummary(locationRowsCache);
     populateLocationParentSelect(locationRowsCache);
     renderLocationTree(locationRowsCache);
