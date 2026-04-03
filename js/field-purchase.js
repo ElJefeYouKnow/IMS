@@ -107,16 +107,20 @@ function getPurchaseProjectLabel(entry){
 }
 
 function getPurchaseVendor(entry){
-  return String(getPurchaseSourceMeta(entry).vendor || '').trim();
+  const meta = getPurchaseSourceMeta(entry);
+  return String(meta.vendor || meta.Vendor || '').trim();
 }
 
 function getPurchaseReceipt(entry){
-  return String(getPurchaseSourceMeta(entry).receipt || '').trim();
+  const meta = getPurchaseSourceMeta(entry);
+  return String(meta.receipt || meta.receiptNumber || meta.receiptnumber || '').trim();
 }
 
 function getPurchaseBatchId(entry){
+  const meta = getPurchaseSourceMeta(entry);
   return String(
-    getPurchaseSourceMeta(entry).batchId
+    meta.batchId
+    || meta.batchid
     || entry?.sourceId
     || entry?.sourceid
     || entry?.id
@@ -125,7 +129,8 @@ function getPurchaseBatchId(entry){
 }
 
 function getPurchaseCost(entry){
-  const value = Number(getPurchaseSourceMeta(entry).cost);
+  const meta = getPurchaseSourceMeta(entry);
+  const value = Number(meta.cost ?? meta.unitCost ?? meta.unitcost);
   return Number.isFinite(value) ? value : null;
 }
 
@@ -357,7 +362,8 @@ async function handleReceiptPhotoSelection(event){
 }
 
 function getReceiptPhotosFromEntry(entry){
-  const raw = getPurchaseSourceMeta(entry).receiptPhotos;
+  const meta = getPurchaseSourceMeta(entry);
+  const raw = meta.receiptPhotos || meta.receiptphotos || meta.photos || [];
   if(!Array.isArray(raw)) return [];
   return raw
     .map((photo, index)=>({
@@ -719,11 +725,12 @@ function groupPurchasesForReceiptPack(rows){
         receipt,
         when,
         ts,
-        photos: getReceiptPhotosFromEntry(entry),
+        photos: [],
         lines: [],
         projects: new Set(),
         locations: new Set(),
-        notes: new Set()
+        notes: new Set(),
+        photoKeys: new Set()
       };
       byKey.set(key, group);
       groups.push(group);
@@ -731,10 +738,13 @@ function groupPurchasesForReceiptPack(rows){
     const group = byKey.get(key);
     if(!group.vendor && vendor) group.vendor = vendor;
     if(!group.receipt && receipt) group.receipt = receipt;
-    if(!group.photos.length){
-      const photos = getReceiptPhotosFromEntry(entry);
-      if(photos.length) group.photos = photos;
-    }
+    const photos = getReceiptPhotosFromEntry(entry);
+    photos.forEach((photo)=>{
+      const photoKey = `${photo.name}|${photo.dataUrl}`;
+      if(group.photoKeys.has(photoKey)) return;
+      group.photoKeys.add(photoKey);
+      group.photos.push(photo);
+    });
     group.projects.add(getPurchaseProjectLabel(entry));
     group.locations.add(String(entry?.location || '').trim() || 'Unspecified');
     if(String(entry?.notes || '').trim()) group.notes.add(String(entry.notes).trim());
@@ -747,7 +757,12 @@ function groupPurchasesForReceiptPack(rows){
       notes: String(entry?.notes || '').trim()
     });
   });
-  return groups.sort((left, right)=> right.ts - left.ts);
+  return groups
+    .map((group)=>({
+      ...group,
+      photoKeys: undefined
+    }))
+    .sort((left, right)=> right.ts - left.ts);
 }
 
 function buildReceiptPackHtml(rows){
@@ -819,7 +834,7 @@ function buildReceiptPackHtml(rows){
         </table>
         ${group.photos.length ? `
           <div class="photos">
-            ${group.photos.map((photo)=> `<img src="${escapeHtml(photo.dataUrl)}" alt="${escapeHtml(photo.name || 'Receipt photo')}">`).join('')}
+            ${group.photos.map((photo)=> `<img src="${photo.dataUrl}" alt="${escapeHtml(photo.name || 'Receipt photo')}">`).join('')}
           </div>
         ` : `
           <div class="empty">No receipt photos attached for this purchase batch.</div>
@@ -856,7 +871,8 @@ function downloadPurchaseCsv(){
   downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), `field-purchases-${new Date().toISOString().slice(0, 10)}.csv`);
 }
 
-function downloadReceiptPack(){
+async function downloadReceiptPack(){
+  await refreshPurchaseRows();
   if(!filteredPurchaseRows.length){
     alert('No field purchases match the current filters.');
     return;
@@ -1024,7 +1040,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('purchaseDownloadReceipts')?.addEventListener('click', (event)=>{
     event.preventDefault();
-    downloadReceiptPack();
+    downloadReceiptPack().catch(()=>{
+      alert('Unable to download the receipt pack right now.');
+    });
   });
 
   const addBtn = document.getElementById('purchase-addLine');
