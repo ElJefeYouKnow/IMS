@@ -366,12 +366,102 @@ function getReceiptPhotosFromEntry(entry){
   const raw = meta.receiptPhotos || meta.receiptphotos || meta.photos || [];
   if(!Array.isArray(raw)) return [];
   return raw
-    .map((photo, index)=>({
-      name: ensureReceiptPhotoName(photo?.name, index),
-      dataUrl: String(photo?.dataUrl || '').trim(),
-      sizeBytes: Number(photo?.sizeBytes || 0) || 0
-    }))
+    .map((photo, index)=>{
+      if(typeof photo === 'string'){
+        const rawValue = photo.trim();
+        const dataUrl = /^data:image\/(?:jpeg|png|webp);base64,/i.test(rawValue)
+          ? rawValue
+          : (/^[a-z0-9+/=\s]+$/i.test(rawValue) && rawValue.length > 64 ? `data:image/jpeg;base64,${rawValue.replace(/\s+/g, '')}` : '');
+        return {
+          name: ensureReceiptPhotoName('', index),
+          dataUrl,
+          sizeBytes: estimateDataUrlBytes(dataUrl)
+        };
+      }
+      const rawValue = String(photo?.dataUrl || photo?.dataurl || photo?.url || photo?.src || '').trim();
+      const dataUrl = /^data:image\/(?:jpeg|png|webp);base64,/i.test(rawValue)
+        ? rawValue
+        : (/^[a-z0-9+/=\s]+$/i.test(rawValue) && rawValue.length > 64 ? `data:${String(photo?.type || photo?.mimeType || 'image/jpeg').toLowerCase()};base64,${rawValue.replace(/\s+/g, '')}` : '');
+      return {
+        name: ensureReceiptPhotoName(photo?.name, index),
+        dataUrl,
+        sizeBytes: Number(photo?.sizeBytes || photo?.sizebytes || 0) || estimateDataUrlBytes(dataUrl)
+      };
+    })
     .filter((photo)=> /^data:image\/(?:jpeg|png|webp);base64,/i.test(photo.dataUrl));
+}
+
+function mergePurchaseSourceMetaEntries(entries){
+  const merged = {
+    batchId: '',
+    vendor: '',
+    receipt: '',
+    purchasedAt: null,
+    cost: null,
+    receiptPhotos: []
+  };
+  const seenPhotos = new Set();
+  (entries || []).forEach((entry)=>{
+    const meta = getPurchaseSourceMeta(entry);
+    if(!merged.batchId) merged.batchId = String(meta.batchId || meta.batchid || '').trim();
+    if(!merged.vendor) merged.vendor = String(meta.vendor || meta.Vendor || '').trim();
+    if(!merged.receipt) merged.receipt = String(meta.receipt || meta.receiptNumber || meta.receiptnumber || '').trim();
+    if(merged.purchasedAt === null){
+      const purchasedAt = parsePurchaseTs(meta.purchasedAt || meta.purchasedat || entry?.ts);
+      merged.purchasedAt = purchasedAt || null;
+    }
+    if(merged.cost === null){
+      const cost = Number(meta.cost ?? meta.unitCost ?? meta.unitcost);
+      if(Number.isFinite(cost)) merged.cost = cost;
+    }
+    getReceiptPhotosFromEntry(entry).forEach((photo)=>{
+      const key = `${photo.name}|${photo.dataUrl}`;
+      if(seenPhotos.has(key)) return;
+      seenPhotos.add(key);
+      merged.receiptPhotos.push(photo);
+    });
+  });
+  return merged;
+}
+
+function getPurchaseEventGroupKey(entry){
+  const batchId = getPurchaseBatchId(entry);
+  if(batchId) return batchId;
+  const sourceId = String(entry?.sourceId || entry?.sourceid || '').trim();
+  if(String(entry?.type || '').toLowerCase() === 'in' && sourceId) return sourceId;
+  return String(entry?.id || '').trim();
+}
+
+function mergePurchaseRowsWithRelatedEvents(purchaseRows, relatedRows){
+  const grouped = new Map();
+  const ensureGroup = (key)=>{
+    if(!grouped.has(key)) grouped.set(key, []);
+    return grouped.get(key);
+  };
+  (purchaseRows || []).forEach((entry)=>{
+    const key = getPurchaseEventGroupKey(entry);
+    if(key) ensureGroup(key).push(entry);
+  });
+  (relatedRows || []).forEach((entry)=>{
+    const type = String(entry?.type || '').toLowerCase();
+    const sourceType = String(entry?.sourceType || entry?.sourcetype || '').toLowerCase();
+    if(type !== 'in' || sourceType !== 'purchase') return;
+    const key = getPurchaseEventGroupKey(entry);
+    if(key) ensureGroup(key).push(entry);
+  });
+  return normalizePurchaseRows((purchaseRows || []).map((entry)=>{
+    const key = getPurchaseEventGroupKey(entry);
+    const related = key ? grouped.get(key) || [entry] : [entry];
+    const mergedMeta = mergePurchaseSourceMetaEntries(related);
+    return {
+      ...entry,
+      sourceMeta: {
+        ...getPurchaseSourceMeta(entry),
+        ...mergedMeta,
+        receiptPhotos: mergedMeta.receiptPhotos
+      }
+    };
+  }));
 }
 
 async function loadInventoryLocations(force = false){
@@ -931,8 +1021,15 @@ async function refreshPurchaseRows(){
   if(statusEl) statusEl.textContent = 'Loading field purchases...';
   try{
     let rows = await utils.fetchJsonSafe('/api/field-purchases', {}, null);
-    if(!Array.isArray(rows)) rows = await utils.fetchJsonSafe('/api/inventory?type=purchase', {}, []) || [];
-    purchaseRowsCache = normalizePurchaseRows(rows);
+    if(Array.isArray(rows)){
+      purchaseRowsCache = normalizePurchaseRows(rows);
+    }else{
+      const [purchaseRows, inRows] = await Promise.all([
+        utils.fetchJsonSafe('/api/inventory?type=purchase', {}, []) || [],
+        utils.fetchJsonSafe('/api/inventory?type=in', {}, []) || []
+      ]);
+      purchaseRowsCache = mergePurchaseRowsWithRelatedEvents(purchaseRows, inRows);
+    }
     updatePurchaseProjectFilter(purchaseRowsCache);
     renderPurchaseTable();
   }catch(e){
@@ -961,6 +1058,17 @@ function renderPurchaseTable(){
     const vendor = getPurchaseVendor(entry);
     const receipt = getPurchaseReceipt(entry);
     const photos = getReceiptPhotosFromEntry(entry);
+    const photoThumbs = photos.slice(0, 2).map((photo, photoIndex)=> `
+      <button
+        type="button"
+        class="receipt-thumb-btn view-receipt-photo"
+        data-index="${index}"
+        aria-label="Expand receipt photo ${photoIndex + 1} for ${escapeHtml(entry.code || 'purchase')}"
+        title="Expand receipt photo">
+        <img src="${photo.dataUrl}" alt="${escapeHtml(photo.name || `Receipt ${photoIndex + 1}`)}">
+        ${photoIndex === 1 && photos.length > 2 ? `<span class="receipt-thumb-more">+${photos.length - 1}</span>` : ''}
+      </button>
+    `).join('');
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${escapeHtml(entry.code || '')}</td>
@@ -972,6 +1080,7 @@ function renderPurchaseTable(){
       <td>
         <div class="receipt-inline-links">
           <span>${escapeHtml(receipt || (photos.length ? 'Receipt photo attached' : '-'))}</span>
+          ${photos.length ? `<div class="receipt-thumb-row">${photoThumbs}</div>` : ''}
           ${photos.length ? `<div class="receipt-link-row"><button type="button" class="receipt-link-btn view-receipt-photo" data-index="${index}">${photos.length === 1 ? 'View photo' : `View ${photos.length} photos`}</button></div>` : ''}
         </div>
       </td>
