@@ -61,8 +61,28 @@ function normalizeText(value){
   return String(value || '').trim().toLowerCase();
 }
 
+function parseJsonObject(value){
+  if(!value) return {};
+  if(typeof value === 'string'){
+    try{
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    }catch(e){
+      return {};
+    }
+  }
+  return value && typeof value === 'object' ? value : {};
+}
+
+function parsePurchaseTs(value){
+  const parsed = window.utils?.parseTs?.(value);
+  if(parsed !== null && parsed !== undefined && Number.isFinite(parsed)) return parsed;
+  const numeric = Number(value || 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
 function formatLocalDateKey(value){
-  const date = new Date(Number(value || 0));
+  const date = new Date(parsePurchaseTs(value));
   if(!Number.isFinite(date.getTime())) return '';
   const pad = (part)=> String(part).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -70,12 +90,12 @@ function formatLocalDateKey(value){
 
 function getPurchaseSourceMeta(entry){
   return entry && typeof entry === 'object'
-    ? (entry.sourceMeta || entry.sourcemeta || {})
+    ? parseJsonObject(entry.sourceMeta || entry.sourcemeta || {})
     : {};
 }
 
 function getPurchaseTs(entry){
-  return Number(entry?.ts || 0) || 0;
+  return parsePurchaseTs(entry?.ts);
 }
 
 function getPurchaseJobId(entry){
@@ -112,6 +132,29 @@ function getPurchaseCost(entry){
 function formatPurchaseCost(entry){
   const value = getPurchaseCost(entry);
   return Number.isFinite(value) ? purchaseCurrencyFmt.format(value) : '';
+}
+
+function normalizePurchaseEntry(entry){
+  if(!entry || typeof entry !== 'object') return null;
+  return {
+    ...entry,
+    code: String(entry.code || '').trim(),
+    name: String(entry.name || '').trim(),
+    qty: Number(entry.qty || 0) || 0,
+    location: String(entry.location || '').trim(),
+    notes: String(entry.notes || '').trim(),
+    jobId: getPurchaseJobId(entry),
+    sourceId: String(entry.sourceId || entry.sourceid || '').trim(),
+    ts: parsePurchaseTs(entry.ts),
+    sourceMeta: getPurchaseSourceMeta(entry)
+  };
+}
+
+function normalizePurchaseRows(rows){
+  if(!Array.isArray(rows)) return [];
+  return rows
+    .map(normalizePurchaseEntry)
+    .filter(Boolean);
 }
 
 function ensureReceiptPhotoName(name, index){
@@ -500,14 +543,19 @@ function gatherLines(){
 }
 
 function downloadBlob(blob, filename){
+  if(window.navigator?.msSaveOrOpenBlob){
+    window.navigator.msSaveOrOpenBlob(blob, filename);
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.rel = 'noopener';
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(()=> URL.revokeObjectURL(url), 1500);
 }
 
 function csvCell(value){
@@ -681,6 +729,12 @@ function groupPurchasesForReceiptPack(rows){
       groups.push(group);
     }
     const group = byKey.get(key);
+    if(!group.vendor && vendor) group.vendor = vendor;
+    if(!group.receipt && receipt) group.receipt = receipt;
+    if(!group.photos.length){
+      const photos = getReceiptPhotosFromEntry(entry);
+      if(photos.length) group.photos = photos;
+    }
     group.projects.add(getPurchaseProjectLabel(entry));
     group.locations.add(String(entry?.location || '').trim() || 'Unspecified');
     if(String(entry?.notes || '').trim()) group.notes.add(String(entry.notes).trim());
@@ -857,9 +911,20 @@ function openReceiptModal(index){
 }
 
 async function refreshPurchaseRows(){
-  purchaseRowsCache = await utils.fetchJsonSafe('/api/inventory?type=purchase', {}, []) || [];
-  updatePurchaseProjectFilter(purchaseRowsCache);
-  renderPurchaseTable();
+  const statusEl = document.getElementById('purchaseTableStatus');
+  if(statusEl) statusEl.textContent = 'Loading field purchases...';
+  try{
+    const rows = await utils.fetchJsonSafe('/api/inventory?type=purchase', {}, []) || [];
+    purchaseRowsCache = normalizePurchaseRows(rows);
+    updatePurchaseProjectFilter(purchaseRowsCache);
+    renderPurchaseTable();
+  }catch(e){
+    purchaseRowsCache = [];
+    filteredPurchaseRows = [];
+    updatePurchaseProjectFilter([]);
+    renderPurchaseTable();
+    if(statusEl) statusEl.textContent = 'Unable to load field purchases.';
+  }
 }
 
 function renderPurchaseTable(){
@@ -921,21 +986,6 @@ document.addEventListener('keydown', (event)=>{
 });
 
 document.addEventListener('DOMContentLoaded', async ()=>{
-  await loadItems();
-  await loadCategories();
-  await loadJobs();
-  await loadInventoryLocations();
-  populateInventoryLocationSelect('purchase-location', 'field');
-  addLine();
-  renderReceiptPhotoPreview();
-  await refreshPurchaseRows();
-
-  const addBtn = document.getElementById('purchase-addLine');
-  addBtn?.addEventListener('click', addLine);
-
-  const receiptPhotoInput = document.getElementById('purchase-receiptPhotos');
-  receiptPhotoInput?.addEventListener('change', handleReceiptPhotoSelection);
-
   const bindPurchaseTableControl = (id, eventName, apply)=>{
     const el = document.getElementById(id);
     el?.addEventListener(eventName, ()=>{
@@ -950,7 +1000,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   bindPurchaseTableControl('purchaseFilterDateFrom', 'change', (el)=>{ purchaseTableState.dateFrom = el.value || ''; });
   bindPurchaseTableControl('purchaseFilterDateTo', 'change', (el)=>{ purchaseTableState.dateTo = el.value || ''; });
   bindPurchaseTableControl('purchaseSort', 'change', (el)=>{ purchaseTableState.sort = el.value || 'newest'; });
-  document.getElementById('purchaseFilterReset')?.addEventListener('click', ()=>{
+  document.getElementById('purchaseFilterReset')?.addEventListener('click', (event)=>{
+    event.preventDefault();
     purchaseTableState.search = '';
     purchaseTableState.project = '';
     purchaseTableState.vendor = '';
@@ -967,8 +1018,23 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     document.getElementById('purchaseSort').value = 'newest';
     renderPurchaseTable();
   });
-  document.getElementById('purchaseDownloadCsv')?.addEventListener('click', downloadPurchaseCsv);
-  document.getElementById('purchaseDownloadReceipts')?.addEventListener('click', downloadReceiptPack);
+  document.getElementById('purchaseDownloadCsv')?.addEventListener('click', (event)=>{
+    event.preventDefault();
+    downloadPurchaseCsv();
+  });
+  document.getElementById('purchaseDownloadReceipts')?.addEventListener('click', (event)=>{
+    event.preventDefault();
+    downloadReceiptPack();
+  });
+
+  const addBtn = document.getElementById('purchase-addLine');
+  addBtn?.addEventListener('click', addLine);
+
+  const receiptPhotoInput = document.getElementById('purchase-receiptPhotos');
+  receiptPhotoInput?.addEventListener('change', handleReceiptPhotoSelection);
+
+  addLine();
+  renderReceiptPhotoPreview();
 
   const receiptModal = document.getElementById('purchaseReceiptModal');
   receiptModal?.addEventListener('click', (event)=>{
@@ -1056,4 +1122,13 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       addLine();
     }
   });
+
+  await Promise.allSettled([
+    loadItems(),
+    loadCategories(),
+    loadJobs(),
+    loadInventoryLocations(),
+    refreshPurchaseRows()
+  ]);
+  populateInventoryLocationSelect('purchase-location', 'field');
 });
