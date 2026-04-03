@@ -95,9 +95,11 @@
 
               <div class="order-lines-header">
                 <strong>Order Lines</strong>
-                <button id="order-addLine" type="button" class="muted">Add Line</button>
               </div>
               <div id="order-lines" class="line-items"></div>
+              <div class="form-row" style="justify-content:flex-end;margin-top:8px;">
+                <button id="order-addLine" type="button" class="muted">Add Line</button>
+              </div>
 
               <div class="form-row bulk-box">
                 <label style="flex:1">Quick bulk paste (code,name,qty,eta,project)
@@ -175,11 +177,13 @@
             <p class="muted-text">Admin-only: allocate stock to a job (removes from available until released).</p>
             <form id="reserveForm" class="inventory-form" autocomplete="off">
               <div>
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <div style="margin-bottom:6px;">
                   <strong>Line Items</strong>
-                  <button id="reserve-addLine" type="button" class="muted">Add Line</button>
                 </div>
                 <div id="reserve-lines" class="line-items"></div>
+                <div class="form-row" style="justify-content:flex-end;margin-top:8px;">
+                  <button id="reserve-addLine" type="button" class="muted">Add Line</button>
+                </div>
               </div>
               <div class="form-row">
                 <label>Project Name/ID
