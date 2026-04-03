@@ -5665,6 +5665,46 @@ app.post('/api/procurement/vendor-open', requireRole('admin'), async (req, res) 
   }
 });
 
+const FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT = 2;
+const FIELD_PURCHASE_RECEIPT_PHOTO_MAX_BYTES = 300 * 1024;
+const FIELD_PURCHASE_RECEIPT_PHOTO_TOTAL_BYTES = FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT * FIELD_PURCHASE_RECEIPT_PHOTO_MAX_BYTES;
+
+function estimateReceiptPhotoBytes(dataUrl = '') {
+  const base64 = String(dataUrl || '').split(',')[1] || '';
+  const paddingMatch = base64.match(/=*$/);
+  const padding = paddingMatch ? paddingMatch[0].length : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+function normalizeFieldPurchaseReceiptPhotos(rawPhotos) {
+  const photos = Array.isArray(rawPhotos) ? rawPhotos : [];
+  if (!photos.length) return [];
+  if (photos.length > FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT) throw new Error(`only ${FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT} receipt photos allowed`);
+  const normalized = photos.map((photo, index) => {
+    const dataUrl = String(photo?.dataUrl || '').trim();
+    const match = /^data:(image\/(?:jpeg|png|webp));base64,([a-z0-9+/=\s]+)$/i.exec(dataUrl);
+    if (!match) throw new Error(`receipt photo ${index + 1} must be a jpg, png, or webp image`);
+    const type = match[1].toLowerCase();
+    const normalizedDataUrl = `data:${type};base64,${match[2].replace(/\s+/g, '')}`;
+    const sizeBytes = estimateReceiptPhotoBytes(normalizedDataUrl);
+    if (!sizeBytes) throw new Error(`receipt photo ${index + 1} is empty`);
+    if (sizeBytes > FIELD_PURCHASE_RECEIPT_PHOTO_MAX_BYTES) throw new Error(`receipt photo ${index + 1} is too large`);
+    const width = Number(photo?.width || 0);
+    const height = Number(photo?.height || 0);
+    return {
+      name: String(photo?.name || `receipt-${index + 1}.jpg`).trim().slice(0, 120) || `receipt-${index + 1}.jpg`,
+      type,
+      sizeBytes,
+      width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
+      height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
+      dataUrl: normalizedDataUrl
+    };
+  });
+  const totalBytes = normalized.reduce((sum, photo) => sum + Number(photo.sizeBytes || 0), 0);
+  if (totalBytes > FIELD_PURCHASE_RECEIPT_PHOTO_TOTAL_BYTES) throw new Error('receipt photos are too large together');
+  return normalized;
+}
+
 // FIELD PURCHASES (employee intake)
 app.post('/api/field-purchase', async (req, res) => {
   try {
@@ -5672,6 +5712,7 @@ app.post('/api/field-purchase', async (req, res) => {
     if (!lines.length) return res.status(400).json({ error: 'lines array required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const receiptPhotos = normalizeFieldPurchaseReceiptPhotos(req.body?.receiptPhotos);
     const results = [];
     let lowStockNotifications = [];
     await withTransaction(async (client) => {
@@ -5694,6 +5735,7 @@ app.post('/api/field-purchase', async (req, res) => {
         const sourceMeta = {
           vendor: line?.vendor || req.body?.vendor || '',
           receipt: line?.receipt || req.body?.receipt || '',
+          ...(receiptPhotos.length ? { receiptPhotos } : {}),
           cost: line?.cost ?? line?.unitPrice ?? null,
           purchasedAt: tsVal
         };

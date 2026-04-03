@@ -8,7 +8,7 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
-<body data-ds="pro">
+<body data-ds="pro" data-page="field-purchase">
   <div class="app">
     <aside class="sidebar">
       <div>
@@ -74,6 +74,14 @@
             <label>Receipt #<input id="purchase-receipt" placeholder="Receipt or reference"></label>
           </div>
           <div class="form-row">
+            <label style="flex:1">Receipt Photos
+              <input id="purchase-receiptPhotos" type="file" accept="image/*" capture="environment" multiple>
+              <span class="muted-text" style="display:block;margin-top:6px;">Add up to 2 receipt photos. Images are compressed before upload.</span>
+              <span id="purchase-receiptPhotoMsg" class="field-hint ok"></span>
+            </label>
+          </div>
+          <div id="purchase-receiptPreview" class="receipt-photo-grid hidden"></div>
+          <div class="form-row">
             <label style="flex:1">Notes<textarea id="purchase-notes" rows="2" placeholder="Optional notes"></textarea></label>
           </div>
           <div class="form-row sticky-actions">
@@ -86,11 +94,24 @@
       <section class="card">
         <h3 style="margin:0 0 10px 0;">Recent Field Purchases</h3>
         <table id="purchaseTable">
-          <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Project</th><th>When</th><th>Vendor</th></tr></thead>
+          <thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Project</th><th>When</th><th>Vendor</th><th>Receipt</th></tr></thead>
           <tbody></tbody>
         </table>
       </section>
     </main>
+  </div>
+
+  <div id="purchaseReceiptModal" class="modal hidden" aria-hidden="true">
+    <div class="modal-content field-purchase-receipt-modal">
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title">Receipt Photos</h3>
+          <p id="purchaseReceiptMeta" class="muted-text" style="margin:6px 0 0 0;"></p>
+        </div>
+        <button id="purchaseReceiptClose" type="button" class="muted">Close</button>
+      </div>
+      <div id="purchaseReceiptGallery" class="receipt-viewer-grid"></div>
+    </div>
   </div>
 
   <script src="js/utils.js"></script>
