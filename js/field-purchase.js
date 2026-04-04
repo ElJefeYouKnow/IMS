@@ -4,6 +4,7 @@ let categoriesCache = [];
 let inventoryLocationOptions = [];
 let purchaseRowsCache = [];
 let filteredPurchaseRows = [];
+let filteredPurchaseGroups = [];
 let receiptPhotos = [];
 let receiptPhotoProcessing = false;
 let purchaseSubmitInFlight = false;
@@ -810,9 +811,11 @@ function updatePurchaseTableStatus(filteredRows, totalRows){
     el.textContent = 'No field purchases logged yet.';
     return;
   }
-  const withReceipt = filteredRows.filter((entry)=> getPurchaseReceipt(entry) || getReceiptPhotosFromEntry(entry).length).length;
-  const withPhotos = filteredRows.filter((entry)=> getReceiptPhotosFromEntry(entry).length).length;
-  el.textContent = `Showing ${filteredRows.length} of ${totalRows} purchase lines | ${withReceipt} with receipt info | ${withPhotos} with photos`;
+  const filteredGroups = groupPurchasesForReceiptPack(filteredRows);
+  const totalGroups = groupPurchasesForReceiptPack(purchaseRowsCache).length;
+  const withReceipt = filteredGroups.filter((group)=> group.receipt || group.photos.length).length;
+  const withPhotos = filteredGroups.filter((group)=> group.photos.length).length;
+  el.textContent = `Showing ${filteredGroups.length} of ${totalGroups} purchase batches from ${filteredRows.length} lines | ${withReceipt} with receipt info | ${withPhotos} with photos`;
 }
 
 function groupPurchasesForReceiptPack(rows){
@@ -833,6 +836,7 @@ function groupPurchasesForReceiptPack(rows){
         ts,
         photos: [],
         lines: [],
+        totalQty: 0,
         projects: new Set(),
         locations: new Set(),
         notes: new Set(),
@@ -846,7 +850,9 @@ function groupPurchasesForReceiptPack(rows){
     if(!group.receipt && receipt) group.receipt = receipt;
     const photos = getReceiptPhotosFromEntry(entry);
     photos.forEach((photo)=>{
-      const photoKey = `${photo.name}|${photo.dataUrl}`;
+      const photoSrc = getReceiptPhotoSrc(photo);
+      if(!photoSrc) return;
+      const photoKey = `${photo.name}|${photo.url || ''}|${photoSrc}`;
       if(group.photoKeys.has(photoKey)) return;
       group.photoKeys.add(photoKey);
       group.photos.push(photo);
@@ -854,6 +860,8 @@ function groupPurchasesForReceiptPack(rows){
     group.projects.add(getPurchaseProjectLabel(entry));
     group.locations.add(String(entry?.location || '').trim() || 'Unspecified');
     if(String(entry?.notes || '').trim()) group.notes.add(String(entry.notes).trim());
+    const qtyNumber = Number(entry?.qty || 0);
+    if(Number.isFinite(qtyNumber) && qtyNumber > 0) group.totalQty += qtyNumber;
     group.lines.push({
       code: entry?.code || '',
       name: entry?.name || '',
@@ -867,13 +875,135 @@ function groupPurchasesForReceiptPack(rows){
     .map((group)=>({
       ...group,
       photoKeys: undefined
-    }))
-    .sort((left, right)=> right.ts - left.ts);
+    }));
+}
+
+function sortPurchaseGroups(groups){
+  const list = (groups || []).slice();
+  const compareText = (a, b)=> String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
+  list.sort((left, right)=>{
+    const leftTs = Number(left?.ts || 0);
+    const rightTs = Number(right?.ts || 0);
+    const leftVendor = String(left?.vendor || '').trim();
+    const rightVendor = String(right?.vendor || '').trim();
+    const leftProject = Array.from(left?.projects || [])[0] || 'General';
+    const rightProject = Array.from(right?.projects || [])[0] || 'General';
+    const leftCode = left?.lines?.[0]?.code || '';
+    const rightCode = right?.lines?.[0]?.code || '';
+    const leftQty = Number(left?.totalQty || 0) || 0;
+    const rightQty = Number(right?.totalQty || 0) || 0;
+    const leftReceiptRank = Number(!!(left?.receipt || left?.photos?.length));
+    const rightReceiptRank = Number(!!(right?.receipt || right?.photos?.length));
+    switch(purchaseTableState.sort){
+      case 'oldest':
+        if(leftTs !== rightTs) return leftTs - rightTs;
+        break;
+      case 'vendor': {
+        const byVendor = compareText(leftVendor || 'Unknown Vendor', rightVendor || 'Unknown Vendor');
+        if(byVendor !== 0) return byVendor;
+        break;
+      }
+      case 'project': {
+        const byProject = compareText(leftProject, rightProject);
+        if(byProject !== 0) return byProject;
+        break;
+      }
+      case 'code': {
+        const byCode = compareText(leftCode, rightCode);
+        if(byCode !== 0) return byCode;
+        break;
+      }
+      case 'qty-high':
+        if(leftQty !== rightQty) return rightQty - leftQty;
+        break;
+      case 'qty-low':
+        if(leftQty !== rightQty) return leftQty - rightQty;
+        break;
+      case 'receipt':
+        if(leftReceiptRank !== rightReceiptRank) return rightReceiptRank - leftReceiptRank;
+        break;
+      case 'newest':
+      default:
+        if(leftTs !== rightTs) return rightTs - leftTs;
+        break;
+    }
+    if(rightTs !== leftTs) return rightTs - leftTs;
+    return compareText(leftVendor || leftCode, rightVendor || rightCode);
+  });
+  return list;
+}
+
+function getPurchaseGroupLabel(group, index){
+  const vendor = String(group?.vendor || '').trim();
+  return vendor || `Purchase Batch ${index + 1}`;
+}
+
+function getPurchaseGroupBatchText(group, index){
+  const key = String(group?.key || '').trim();
+  if(key) return `Batch ${key.slice(0, 8)}`;
+  return `Batch ${index + 1}`;
+}
+
+function buildReceiptTagList(values, emptyLabel){
+  const list = Array.from(values || []).map((value)=> String(value || '').trim()).filter(Boolean);
+  const items = (list.length ? list : [emptyLabel]).map((value)=> `<span class="receipt-tag">${escapeHtml(value)}</span>`).join('');
+  return `<div class="receipt-tag-list">${items}</div>`;
+}
+
+function buildReceiptLineSummary(lines){
+  const safeLines = Array.isArray(lines) ? lines : [];
+  if(!safeLines.length){
+    return '<div class="receipt-lines-empty">No line items</div>';
+  }
+  const visibleLines = safeLines.slice(0, 3).map((line)=>{
+    const pieces = [
+      String(line?.code || '').trim(),
+      String(line?.name || '').trim(),
+      String(line?.qty || '').trim() ? `x${String(line.qty).trim()}` : ''
+    ].filter(Boolean);
+    return `<div class="receipt-line-pill">${escapeHtml(pieces.join(' '))}</div>`;
+  }).join('');
+  const remaining = safeLines.length - 3;
+  return `
+    <div class="receipt-line-list">
+      ${visibleLines}
+      ${remaining > 0 ? `<div class="receipt-line-more">+${remaining} more item${remaining === 1 ? '' : 's'}</div>` : ''}
+    </div>
+  `;
+}
+
+function buildReceiptThumbButtons(photos, index){
+  const safePhotos = (photos || []).filter((photo)=> !!getReceiptPhotoSrc(photo));
+  if(!safePhotos.length){
+    return '<div class="receipt-photo-empty">No receipt photos</div>';
+  }
+  return `
+    <div class="receipt-thumb-row">
+      ${safePhotos.slice(0, 3).map((photo, photoIndex)=>{
+        const src = escapeHtml(getReceiptPhotoSrc(photo));
+        const label = escapeHtml(photo.name || `Receipt ${photoIndex + 1}`);
+        const overflow = photoIndex === 2 && safePhotos.length > 3
+          ? `<span class="receipt-thumb-more">+${safePhotos.length - 3}</span>`
+          : '';
+        return `
+          <button
+            type="button"
+            class="receipt-thumb-btn view-receipt-photo"
+            data-index="${index}"
+            aria-label="Expand ${label}"
+            title="Expand receipt photo">
+            <img src="${src}" alt="${label}">
+            ${overflow}
+          </button>
+        `;
+      }).join('')}
+    </div>
+  `;
 }
 
 function buildReceiptPackHtml(rows){
   const generatedAt = new Date();
-  const groups = groupPurchasesForReceiptPack(rows);
+  const groups = sortPurchaseGroups(groupPurchasesForReceiptPack(rows));
   const summary = buildPurchaseFilterSummary() || 'All field purchases';
   return `<!doctype html>
 <html lang="en">
@@ -881,47 +1011,80 @@ function buildReceiptPackHtml(rows){
   <meta charset="utf-8">
   <title>Field Purchase Receipt Pack</title>
   <style>
-    body{font-family:Segoe UI,Arial,sans-serif;background:#f4f7f6;color:#1b2522;margin:0;padding:24px}
-    .shell{max-width:1100px;margin:0 auto}
-    .header{margin-bottom:18px;padding:20px 22px;border-radius:18px;background:linear-gradient(135deg,#132a24,#1f6f5c);color:#fff}
-    .header h1{margin:0 0 8px;font-size:28px}
-    .header p{margin:0 0 6px;opacity:.92}
-    .receipt-card{margin-bottom:18px;padding:18px;border:1px solid #d8e2de;border-radius:18px;background:#fff;box-shadow:0 10px 24px rgba(24,36,32,.08)}
-    .receipt-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:10px}
-    .receipt-head h2{margin:0;font-size:18px}
-    .receipt-meta{display:flex;flex-wrap:wrap;gap:8px 12px;font-size:13px;color:#4a5b56;margin-bottom:12px}
-    .receipt-chip{display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;background:#eef4f1;border:1px solid #d5e2dc;font-size:12px;font-weight:700;color:#21453a}
-    table{width:100%;border-collapse:collapse;margin-top:8px}
-    th,td{padding:8px 10px;border-bottom:1px solid #e4ece8;text-align:left;font-size:13px;vertical-align:top}
-    th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#5d716b}
-    .photos{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}
-    .photos img{width:100%;max-height:320px;object-fit:contain;border-radius:12px;border:1px solid #d8e2de;background:#fff}
-    .empty{margin-top:12px;padding:12px;border:1px dashed #d8e2de;border-radius:12px;background:#f8fbfa;color:#60736d}
-    @media print{body{background:#fff;padding:0}.receipt-card{box-shadow:none;break-inside:avoid-page}.header{border-radius:0}}
+    *{box-sizing:border-box}
+    body{font-family:Segoe UI,Arial,sans-serif;background:#edf3f0;color:#1b2522;margin:0;padding:24px}
+    .shell{max-width:1180px;margin:0 auto}
+    .header{margin-bottom:20px;padding:24px 26px;border-radius:22px;background:linear-gradient(145deg,#112721 0%,#1f6f5c 56%,#89b7a6 100%);color:#fff}
+    .eyebrow{margin:0 0 10px;font-size:12px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;opacity:.82}
+    .header h1{margin:0 0 8px;font-size:30px;line-height:1.05}
+    .header p{margin:0 0 6px;opacity:.94}
+    .batch{margin-bottom:20px;padding:20px;border:1px solid #d8e2de;border-radius:22px;background:#fff;box-shadow:0 14px 30px rgba(24,36,32,.08);break-inside:avoid-page}
+    .batch-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px}
+    .batch-head h2{margin:0 0 6px;font-size:20px}
+    .batch-head p{margin:0;color:#567069;font-size:14px}
+    .batch-stats{display:grid;grid-template-columns:repeat(2,minmax(140px,1fr));gap:10px;min-width:min(100%,320px)}
+    .stat{padding:12px 14px;border:1px solid #dbe6e1;border-radius:16px;background:#f6faf8}
+    .stat-label{display:block;margin-bottom:4px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#6e847d;font-weight:800}
+    .stat-value{display:block;font-size:15px;font-weight:800;color:#153129}
+    .tag-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+    .tag{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid #d7e4de;background:#eef5f2;color:#21453a;font-size:12px;font-weight:700}
+    .notes{margin:0 0 14px;padding:12px 14px;border-left:4px solid #1f6f5c;border-radius:14px;background:#f7fbf9;color:#3d534c}
+    .photos{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:14px}
+    .photo-card{padding:12px;border:1px solid #dbe6e1;border-radius:18px;background:#f8fbfa}
+    .photo-card img{width:100%;max-height:340px;object-fit:contain;border-radius:14px;border:1px solid #d8e2de;background:#fff}
+    .photo-card span{display:block;margin-top:8px;font-size:12px;font-weight:700;color:#546863}
+    .line-table{width:100%;border-collapse:collapse}
+    .line-table th,.line-table td{padding:10px 12px;border-bottom:1px solid #e3ece8;text-align:left;vertical-align:top;font-size:13px}
+    .line-table th{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#687d76}
+    .empty{padding:14px;border:1px dashed #d8e2de;border-radius:16px;background:#f8fbfa;color:#60736d}
+    @media print{
+      body{background:#fff;padding:0}
+      .header{border-radius:0}
+      .batch{box-shadow:none}
+    }
   </style>
 </head>
 <body>
   <div class="shell">
     <div class="header">
+      <p class="eyebrow">Field Purchase Archive</p>
       <h1>Field Purchase Receipt Pack</h1>
       <p>Generated ${escapeHtml(generatedAt.toLocaleString())}</p>
       <p>${escapeHtml(summary)}</p>
     </div>
     ${groups.map((group, index)=> `
-      <section class="receipt-card">
-        <div class="receipt-head">
+      <section class="batch">
+        <div class="batch-head">
           <div>
-            <h2>${escapeHtml(group.vendor || `Field Purchase ${index + 1}`)}</h2>
-            <div class="receipt-meta">
-              <span class="receipt-chip">When: ${escapeHtml(group.when || 'Unknown')}</span>
-              <span class="receipt-chip">Receipt: ${escapeHtml(group.receipt || 'Missing')}</span>
-              <span class="receipt-chip">Projects: ${escapeHtml(Array.from(group.projects).join(', ') || 'General')}</span>
-              <span class="receipt-chip">Locations: ${escapeHtml(Array.from(group.locations).join(', ') || 'Unspecified')}</span>
-              <span class="receipt-chip">Lines: ${escapeHtml(group.lines.length)}</span>
-            </div>
+            <h2>${escapeHtml(getPurchaseGroupLabel(group, index))}</h2>
+            <p>${escapeHtml(group.when || 'Unknown date')} | ${escapeHtml(group.receipt || 'No receipt number')} | ${escapeHtml(getPurchaseGroupBatchText(group, index))}</p>
+          </div>
+          <div class="batch-stats">
+            <div class="stat"><span class="stat-label">Lines</span><span class="stat-value">${escapeHtml(group.lines.length)}</span></div>
+            <div class="stat"><span class="stat-label">Photos</span><span class="stat-value">${escapeHtml(group.photos.length)}</span></div>
+            <div class="stat"><span class="stat-label">Projects</span><span class="stat-value">${escapeHtml(Array.from(group.projects).join(', ') || 'General')}</span></div>
+            <div class="stat"><span class="stat-label">Locations</span><span class="stat-value">${escapeHtml(Array.from(group.locations).join(', ') || 'Unspecified')}</span></div>
           </div>
         </div>
-        <table>
+        <div class="tag-row">
+          <span class="tag">Receipt: ${escapeHtml(group.receipt || 'Missing')}</span>
+          <span class="tag">Total Qty: ${escapeHtml(group.totalQty || group.lines.length)}</span>
+          <span class="tag">Vendor: ${escapeHtml(group.vendor || 'Unknown Vendor')}</span>
+        </div>
+        ${group.notes.size ? `<p class="notes">${escapeHtml(Array.from(group.notes).join(' | '))}</p>` : ''}
+        ${group.photos.length ? `
+          <div class="photos">
+            ${group.photos.map((photo, photoIndex)=> `
+              <div class="photo-card">
+                <img src="${escapeHtml(getReceiptPhotoSrc(photo))}" alt="${escapeHtml(photo.name || `Receipt photo ${photoIndex + 1}`)}">
+                <span>${escapeHtml(photo.name || `Receipt photo ${photoIndex + 1}`)}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : `
+          <div class="empty">No receipt photos attached for this purchase batch.</div>
+        `}
+        <table class="line-table">
           <thead>
             <tr><th>Code</th><th>Name</th><th>Qty</th><th>Project</th><th>Cost</th><th>Notes</th></tr>
           </thead>
@@ -938,13 +1101,6 @@ function buildReceiptPackHtml(rows){
             `).join('')}
           </tbody>
         </table>
-        ${group.photos.length ? `
-          <div class="photos">
-            ${group.photos.map((photo)=> `<img src="${getReceiptPhotoSrc(photo)}" alt="${escapeHtml(photo.name || 'Receipt photo')}">`).join('')}
-          </div>
-        ` : `
-          <div class="empty">No receipt photos attached for this purchase batch.</div>
-        `}
       </section>
     `).join('')}
   </div>
@@ -1000,30 +1156,31 @@ function closeReceiptModal(){
 }
 
 function openReceiptModal(index){
-  const entry = filteredPurchaseRows[index];
-  const photos = getReceiptPhotosFromEntry(entry);
-  if(!entry || !photos.length) return;
+  const group = filteredPurchaseGroups[index];
+  const photos = (group?.photos || []).filter((photo)=> !!getReceiptPhotoSrc(photo));
+  if(!group || !photos.length) return;
   const modal = document.getElementById('purchaseReceiptModal');
   const gallery = document.getElementById('purchaseReceiptGallery');
   const meta = document.getElementById('purchaseReceiptMeta');
   if(!modal || !gallery || !meta) return;
-  const vendor = getPurchaseVendor(entry);
-  const receipt = getPurchaseReceipt(entry);
-  const when = utils.formatDateTime?.(getPurchaseTs(entry)) || '';
+  const vendor = group.vendor || '';
+  const receipt = group.receipt || '';
+  const when = group.when || '';
   const parts = [
-    entry.code || '',
-    getPurchaseProjectLabel(entry),
+    getPurchaseGroupBatchText(group, index),
+    getPurchaseGroupLabel(group, index),
     vendor ? `Vendor: ${vendor}` : '',
     receipt ? `Receipt: ${receipt}` : '',
-    when
+    when,
+    group.lines.length ? `${group.lines.length} line${group.lines.length === 1 ? '' : 's'}` : ''
   ].filter(Boolean);
   meta.textContent = parts.join(' | ');
   gallery.innerHTML = photos.map((photo, photoIndex)=> `
     <div class="receipt-viewer-card">
-      <img src="${getReceiptPhotoSrc(photo)}" alt="Receipt ${photoIndex + 1} for ${escapeHtml(entry.code || 'purchase')}">
+      <img src="${escapeHtml(getReceiptPhotoSrc(photo))}" alt="Receipt ${photoIndex + 1} for ${escapeHtml(getPurchaseGroupLabel(group, index))}">
       <div class="receipt-viewer-card-head">
         <span>${escapeHtml(photo.name || `Receipt ${photoIndex + 1}`)}</span>
-        <a class="receipt-link-btn" href="${getReceiptPhotoSrc(photo)}" download="${escapeHtml(photo.name || `receipt-${photoIndex + 1}.jpg`)}">Download</a>
+        <a class="receipt-link-btn" href="${escapeHtml(getReceiptPhotoSrc(photo))}" download="${escapeHtml(photo.name || `receipt-${photoIndex + 1}.jpg`)}">Download</a>
       </div>
     </div>
   `).join('');
@@ -1062,42 +1219,53 @@ function renderPurchaseTable(){
   if(!tbody) return;
   tbody.innerHTML = '';
   filteredPurchaseRows = sortPurchaseRows(applyPurchaseFilters(purchaseRowsCache));
+  filteredPurchaseGroups = sortPurchaseGroups(groupPurchasesForReceiptPack(filteredPurchaseRows));
   updatePurchaseTableStatus(filteredPurchaseRows, purchaseRowsCache.length);
-  if(!filteredPurchaseRows.length){
+  if(!filteredPurchaseGroups.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="7" style="text-align:center;color:#6b7280;">${purchaseRowsCache.length ? 'No field purchases match the current filters.' : 'No field purchases yet'}</td>`;
+    tr.innerHTML = `<td colspan="6" style="text-align:center;color:#6b7280;">${purchaseRowsCache.length ? 'No field purchases match the current filters.' : 'No field purchases yet'}</td>`;
     tbody.appendChild(tr);
     return;
   }
-  filteredPurchaseRows.forEach((entry, index)=>{
-    const when = utils.formatDateTime?.(getPurchaseTs(entry)) || '';
-    const vendor = getPurchaseVendor(entry);
-    const receipt = getPurchaseReceipt(entry);
-    const photos = getReceiptPhotosFromEntry(entry);
-    const photoThumbs = photos.slice(0, 2).map((photo, photoIndex)=> `
-      <button
-        type="button"
-        class="receipt-thumb-btn view-receipt-photo"
-        data-index="${index}"
-        aria-label="Expand receipt photo ${photoIndex + 1} for ${escapeHtml(entry.code || 'purchase')}"
-        title="Expand receipt photo">
-        <img src="${getReceiptPhotoSrc(photo)}" alt="${escapeHtml(photo.name || `Receipt ${photoIndex + 1}`)}">
-        ${photoIndex === 1 && photos.length > 2 ? `<span class="receipt-thumb-more">+${photos.length - 1}</span>` : ''}
-      </button>
-    `).join('');
+  filteredPurchaseGroups.forEach((group, index)=>{
+    const projectTags = buildReceiptTagList(group.projects, 'General');
+    const locationTags = buildReceiptTagList(group.locations, 'Unspecified');
+    const photos = (group.photos || []).filter((photo)=> !!getReceiptPhotoSrc(photo));
+    const photoThumbs = buildReceiptThumbButtons(photos, index);
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${escapeHtml(entry.code || '')}</td>
-      <td>${escapeHtml(entry.name || '')}</td>
-      <td>${escapeHtml(entry.qty || '')}</td>
-      <td>${escapeHtml(getPurchaseProjectLabel(entry))}</td>
-      <td>${escapeHtml(when)}</td>
-      <td>${escapeHtml(vendor || '-')}</td>
+      <td>
+        <div class="receipt-batch-stack">
+          <strong>${escapeHtml(group.when || 'Unknown date')}</strong>
+          <span>${escapeHtml(getPurchaseGroupBatchText(group, index))}</span>
+        </div>
+      </td>
+      <td>
+        <div class="receipt-batch-stack">
+          <strong>${escapeHtml(getPurchaseGroupLabel(group, index))}</strong>
+          <span>${escapeHtml(group.receipt || 'No receipt number')}</span>
+          <span>${escapeHtml(`${group.lines.length} line${group.lines.length === 1 ? '' : 's'}${group.totalQty ? ` | Qty ${group.totalQty}` : ''}`)}</span>
+        </div>
+      </td>
+      <td>${buildReceiptLineSummary(group.lines)}</td>
+      <td>
+        <div class="receipt-batch-stack">
+          <span class="receipt-cell-label">Projects</span>
+          ${projectTags}
+          <span class="receipt-cell-label">Locations</span>
+          ${locationTags}
+        </div>
+      </td>
       <td>
         <div class="receipt-inline-links">
-          <span>${escapeHtml(receipt || (photos.length ? 'Receipt photo attached' : '-'))}</span>
-          ${photos.length ? `<div class="receipt-thumb-row">${photoThumbs}</div>` : ''}
-          ${photos.length ? `<div class="receipt-link-row"><button type="button" class="receipt-link-btn view-receipt-photo" data-index="${index}">${photos.length === 1 ? 'View photo' : `View ${photos.length} photos`}</button></div>` : ''}
+          <span>${escapeHtml(photos.length ? `${photos.length} receipt photo${photos.length === 1 ? '' : 's'}` : 'No receipt photos')}</span>
+          ${photoThumbs}
+        </div>
+      </td>
+      <td>
+        <div class="receipt-action-stack">
+          <button type="button" class="receipt-link-btn view-receipt-photo" data-index="${index}" ${photos.length ? '' : 'disabled'}>${photos.length ? (photos.length === 1 ? 'View Receipt' : `View ${photos.length} Receipts`) : 'No Photos'}</button>
+          <span>${escapeHtml(group.receipt ? 'Receipt number saved' : 'Photo-only batch')}</span>
         </div>
       </td>
     `;
