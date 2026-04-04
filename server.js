@@ -4114,7 +4114,7 @@ app.get('/api/inventory-counts', async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 
-app.post('/api/inventory-counts', async (req, res) => {
+app.post('/api/inventory-counts', requireRole('admin'), async (req, res) => {
   try {
     const entries = Array.isArray(req.body?.counts) ? req.body.counts : [];
     if (!entries.length) return res.status(400).json({ error: 'counts array required' });
@@ -6378,7 +6378,7 @@ app.get('/api/dev/users', requireDev, async (req, res) => {
   }
 });
 
-app.get('/api/dashboard/admin', async (req, res) => {
+app.get('/api/dashboard/admin', requireRole('admin'), async (req, res) => {
   try {
     const t = tenantId(req);
     const [metricsRow, lowStockRows, activityRows, items, counts, orderRows, checkins, returnRows, movementRows, stockRows] = await Promise.all([

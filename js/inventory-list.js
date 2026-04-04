@@ -229,6 +229,20 @@ function getUserRole(){
   if(role === 'admin' || role === 'manager' || role === 'employee') return role;
   return 'employee';
 }
+function applyInventoryRoleAccess(){
+  const role = getUserRole();
+  const isAdmin = role === 'admin';
+  const cycleToggle = document.getElementById('cycleToggle');
+  const saveCountsBtn = document.getElementById('saveCountsBtn');
+  const quickCountToggle = document.getElementById('quickCountToggle');
+  [cycleToggle, saveCountsBtn, quickCountToggle].forEach((el)=>{
+    if(!el) return;
+    el.style.display = isAdmin ? '' : 'none';
+  });
+  if(!isAdmin){
+    document.body.classList.remove('count-mode');
+  }
+}
 
 function computeStatus(item, threshold, lowStockEnabled){
   if(!item) return { tone: 'info', label: 'Active' };
@@ -2645,6 +2659,7 @@ function applyQueryParams(){
 }
 
 document.addEventListener('DOMContentLoaded',async ()=>{
+  applyInventoryRoleAccess();
   setupTabs();
   setupFilters();
   setupActions();

@@ -196,7 +196,17 @@
 
   <script src="js/utils.js"></script>
   <script src="js/inventory-list.js"></script>
-  <script>document.addEventListener('DOMContentLoaded',()=>{if(window.utils){utils.wrapFetchWithRole?.();utils.applyStoredTheme?.();utils.applyNavVisibility?.();utils.setupLogout?.();}});</script>
+  <script>
+    document.addEventListener('DOMContentLoaded',()=>{
+      if(window.utils){
+        if(!utils.requireSession?.()) return;
+        utils.wrapFetchWithRole?.();
+        utils.applyStoredTheme?.();
+        utils.applyNavVisibility?.();
+        utils.setupLogout?.();
+      }
+    });
+  </script>
 </body>
 </html>
 
