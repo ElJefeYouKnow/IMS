@@ -211,7 +211,7 @@
             <button id="supplierRefresh" type="button" class="muted">Refresh</button>
           </div>
           <table id="supplierTable">
-            <thead><tr><th>Name</th><th>Website</th><th>Contact</th><th>Lead Time</th><th>MOQ</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Preferred Contact</th><th>Website</th><th>Contact</th><th>Lead Time</th><th>MOQ</th><th>Actions</th></tr></thead>
             <tbody></tbody>
           </table>
         </section>
@@ -227,6 +227,14 @@
             <div class="form-row">
               <label style="flex:1;">Email<input id="supplierEmail" type="email" placeholder="email@example.com"></label>
               <label style="flex:1;">Phone<input id="supplierPhone" placeholder="+1 555-1234"></label>
+              <label style="flex:1;">Preferred Contact Method
+                <select id="supplierOrderMethod">
+                  <option value="">Auto / Best Available</option>
+                  <option value="web">Website / Portal</option>
+                  <option value="email">Email</option>
+                  <option value="phone">Phone</option>
+                </select>
+              </label>
             </div>
             <div class="form-row">
               <label style="flex:1;">Website URL<input id="supplierWebsiteUrl" type="url" placeholder="https://vendor.com"></label>

@@ -247,17 +247,33 @@ function findSupplierById(supplierId){
   return suppliersCache.find(supplier => supplier.id === id) || null;
 }
 
+function getPreferredSupplierOrderMethod(supplier){
+  const explicit = String(supplier?.orderMethod || supplier?.ordermethod || '').trim().toLowerCase();
+  if(['web','website','portal','url'].includes(explicit)) return 'web';
+  if(explicit === 'email') return 'email';
+  if(explicit === 'phone') return 'phone';
+  if((supplier?.orderUrl || supplier?.websiteUrl || supplier?.websiteurl || '').trim()) return 'web';
+  if((supplier?.email || '').trim()) return 'email';
+  if((supplier?.phone || '').trim()) return 'phone';
+  return '';
+}
+
 function getSupplierTargetForLine(line){
   const item = findItemByCode(line?.code || '');
   const supplierId = (line?.supplierId || item?.supplierId || item?.supplierid || '').trim();
   const supplier = findSupplierById(supplierId);
   const supplierSku = item?.supplierSku || item?.suppliersku || '';
   const itemUrl = (item?.supplierUrl || item?.supplierurl || '').trim();
-  const url = itemUrl || (supplier?.orderUrl || supplier?.websiteUrl || '').trim();
+  const orderUrl = (supplier?.orderUrl || supplier?.websiteUrl || '').trim();
+  const url = itemUrl || orderUrl;
   return {
     supplierId: supplier?.id || supplierId || '',
     supplierName: supplier?.name || '',
     supplierSku,
+    email: (supplier?.email || '').trim(),
+    phone: (supplier?.phone || '').trim(),
+    contact: (supplier?.contact || '').trim(),
+    preferredMethod: getPreferredSupplierOrderMethod(supplier),
     url,
     assigned: !!supplier
   };
@@ -304,6 +320,10 @@ function buildSupplierShoppingPlan(lines){
         key,
         supplierId: supplierMeta.supplierId || '',
         supplierName: supplierMeta.supplierName || 'Unassigned Supplier',
+        contact: supplierMeta.contact || '',
+        email: supplierMeta.email || '',
+        phone: supplierMeta.phone || '',
+        preferredMethod: supplierMeta.preferredMethod || '',
         url: supplierMeta.url || '',
         assigned: supplierMeta.assigned,
         lines: [],
@@ -317,6 +337,10 @@ function buildSupplierShoppingPlan(lines){
     });
     group.totalQty += Number(line.orderQty || 0);
     if(!group.url && supplierMeta.url) group.url = supplierMeta.url;
+    if(!group.email && supplierMeta.email) group.email = supplierMeta.email;
+    if(!group.phone && supplierMeta.phone) group.phone = supplierMeta.phone;
+    if(!group.contact && supplierMeta.contact) group.contact = supplierMeta.contact;
+    if(!group.preferredMethod && supplierMeta.preferredMethod) group.preferredMethod = supplierMeta.preferredMethod;
   });
   return {
     ...plan,
@@ -330,7 +354,9 @@ function buildSupplierShoppingPlan(lines){
 function shoppingListTextForGroup(group){
   const header = [
     group.supplierName || 'Unassigned Supplier',
-    group.url ? `Vendor URL: ${group.url}` : 'Vendor URL: not set'
+    group.url ? `Vendor URL: ${group.url}` : 'Vendor URL: not set',
+    group.email ? `Email: ${group.email}` : 'Email: not set',
+    group.phone ? `Phone: ${group.phone}` : 'Phone: not set'
   ];
   const lines = (group.lines || []).map((line)=>{
     const parts = [
@@ -343,6 +369,31 @@ function shoppingListTextForGroup(group){
     return `- ${parts.join(' | ')}`;
   });
   return [...header, '', ...lines].join('\n');
+}
+
+function getSupplierMethodSummary(group){
+  const methods = [];
+  if(group.url) methods.push('web');
+  if(group.email) methods.push('email');
+  if(group.phone) methods.push('phone');
+  if(!methods.length) return 'No ordering method is configured for this supplier yet.';
+  const preferred = group.preferredMethod ? ` Preferred: ${group.preferredMethod}.` : '';
+  return `Order methods: ${methods.join(', ')}.${preferred}`;
+}
+
+function openMailto(link){
+  const anchor = document.createElement('a');
+  anchor.href = link;
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+function buildSupplierMailto(group){
+  const subject = `Procurement Shopping List - ${group.supplierName || 'Supplier'}`;
+  const body = shoppingListTextForGroup(group);
+  return `mailto:${encodeURIComponent(group.email || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 async function copyTextToClipboard(text){
@@ -786,8 +837,11 @@ function renderShoppingGroups(plan){
   currentShoppingPlan = plan;
 
   const validGroups = plan.groups.filter(group => group.assigned);
+  const webReadyCount = validGroups.filter(group => group.url).length;
+  const emailReadyCount = validGroups.filter(group => group.email).length;
+  const phoneReadyCount = validGroups.filter(group => group.phone).length;
   const unassignedCount = plan.groups.filter(group => !group.assigned).reduce((sum, group)=> sum + group.lines.length, 0);
-  summary.textContent = `${plan.groups.length} supplier groups, ${plan.orderLines.length} lines to order, ${validGroups.filter(group => group.url).length} vendor links ready${unassignedCount ? `, ${unassignedCount} lines unassigned` : ''}.`;
+  summary.textContent = `${plan.groups.length} supplier groups, ${plan.orderLines.length} lines to order, ${webReadyCount} web, ${emailReadyCount} email, ${phoneReadyCount} phone${unassignedCount ? `, ${unassignedCount} lines unassigned` : ''}.`;
 
   if(!plan.orderLines.length){
     container.innerHTML = '<div class="ds-empty">No procurement order lines remain after inventory allocation.</div>';
@@ -809,18 +863,22 @@ function renderShoppingGroups(plan){
     `).join('');
     const status = !group.assigned
       ? 'No supplier is assigned to these catalog items yet.'
-      : group.url
-        ? `Vendor URL ready: ${group.url}`
-        : 'Supplier exists, but no vendor URL is saved yet.';
+      : getSupplierMethodSummary(group);
+    const contactLine = !group.assigned
+      ? ''
+      : [group.contact || '', group.email || '', group.phone || ''].filter(Boolean).join(' · ');
 
     card.innerHTML = `
       <div class="supplier-shopping-head">
         <div>
           <h4>${group.supplierName || 'Unassigned Supplier'}</h4>
           <div class="muted-text">${status}</div>
+          ${contactLine ? `<div class="muted-text">${contactLine}</div>` : ''}
         </div>
         <div class="supplier-shopping-actions">
           <button type="button" class="muted supplier-copy-btn" data-key="${group.key}">Copy List</button>
+          <button type="button" class="muted supplier-email-btn" data-key="${group.key}" ${group.email ? '' : 'disabled'}>Email Order</button>
+          <button type="button" class="muted supplier-phone-btn" data-key="${group.key}" ${group.phone ? '' : 'disabled'}>Phone Order</button>
           <button type="button" class="supplier-open-btn" data-key="${group.key}" ${group.url ? '' : 'disabled'}>Open Vendor Site</button>
         </div>
       </div>
@@ -861,6 +919,36 @@ function renderShoppingGroups(plan){
         return;
       }
       await logVendorOpen(group);
+    });
+  });
+
+  container.querySelectorAll('.supplier-email-btn').forEach((button)=>{
+    button.addEventListener('click', async ()=>{
+      const group = currentShoppingPlan?.groups.find(entry => entry.key === button.dataset.key);
+      if(!group?.email){
+        alert('No supplier email is configured for this vendor.');
+        return;
+      }
+      try{
+        await copyTextToClipboard(shoppingListTextForGroup(group));
+      }catch(e){}
+      openMailto(buildSupplierMailto(group));
+    });
+  });
+
+  container.querySelectorAll('.supplier-phone-btn').forEach((button)=>{
+    button.addEventListener('click', async ()=>{
+      const group = currentShoppingPlan?.groups.find(entry => entry.key === button.dataset.key);
+      if(!group?.phone){
+        alert('No supplier phone number is configured for this vendor.');
+        return;
+      }
+      let copied = false;
+      try{
+        copied = await copyTextToClipboard(shoppingListTextForGroup(group));
+      }catch(e){}
+      const extra = copied ? 'The shopping list was copied to your clipboard.' : 'Use the shopping list shown in this window.';
+      alert(`Call ${group.supplierName || 'the supplier'} at ${group.phone}.\n\n${extra}`);
     });
   });
 }
@@ -1318,7 +1406,7 @@ function initOrders(){
   shoppingOpenAll?.addEventListener('click', async ()=>{
     const groups = currentShoppingPlan?.groups.filter(group => group.url) || [];
     if(!groups.length){
-      alert('No vendor URLs are configured for the current shopping list.');
+      alert('No web vendor URLs are configured for the current shopping list.');
       return;
     }
     let blocked = 0;

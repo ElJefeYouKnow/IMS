@@ -466,7 +466,7 @@ function renderSuppliersTable(){
   tbody.innerHTML = '';
   if(!state.supplierApiAvailable){
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="6" style="text-align:center;color:#6b7280;">Suppliers are not available yet.</td>';
+    tr.innerHTML = '<td colspan="7" style="text-align:center;color:#6b7280;">Suppliers are not available yet.</td>';
     tbody.appendChild(tr);
     return;
   }
@@ -478,7 +478,7 @@ function renderSuppliersTable(){
   rows.sort((a,b)=> (a.name || '').localeCompare((b.name || '')));
   if(!rows.length){
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="6" style="text-align:center;color:#6b7280;">No suppliers</td>';
+    tr.innerHTML = '<td colspan="7" style="text-align:center;color:#6b7280;">No suppliers</td>';
     tbody.appendChild(tr);
     return;
   }
@@ -486,9 +486,15 @@ function renderSuppliersTable(){
     const lead = s.leadTime?.avg != null ? `${s.leadTime.avg}d` : '-';
     const moq = s.moq ?? '-';
     const website = s.orderUrl || s.websiteUrl || '';
+    const orderMethod = ({
+      web: 'Website / Portal',
+      email: 'Email',
+      phone: 'Phone'
+    })[String(s.orderMethod || '').toLowerCase()] || 'Auto';
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${s.name || FALLBACK}</td>
+      <td>${orderMethod}</td>
       <td>${website ? `<a href="${website}" target="_blank" rel="noopener">Open</a>` : FALLBACK}</td>
       <td>${s.contact || FALLBACK}</td>
       <td>${lead}</td>
@@ -556,6 +562,7 @@ function fillSupplierForm(supplier){
   qs('supplierContact').value = supplier?.contact || '';
   qs('supplierEmail').value = supplier?.email || '';
   qs('supplierPhone').value = supplier?.phone || '';
+  qs('supplierOrderMethod').value = supplier?.orderMethod || '';
   qs('supplierWebsiteUrl').value = supplier?.websiteUrl || '';
   qs('supplierOrderUrl').value = supplier?.orderUrl || '';
   qs('supplierLeadAvg').value = supplier?.leadTime?.avg ?? '';
@@ -807,6 +814,7 @@ async function handleSaveSupplier(){
     contact: qs('supplierContact')?.value.trim(),
     email: qs('supplierEmail')?.value.trim(),
     phone: qs('supplierPhone')?.value.trim(),
+    orderMethod: qs('supplierOrderMethod')?.value.trim(),
     websiteUrl: qs('supplierWebsiteUrl')?.value.trim(),
     orderUrl: qs('supplierOrderUrl')?.value.trim(),
     moq: parseNumber(qs('supplierMoq')?.value),

@@ -2766,6 +2766,7 @@ async function initDb() {
     contact TEXT,
     email TEXT,
     phone TEXT,
+    orderMethod TEXT,
     websiteUrl TEXT,
     orderUrl TEXT,
     leadTime JSONB,
@@ -3030,6 +3031,7 @@ async function initDb() {
   await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS contact TEXT`);
   await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS email TEXT`);
   await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS phone TEXT`);
+  await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS orderMethod TEXT`);
   await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS websiteUrl TEXT`);
   await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS orderUrl TEXT`);
   await runAsync(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS leadTime JSONB`);
@@ -4649,6 +4651,8 @@ app.post('/api/suppliers', requireRole('admin'), async (req, res) => {
     const t = tenantId(req);
     const payload = req.body || {};
     const name = String(payload.name || '').trim();
+    const rawOrderMethod = String(payload.orderMethod || payload.ordermethod || '').trim().toLowerCase();
+    const orderMethod = ['web', 'email', 'phone'].includes(rawOrderMethod) ? rawOrderMethod : null;
     if (!name) return res.status(400).json({ error: 'name required' });
     const existing = await getAsync('SELECT id FROM suppliers WHERE tenantId=$1 AND LOWER(name)=LOWER($2) LIMIT 1', [t, name]);
     if (existing) return res.status(409).json({ error: 'supplier already exists' });
@@ -4659,6 +4663,7 @@ app.post('/api/suppliers', requireRole('admin'), async (req, res) => {
       contact: String(payload.contact || '').trim() || null,
       email: String(payload.email || '').trim() || null,
       phone: String(payload.phone || '').trim() || null,
+      orderMethod,
       websiteUrl: normalizeUrl(payload.websiteUrl),
       orderUrl: normalizeUrl(payload.orderUrl),
       leadTime: payload.leadTime || {},
@@ -4669,9 +4674,9 @@ app.post('/api/suppliers', requireRole('admin'), async (req, res) => {
       updatedAt: now
     };
     await runAsync(
-      `INSERT INTO suppliers(id,name,contact,email,phone,websiteUrl,orderUrl,leadTime,moq,notes,tenantId,createdAt,updatedAt)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [row.id, row.name, row.contact, row.email, row.phone, row.websiteUrl, row.orderUrl, row.leadTime, row.moq, row.notes, row.tenantId, row.createdAt, row.updatedAt]
+      `INSERT INTO suppliers(id,name,contact,email,phone,orderMethod,websiteUrl,orderUrl,leadTime,moq,notes,tenantId,createdAt,updatedAt)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      [row.id, row.name, row.contact, row.email, row.phone, row.orderMethod, row.websiteUrl, row.orderUrl, row.leadTime, row.moq, row.notes, row.tenantId, row.createdAt, row.updatedAt]
     );
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'suppliers.update', details: { id: row.id, name: row.name } });
     res.status(201).json(row);
@@ -4687,6 +4692,8 @@ app.put('/api/suppliers/:id', requireRole('admin'), async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'supplier not found' });
     const payload = req.body || {};
     const name = String(payload.name || existing.name || '').trim();
+    const rawOrderMethod = String(payload.orderMethod ?? existing.ordermethod ?? existing.orderMethod ?? '').trim().toLowerCase();
+    const orderMethod = ['web', 'email', 'phone'].includes(rawOrderMethod) ? rawOrderMethod : null;
     if (!name) return res.status(400).json({ error: 'name required' });
     const dup = await getAsync('SELECT id FROM suppliers WHERE tenantId=$1 AND LOWER(name)=LOWER($2) AND id<>$3 LIMIT 1', [t, name, req.params.id]);
     if (dup) return res.status(409).json({ error: 'supplier already exists' });
@@ -4696,6 +4703,7 @@ app.put('/api/suppliers/:id', requireRole('admin'), async (req, res) => {
       contact: String(payload.contact ?? existing.contact ?? '').trim() || null,
       email: String(payload.email ?? existing.email ?? '').trim() || null,
       phone: String(payload.phone ?? existing.phone ?? '').trim() || null,
+      orderMethod,
       websiteUrl: normalizeUrl(payload.websiteUrl ?? existing.websiteurl ?? existing.websiteUrl),
       orderUrl: normalizeUrl(payload.orderUrl ?? existing.orderurl ?? existing.orderUrl),
       leadTime: payload.leadTime ?? existing.leadtime ?? existing.leadTime ?? {},
@@ -4707,9 +4715,9 @@ app.put('/api/suppliers/:id', requireRole('admin'), async (req, res) => {
     };
     await runAsync(
       `UPDATE suppliers
-       SET name=$1, contact=$2, email=$3, phone=$4, websiteUrl=$5, orderUrl=$6, leadTime=$7, moq=$8, notes=$9, updatedAt=$10
-       WHERE id=$11 AND tenantId=$12`,
-      [updated.name, updated.contact, updated.email, updated.phone, updated.websiteUrl, updated.orderUrl, updated.leadTime, updated.moq, updated.notes, updated.updatedAt, updated.id, updated.tenantId]
+       SET name=$1, contact=$2, email=$3, phone=$4, orderMethod=$5, websiteUrl=$6, orderUrl=$7, leadTime=$8, moq=$9, notes=$10, updatedAt=$11
+       WHERE id=$12 AND tenantId=$13`,
+      [updated.name, updated.contact, updated.email, updated.phone, updated.orderMethod, updated.websiteUrl, updated.orderUrl, updated.leadTime, updated.moq, updated.notes, updated.updatedAt, updated.id, updated.tenantId]
     );
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'suppliers.update', details: { id: updated.id, name: updated.name } });
     res.json(updated);
@@ -7540,6 +7548,8 @@ function normalizeUrl(value) {
   return `https://${raw}`;
 }
 function normalizeSupplierRow(row) {
+  const rawOrderMethod = String(row?.ordermethod || row?.orderMethod || '').trim().toLowerCase();
+  const orderMethod = ['web', 'email', 'phone'].includes(rawOrderMethod) ? rawOrderMethod : '';
   return {
     id: row?.id || '',
     tenantId: row?.tenantid || row?.tenantId || '',
@@ -7547,6 +7557,7 @@ function normalizeSupplierRow(row) {
     contact: row?.contact || '',
     email: row?.email || '',
     phone: row?.phone || '',
+    orderMethod,
     websiteUrl: row?.websiteurl || row?.websiteUrl || '',
     orderUrl: row?.orderurl || row?.orderUrl || '',
     leadTime: row?.leadtime || row?.leadTime || {},
