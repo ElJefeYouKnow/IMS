@@ -1093,6 +1093,11 @@ body:not(.panel-open) .drawer-floating-close{display:none}
   .location-row-actions{width:100%}
 }
 .receipt-photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.receipt-upload-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+.receipt-upload-chip{position:relative;display:inline-flex;align-items:center;justify-content:center;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-weight:700;cursor:pointer;overflow:hidden;min-height:44px}
+.receipt-upload-chip input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.receipt-upload-chip:hover{border-color:rgba(31,111,92,0.45);transform:translateY(-1px)}
+.receipt-upload-chip:focus-within{outline:none;border-color:rgba(31,111,92,0.65);box-shadow:0 0 0 3px rgba(31,111,92,0.16)}
 .receipt-photo-card{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2)}
 .receipt-photo-card img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;border:1px solid var(--line);background:#ffffff}
 .receipt-photo-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -1119,6 +1124,7 @@ body:not(.panel-open) .drawer-floating-close{display:none}
 .receipt-viewer-card-head a{white-space:nowrap}
 .dark .receipt-photo-card,
 .dark .receipt-viewer-card{background:#101b18;border-color:#22312d}
+.dark .receipt-upload-chip{background:#16221f;border-color:#22312d;color:var(--ink)}
 .dark .receipt-photo-card img,
 .dark .receipt-viewer-card img{background:#0f1715;border-color:#22312d}
 .dark .receipt-thumb-btn{background:#0f1715;border-color:#22312d;box-shadow:none}
@@ -1128,6 +1134,7 @@ body:not(.panel-open) .drawer-floating-close{display:none}
   .receipt-photo-grid,
   .receipt-viewer-grid{grid-template-columns:1fr}
   .receipt-viewer-card img{max-height:300px}
+  .receipt-upload-actions{flex-direction:column}
   .receipt-thumb-btn{width:58px;height:58px}
 }
 .modal .muted{background:var(--surface-2);color:var(--ink);border:1px solid var(--line);padding:8px 12px;border-radius:8px;font-weight:700}

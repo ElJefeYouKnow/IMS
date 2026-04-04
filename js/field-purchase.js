@@ -186,11 +186,13 @@ function setReceiptPhotoMessage(message = '', tone = ''){
 
 function syncReceiptPhotoControls(){
   const input = document.getElementById('purchase-receiptPhotos');
+  const captureInput = document.getElementById('purchase-receiptCapture');
   const submitBtn = document.getElementById('purchaseBtn');
   const addBtn = document.getElementById('purchase-addLine');
   const clearBtn = document.getElementById('purchase-clearBtn');
   const isBusy = receiptPhotoProcessing || purchaseSubmitInFlight;
   if(input) input.disabled = isBusy || receiptPhotos.length >= MAX_RECEIPT_PHOTOS;
+  if(captureInput) captureInput.disabled = isBusy || receiptPhotos.length >= MAX_RECEIPT_PHOTOS;
   if(submitBtn){
     submitBtn.disabled = isBusy;
     submitBtn.textContent = purchaseSubmitInFlight ? 'Logging...' : 'Log Purchase';
@@ -1160,6 +1162,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
   const receiptPhotoInput = document.getElementById('purchase-receiptPhotos');
   receiptPhotoInput?.addEventListener('change', handleReceiptPhotoSelection);
+  const receiptCaptureInput = document.getElementById('purchase-receiptCapture');
+  receiptCaptureInput?.addEventListener('change', handleReceiptPhotoSelection);
 
   addLine();
   renderReceiptPhotoPreview();

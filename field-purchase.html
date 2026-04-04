@@ -75,8 +75,17 @@
           </div>
           <div class="form-row">
             <label style="flex:1">Receipt Photos
-              <input id="purchase-receiptPhotos" type="file" accept="image/*" capture="environment" multiple>
-              <span class="muted-text" style="display:block;margin-top:6px;">Add up to 2 receipt photos. Images are compressed before upload.</span>
+              <div class="receipt-upload-actions">
+                <label class="receipt-upload-chip">
+                  <span>Take Receipt Photo</span>
+                  <input id="purchase-receiptCapture" type="file" accept="image/*" capture="environment">
+                </label>
+                <label class="receipt-upload-chip">
+                  <span>Add From Gallery</span>
+                  <input id="purchase-receiptPhotos" type="file" accept="image/*" multiple>
+                </label>
+              </div>
+              <span class="muted-text" style="display:block;margin-top:6px;">Add up to 2 receipt photos. Camera capture and gallery upload are both compressed before upload.</span>
               <span id="purchase-receiptPhotoMsg" class="field-hint ok"></span>
             </label>
           </div>
