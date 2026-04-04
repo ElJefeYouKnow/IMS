@@ -5676,12 +5676,43 @@ app.post('/api/procurement/vendor-open', requireRole('admin'), async (req, res) 
 const FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT = 2;
 const FIELD_PURCHASE_RECEIPT_PHOTO_MAX_BYTES = 300 * 1024;
 const FIELD_PURCHASE_RECEIPT_PHOTO_TOTAL_BYTES = FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT * FIELD_PURCHASE_RECEIPT_PHOTO_MAX_BYTES;
+const FIELD_PURCHASE_RECEIPT_DIR = path.join(__dirname, 'data', 'receipt-photos');
 
 function estimateReceiptPhotoBytes(dataUrl = '') {
   const base64 = String(dataUrl || '').split(',')[1] || '';
   const paddingMatch = base64.match(/=*$/);
   const padding = paddingMatch ? paddingMatch[0].length : 0;
   return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+function fieldPurchaseReceiptExt(type = '') {
+  const normalized = String(type || '').trim().toLowerCase();
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+function persistFieldPurchaseReceiptPhoto({ batchId, index, type, normalizedDataUrl, name, sizeBytes, width, height }) {
+  const ext = fieldPurchaseReceiptExt(type);
+  const safeBatch = String(batchId || 'receipt')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'receipt';
+  const fileName = `${Date.now()}-${safeBatch}-${index + 1}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+  const targetDir = FIELD_PURCHASE_RECEIPT_DIR;
+  const targetPath = path.join(targetDir, fileName);
+  const rawBase64 = String(normalizedDataUrl || '').split(',')[1] || '';
+  fs.mkdirSync(targetDir, { recursive: true });
+  fs.writeFileSync(targetPath, Buffer.from(rawBase64, 'base64'));
+  return {
+    name: String(name || `receipt-${index + 1}.${ext}`).trim().slice(0, 120) || `receipt-${index + 1}.${ext}`,
+    type,
+    sizeBytes,
+    width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
+    height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
+    url: `/data/receipt-photos/${fileName}`
+  };
 }
 
 function parseFieldPurchaseSourceMeta(rawMeta) {
@@ -5726,15 +5757,17 @@ function readFieldPurchaseReceiptPhotos(rawMeta) {
       type = /^image\/(?:jpeg|png|webp)$/i.test(type) ? type : 'image/jpeg';
       dataUrl = `data:${type};base64,${rawData.replace(/\s+/g, '')}`;
     }
-    if (!dataUrl) return null;
-    const sizeBytes = Number(photo?.sizeBytes || photo?.sizebytes || estimateReceiptPhotoBytes(dataUrl)) || estimateReceiptPhotoBytes(dataUrl);
+    const url = !dataUrl && /^(\/|https?:\/\/)/i.test(rawData) ? rawData : '';
+    if (!dataUrl && !url) return null;
+    const sizeBytes = Number(photo?.sizeBytes || photo?.sizebytes || (dataUrl ? estimateReceiptPhotoBytes(dataUrl) : 0)) || (dataUrl ? estimateReceiptPhotoBytes(dataUrl) : 0);
     return {
       name: String(photo?.name || `receipt-${index + 1}.jpg`).trim().slice(0, 120) || `receipt-${index + 1}.jpg`,
       type: type || 'image/jpeg',
       sizeBytes,
       width: Number.isFinite(Number(photo?.width)) ? Math.round(Number(photo.width)) : null,
       height: Number.isFinite(Number(photo?.height)) ? Math.round(Number(photo.height)) : null,
-      dataUrl
+      ...(dataUrl ? { dataUrl } : {}),
+      ...(url ? { url } : {})
     };
   }).filter(Boolean);
 }
@@ -5772,7 +5805,7 @@ function mergeFieldPurchaseSourceMeta(entries) {
   return merged;
 }
 
-function normalizeFieldPurchaseReceiptPhotos(rawPhotos) {
+function normalizeFieldPurchaseReceiptPhotos(rawPhotos, batchId = '') {
   const photos = Array.isArray(rawPhotos) ? rawPhotos : [];
   if (!photos.length) return [];
   if (photos.length > FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT) throw new Error(`only ${FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT} receipt photos allowed`);
@@ -5793,12 +5826,21 @@ function normalizeFieldPurchaseReceiptPhotos(rawPhotos) {
       sizeBytes,
       width: Number.isFinite(width) && width > 0 ? Math.round(width) : null,
       height: Number.isFinite(height) && height > 0 ? Math.round(height) : null,
-      dataUrl: normalizedDataUrl
+      normalizedDataUrl
     };
   });
   const totalBytes = normalized.reduce((sum, photo) => sum + Number(photo.sizeBytes || 0), 0);
   if (totalBytes > FIELD_PURCHASE_RECEIPT_PHOTO_TOTAL_BYTES) throw new Error('receipt photos are too large together');
-  return normalized;
+  return normalized.map((photo, index) => persistFieldPurchaseReceiptPhoto({
+    batchId,
+    index,
+    type: photo.type,
+    normalizedDataUrl: photo.normalizedDataUrl,
+    name: photo.name,
+    sizeBytes: photo.sizeBytes,
+    width: photo.width,
+    height: photo.height
+  }));
 }
 
 app.get('/api/field-purchases', async (req, res) => {
@@ -5860,7 +5902,7 @@ app.post('/api/field-purchase', async (req, res) => {
     const t = tenantId(req);
     const actor = actorInfo(req);
     const batchId = String(req.body?.batchId || '').trim().slice(0, 120) || `field-purchase-${newId()}`;
-    const receiptPhotos = normalizeFieldPurchaseReceiptPhotos(req.body?.receiptPhotos);
+    const receiptPhotos = normalizeFieldPurchaseReceiptPhotos(req.body?.receiptPhotos, batchId);
     const results = [];
     let lowStockNotifications = [];
     let deduped = false;

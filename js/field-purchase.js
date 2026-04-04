@@ -175,6 +175,18 @@ function estimateDataUrlBytes(dataUrl){
   return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
+function getReceiptPhotoSrc(photo){
+  const dataUrl = String(photo?.dataUrl || '').trim();
+  if(/^data:image\/(?:jpeg|png|webp);base64,/i.test(dataUrl)) return dataUrl;
+  const rawUrl = String(photo?.url || photo?.src || '').trim();
+  if(!rawUrl) return '';
+  try{
+    return new URL(rawUrl, window.location.origin).href;
+  }catch(e){
+    return rawUrl;
+  }
+}
+
 function setReceiptPhotoMessage(message = '', tone = ''){
   const el = document.getElementById('purchase-receiptPhotoMsg');
   if(!el) return;
@@ -213,7 +225,7 @@ function renderReceiptPhotoPreview(){
   wrap.classList.remove('hidden');
   wrap.innerHTML = receiptPhotos.map((photo, index)=> `
     <div class="receipt-photo-card">
-      <img src="${photo.dataUrl}" alt="Receipt preview ${index + 1}">
+      <img src="${getReceiptPhotoSrc(photo)}" alt="Receipt preview ${index + 1}">
       <div class="receipt-photo-meta">
         <span class="receipt-photo-name">${escapeHtml(photo.name || `Receipt ${index + 1}`)}</span>
         <span class="receipt-photo-sub">${escapeHtml(formatBytes(photo.sizeBytes || 0))}</span>
@@ -381,16 +393,18 @@ function getReceiptPhotosFromEntry(entry){
         };
       }
       const rawValue = String(photo?.dataUrl || photo?.dataurl || photo?.url || photo?.src || '').trim();
+      const isUrl = /^(\/|https?:\/\/)/i.test(rawValue);
       const dataUrl = /^data:image\/(?:jpeg|png|webp);base64,/i.test(rawValue)
         ? rawValue
         : (/^[a-z0-9+/=\s]+$/i.test(rawValue) && rawValue.length > 64 ? `data:${String(photo?.type || photo?.mimeType || 'image/jpeg').toLowerCase()};base64,${rawValue.replace(/\s+/g, '')}` : '');
       return {
         name: ensureReceiptPhotoName(photo?.name, index),
         dataUrl,
+        url: !dataUrl && isUrl ? rawValue : '',
         sizeBytes: Number(photo?.sizeBytes || photo?.sizebytes || 0) || estimateDataUrlBytes(dataUrl)
       };
     })
-    .filter((photo)=> /^data:image\/(?:jpeg|png|webp);base64,/i.test(photo.dataUrl));
+    .filter((photo)=> /^data:image\/(?:jpeg|png|webp);base64,/i.test(photo.dataUrl) || !!photo.url);
 }
 
 function mergePurchaseSourceMetaEntries(entries){
@@ -926,7 +940,7 @@ function buildReceiptPackHtml(rows){
         </table>
         ${group.photos.length ? `
           <div class="photos">
-            ${group.photos.map((photo)=> `<img src="${photo.dataUrl}" alt="${escapeHtml(photo.name || 'Receipt photo')}">`).join('')}
+            ${group.photos.map((photo)=> `<img src="${getReceiptPhotoSrc(photo)}" alt="${escapeHtml(photo.name || 'Receipt photo')}">`).join('')}
           </div>
         ` : `
           <div class="empty">No receipt photos attached for this purchase batch.</div>
@@ -1006,10 +1020,10 @@ function openReceiptModal(index){
   meta.textContent = parts.join(' | ');
   gallery.innerHTML = photos.map((photo, photoIndex)=> `
     <div class="receipt-viewer-card">
-      <img src="${photo.dataUrl}" alt="Receipt ${photoIndex + 1} for ${escapeHtml(entry.code || 'purchase')}">
+      <img src="${getReceiptPhotoSrc(photo)}" alt="Receipt ${photoIndex + 1} for ${escapeHtml(entry.code || 'purchase')}">
       <div class="receipt-viewer-card-head">
         <span>${escapeHtml(photo.name || `Receipt ${photoIndex + 1}`)}</span>
-        <a class="receipt-link-btn" href="${photo.dataUrl}" download="${escapeHtml(photo.name || `receipt-${photoIndex + 1}.jpg`)}">Download</a>
+        <a class="receipt-link-btn" href="${getReceiptPhotoSrc(photo)}" download="${escapeHtml(photo.name || `receipt-${photoIndex + 1}.jpg`)}">Download</a>
       </div>
     </div>
   `).join('');
@@ -1067,7 +1081,7 @@ function renderPurchaseTable(){
         data-index="${index}"
         aria-label="Expand receipt photo ${photoIndex + 1} for ${escapeHtml(entry.code || 'purchase')}"
         title="Expand receipt photo">
-        <img src="${photo.dataUrl}" alt="${escapeHtml(photo.name || `Receipt ${photoIndex + 1}`)}">
+        <img src="${getReceiptPhotoSrc(photo)}" alt="${escapeHtml(photo.name || `Receipt ${photoIndex + 1}`)}">
         ${photoIndex === 1 && photos.length > 2 ? `<span class="receipt-thumb-more">+${photos.length - 1}</span>` : ''}
       </button>
     `).join('');
