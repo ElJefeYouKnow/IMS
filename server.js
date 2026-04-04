@@ -2691,7 +2691,9 @@ async function requireAuth(req, res, next) {
   req.tenantCaps = await getTenantCapabilities(user.tenantid || user.tenantId);
   next();
 }
+let initDbPhase = 'not-started';
 async function initDb() {
+  initDbPhase = 'core-schema';
   await runAsync(`CREATE TABLE IF NOT EXISTS tenants(
     id TEXT PRIMARY KEY,
     code TEXT UNIQUE NOT NULL,
@@ -3070,11 +3072,13 @@ async function initDb() {
   await runAsync(`UPDATE tenants SET status = 'active' WHERE status IS NULL OR status = ''`);
   await runAsync(`UPDATE tenants SET plan = 'starter' WHERE plan IS NULL OR plan = ''`);
   await runAsync(`UPDATE tenants SET updatedAt = COALESCE(updatedAt, createdAt, $1::bigint)`, [Date.now()]);
+  initDbPhase = 'tenant-defaults';
   const tenants = await allAsync('SELECT id FROM tenants', []);
   for (const tenant of tenants) {
     await ensureDefaultCategory(tenant.id);
     await ensureTenantCapabilities(tenant.id);
   }
+  initDbPhase = 'indexes-and-audit';
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_code ON inventory(code)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_job ON inventory(jobId)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inventory_source ON inventory(sourceType, sourceId)');
@@ -3134,6 +3138,7 @@ async function initDb() {
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inbound_webhook_events_tenant_received ON inbound_webhook_events(tenantId, receivedAt DESC)');
   await runAsync('CREATE INDEX IF NOT EXISTS idx_inbound_webhook_events_endpoint_received ON inbound_webhook_events(endpointId, receivedAt DESC)');
   // Multi-tenant safety: unique per tenant and FKs
+  initDbPhase = 'constraints-and-backfills';
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_items_code_tenant ON items(code, tenantId)');
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_code_tenant ON jobs(code, tenantId)');
   await runAsync('CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_tenant ON users(email, tenantId)');
@@ -3213,6 +3218,7 @@ async function initDb() {
     END IF;
   END$$;`);
 
+  initDbPhase = 'seed-admin';
   const row = await getAsync('SELECT COUNT(*) as c FROM users');
   if (row?.c === 0) {
     const tenantId = 'default';
@@ -3234,13 +3240,10 @@ async function initDb() {
       [user.id, user.email, user.name, user.role, user.salt, user.hash, user.createdAt, user.emailVerified, user.emailVerifiedAt, user.tenantId]);
     console.log('Seeded default tenant + admin: admin@example.com / ChangeMe123! (change after login).');
   }
+  initDbPhase = 'ensure-dev-account';
   await ensureDevAccount();
+  initDbPhase = 'complete';
 }
-initDb().catch(err => {
-  console.error('DB init failed', err);
-  process.exit(1);
-});
-loadSellerStore();
 
 function statusForType(type) {
   if (type === 'ordered') return 'ordered';
@@ -5796,7 +5799,7 @@ function mergeFieldPurchaseSourceMeta(entries) {
       if (Number.isFinite(cost)) merged.cost = cost;
     }
     readFieldPurchaseReceiptPhotos(meta).forEach((photo) => {
-      const photoKey = `${photo.name}|${photo.dataUrl}`;
+      const photoKey = `${photo.name}|${photo.url || ''}|${photo.dataUrl || ''}`;
       if (seenPhotos.has(photoKey)) return;
       seenPhotos.add(photoKey);
       merged.receiptPhotos.push(photo);
@@ -5907,6 +5910,7 @@ app.post('/api/field-purchase', async (req, res) => {
     let lowStockNotifications = [];
     let deduped = false;
     let savedReceiptPhotoCount = 0;
+    let savedReceiptPhotos = [];
     await withTransaction(async (client) => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${t}:${batchId}`]);
       const existingPurchasesRes = await client.query(
@@ -5921,7 +5925,9 @@ app.post('/api/field-purchase', async (req, res) => {
       const existingPurchases = existingPurchasesRes.rows || [];
       if (existingPurchases.length) {
         deduped = true;
-        savedReceiptPhotoCount = mergeFieldPurchaseSourceMeta(existingPurchases).receiptPhotos.length;
+        const mergedExistingMeta = mergeFieldPurchaseSourceMeta(existingPurchases);
+        savedReceiptPhotos = mergedExistingMeta.receiptPhotos;
+        savedReceiptPhotoCount = savedReceiptPhotos.length;
         if (receiptPhotos.length && !savedReceiptPhotoCount) {
           throw new Error('receipt photos were not saved to this purchase batch');
         }
@@ -6038,7 +6044,9 @@ app.post('/api/field-purchase', async (req, res) => {
         [t, batchId]
       );
       const savedPurchases = savedPurchasesRes.rows || [];
-      savedReceiptPhotoCount = mergeFieldPurchaseSourceMeta(savedPurchases).receiptPhotos.length;
+      const mergedSavedMeta = mergeFieldPurchaseSourceMeta(savedPurchases);
+      savedReceiptPhotos = mergedSavedMeta.receiptPhotos;
+      savedReceiptPhotoCount = savedReceiptPhotos.length;
       if (receiptPhotos.length && !savedReceiptPhotoCount) {
         throw new Error('receipt photos were not saved to the purchase records');
       }
@@ -6048,7 +6056,14 @@ app.post('/api/field-purchase', async (req, res) => {
       await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { sourceType: 'purchase', count: results.length } });
       if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
     }
-    res.status(deduped ? 200 : 201).json({ count: results.length, entries: results, batchId, deduped, savedReceiptPhotoCount });
+    res.status(deduped ? 200 : 201).json({
+      count: results.length,
+      entries: results,
+      batchId,
+      deduped,
+      savedReceiptPhotoCount,
+      savedReceiptPhotos
+    });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }
@@ -7568,7 +7583,20 @@ app.get(['/app', '/app/'], (req, res) => {
   res.redirect(302, '/app/login.html');
 });
 
-app.listen(PORT, () => console.log(`Server listening on ${PUBLIC_BASE_URL}`));
+async function startServer() {
+  try {
+    console.log('Starting server bootstrap...');
+    loadSellerStore();
+    await initDb();
+    console.log(`Database bootstrap complete. Phase: ${initDbPhase}`);
+    app.listen(PORT, () => console.log(`Server listening on ${PUBLIC_BASE_URL}`));
+  } catch (err) {
+    console.error(`Startup failed during database initialization at phase "${initDbPhase}"`, err);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 // Helpers to read common lists
 async function readItems(tenantIdVal) {

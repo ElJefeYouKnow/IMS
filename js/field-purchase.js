@@ -197,6 +197,69 @@ function setReceiptPhotoMessage(message = '', tone = ''){
   el.textContent = message;
 }
 
+function getSavedReceiptPhotosFromResponse(data){
+  const directPhotos = Array.isArray(data?.savedReceiptPhotos) ? data.savedReceiptPhotos : [];
+  if(directPhotos.length){
+    return directPhotos.filter((photo)=> !!getReceiptPhotoSrc(photo));
+  }
+  const entries = Array.isArray(data?.entries) ? data.entries : [];
+  const seen = new Set();
+  const photos = [];
+  entries.forEach((entry)=>{
+    const purchasePhotos = getReceiptPhotosFromEntry(entry?.purchase || entry);
+    purchasePhotos.forEach((photo)=>{
+      const src = getReceiptPhotoSrc(photo);
+      if(!src) return;
+      const key = `${photo?.name || ''}|${src}`;
+      if(seen.has(key)) return;
+      seen.add(key);
+      photos.push(photo);
+    });
+  });
+  return photos;
+}
+
+function renderPurchaseSaveVerification(data = null){
+  const card = document.getElementById('purchase-saveVerification');
+  const textEl = document.getElementById('purchase-saveVerificationText');
+  const statusEl = document.getElementById('purchase-saveVerificationStatus');
+  const batchEl = document.getElementById('purchase-saveBatchId');
+  const photoCountEl = document.getElementById('purchase-savePhotoCount');
+  const lineCountEl = document.getElementById('purchase-saveLineCount');
+  const linksEl = document.getElementById('purchase-saveLinks');
+  if(!card || !textEl || !statusEl || !batchEl || !photoCountEl || !lineCountEl || !linksEl) return;
+  if(!data){
+    card.classList.add('hidden');
+    textEl.textContent = 'The next successful field purchase will show its saved batch details here.';
+    statusEl.className = 'status-chip success';
+    statusEl.innerHTML = '<span class="dot"></span><span class="label">Verified</span>';
+    batchEl.textContent = '-';
+    photoCountEl.textContent = '0';
+    lineCountEl.textContent = '0';
+    linksEl.innerHTML = '';
+    return;
+  }
+  const savedPhotos = getSavedReceiptPhotosFromResponse(data);
+  const savedPhotoCount = Number(data?.savedReceiptPhotoCount || savedPhotos.length || 0);
+  const lineCount = Number(data?.count || 0) || (Array.isArray(data?.entries) ? data.entries.length : 0);
+  const requestFailed = !!data?.requestFailed;
+  const isVerified = !requestFailed && (savedPhotoCount > 0 || !Number(data?.submittedReceiptPhotoCount || 0));
+  card.classList.remove('hidden');
+  statusEl.className = `status-chip ${isVerified ? 'success' : 'danger'}`;
+  statusEl.innerHTML = `<span class="dot"></span><span class="label">${isVerified ? 'Verified' : 'Needs Review'}</span>`;
+  batchEl.textContent = String(data?.batchId || '-');
+  photoCountEl.textContent = String(savedPhotoCount);
+  lineCountEl.textContent = String(lineCount);
+  textEl.textContent = requestFailed
+    ? 'The purchase was not saved. Review the error and try the batch again.'
+    : isVerified
+    ? `Saved batch ${String(data?.batchId || '').trim() || 'purchase'} with ${lineCount} line${lineCount === 1 ? '' : 's'} and ${savedPhotoCount} confirmed receipt photo${savedPhotoCount === 1 ? '' : 's'}.`
+    : 'The purchase saved, but the server did not confirm any saved receipt photos for this batch.';
+  linksEl.innerHTML = savedPhotos.length
+    ? savedPhotos.map((photo, index)=> `<a class="receipt-link-btn" href="${escapeHtml(getReceiptPhotoSrc(photo))}" target="_blank" rel="noopener">${escapeHtml(photo?.name || `Receipt ${index + 1}`)}</a>`).join('')
+    : '<span class="muted-text">No saved receipt links were returned for this batch.</span>';
+}
+
 function syncReceiptPhotoControls(){
   const input = document.getElementById('purchase-receiptPhotos');
   const captureInput = document.getElementById('purchase-receiptCapture');
@@ -1349,6 +1412,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 
   addLine();
   renderReceiptPhotoPreview();
+  renderPurchaseSaveVerification();
 
   const receiptModal = document.getElementById('purchaseReceiptModal');
   receiptModal?.addEventListener('click', (event)=>{
@@ -1406,9 +1470,20 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       });
       const data = await response.json().catch(()=>({}));
       if(!response.ok){
+        renderPurchaseSaveVerification({
+          batchId: pendingPurchaseBatchId,
+          count: lines.length,
+          submittedReceiptPhotoCount,
+          savedReceiptPhotoCount: Number(data?.savedReceiptPhotoCount || 0),
+          requestFailed: true
+        });
         alert(data.error || 'Failed to log purchase');
         return;
       }
+      renderPurchaseSaveVerification({
+        ...data,
+        submittedReceiptPhotoCount
+      });
       if(submittedReceiptPhotoCount && !Number(data?.savedReceiptPhotoCount || 0)){
         alert('Purchase logged, but the server did not confirm any saved receipt photos for that batch.');
       }

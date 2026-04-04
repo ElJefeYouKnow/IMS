@@ -97,6 +97,36 @@
             <button id="purchaseBtn" type="submit">Log Purchase</button>
             <button id="purchase-clearBtn" type="button" class="muted">Clear All</button>
           </div>
+          <section id="purchase-saveVerification" class="purchase-save-card hidden" aria-live="polite">
+            <div class="purchase-save-head">
+              <div>
+                <strong>Saved Purchase Verification</strong>
+                <p id="purchase-saveVerificationText" class="muted-text" style="margin:6px 0 0 0;">The next successful field purchase will show its saved batch details here.</p>
+              </div>
+              <span id="purchase-saveVerificationStatus" class="status-chip success">
+                <span class="dot"></span>
+                <span class="label">Verified</span>
+              </span>
+            </div>
+            <div class="purchase-save-summary">
+              <div class="summary-item">
+                <span>Batch ID</span>
+                <strong id="purchase-saveBatchId">-</strong>
+              </div>
+              <div class="summary-item">
+                <span>Saved Receipt Photos</span>
+                <strong id="purchase-savePhotoCount">0</strong>
+              </div>
+              <div class="summary-item">
+                <span>Purchase Lines</span>
+                <strong id="purchase-saveLineCount">0</strong>
+              </div>
+            </div>
+            <div>
+              <span class="purchase-save-links-label">Saved Receipt Links</span>
+              <div id="purchase-saveLinks" class="receipt-link-row"></div>
+            </div>
+          </section>
         </form>
       </section>
 

@@ -1098,6 +1098,11 @@ body:not(.panel-open) .drawer-floating-close{display:none}
 .receipt-upload-chip input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .receipt-upload-chip:hover{border-color:rgba(31,111,92,0.45);transform:translateY(-1px)}
 .receipt-upload-chip:focus-within{outline:none;border-color:rgba(31,111,92,0.65);box-shadow:0 0 0 3px rgba(31,111,92,0.16)}
+.purchase-save-card{margin-top:14px;padding:16px;border:1px solid rgba(31,111,92,0.22);border-radius:16px;background:linear-gradient(180deg,rgba(31,111,92,0.08),rgba(255,255,255,0.82));display:flex;flex-direction:column;gap:12px}
+.purchase-save-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.purchase-save-head strong{font-size:0.98rem;color:var(--ink)}
+.purchase-save-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.purchase-save-links-label{display:block;margin-bottom:8px;font-size:0.72rem;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)}
 .receipt-photo-card{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2)}
 .receipt-photo-card img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;border:1px solid var(--line);background:#ffffff}
 .receipt-photo-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -1138,6 +1143,7 @@ body:not(.panel-open) .drawer-floating-close{display:none}
 .dark .receipt-photo-card,
 .dark .receipt-viewer-card{background:#101b18;border-color:#22312d}
 .dark .receipt-upload-chip{background:#16221f;border-color:#22312d;color:var(--ink)}
+.dark .purchase-save-card{background:linear-gradient(180deg,rgba(22,34,31,0.96),rgba(16,27,24,0.96));border-color:#2b4a42}
 .dark .receipt-tag,
 .dark .receipt-line-pill{background:#16221f;border-color:#22312d;color:var(--ink)}
 .dark .receipt-photo-card img,
@@ -1150,6 +1156,7 @@ body:not(.panel-open) .drawer-floating-close{display:none}
   .receipt-viewer-grid{grid-template-columns:1fr}
   .receipt-viewer-card img{max-height:300px}
   .receipt-upload-actions{flex-direction:column}
+  .purchase-save-head{flex-direction:column}
   .receipt-thumb-btn{width:58px;height:58px}
   .receipt-tag-list{gap:4px}
 }
