@@ -9,6 +9,8 @@ let receiptPhotos = [];
 let receiptPhotoProcessing = false;
 let purchaseSubmitInFlight = false;
 let pendingPurchaseBatchId = '';
+let purchaseLastSyncTs = null;
+let purchaseRefreshInFlight = false;
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const SESSION_KEY = 'sessionUser';
 const MAX_RECEIPT_PHOTOS = 2;
@@ -195,6 +197,37 @@ function setReceiptPhotoMessage(message = '', tone = ''){
   if(tone) cls.push(tone);
   el.className = cls.join(' ');
   el.textContent = message;
+}
+
+function setPurchaseFormMessage(message = '', tone = ''){
+  const el = document.getElementById('purchaseFormMsg');
+  if(!el) return;
+  const cls = ['field-hint'];
+  if(tone) cls.push(tone);
+  el.className = cls.join(' ');
+  el.textContent = message;
+}
+
+function updatePurchaseSyncStatus(offline, ts){
+  const el = document.getElementById('purchaseSyncStatus');
+  if(!el) return;
+  if(ts) purchaseLastSyncTs = ts;
+  if(offline){
+    el.textContent = purchaseLastSyncTs ? `Offline | Last sync ${utils.formatDateTime?.(purchaseLastSyncTs) || ''}` : 'Offline';
+    el.classList.add('offline');
+  }else{
+    el.textContent = purchaseLastSyncTs ? `Online | Synced ${utils.formatDateTime?.(purchaseLastSyncTs) || ''}` : 'Online';
+    el.classList.remove('offline');
+  }
+}
+
+function setPurchaseRefreshState(isRefreshing){
+  purchaseRefreshInFlight = !!isRefreshing;
+  const button = document.getElementById('purchaseRefreshBtn');
+  if(button){
+    button.disabled = purchaseRefreshInFlight;
+    button.textContent = purchaseRefreshInFlight ? 'Refreshing...' : 'Refresh Data';
+  }
 }
 
 function getSavedReceiptPhotosFromResponse(data){
@@ -1253,6 +1286,8 @@ function openReceiptModal(index){
 }
 
 async function refreshPurchaseRows(){
+  if(purchaseRefreshInFlight) return;
+  setPurchaseRefreshState(true);
   const statusEl = document.getElementById('purchaseTableStatus');
   if(statusEl) statusEl.textContent = 'Loading field purchases...';
   try{
@@ -1268,12 +1303,16 @@ async function refreshPurchaseRows(){
     }
     updatePurchaseProjectFilter(purchaseRowsCache);
     renderPurchaseTable();
+    updatePurchaseSyncStatus(false, Date.now());
   }catch(e){
     purchaseRowsCache = [];
     filteredPurchaseRows = [];
     updatePurchaseProjectFilter([]);
     renderPurchaseTable();
     if(statusEl) statusEl.textContent = 'Unable to load field purchases.';
+    updatePurchaseSyncStatus(true, purchaseLastSyncTs);
+  }finally{
+    setPurchaseRefreshState(false);
   }
 }
 
@@ -1398,8 +1437,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('purchaseDownloadReceipts')?.addEventListener('click', (event)=>{
     event.preventDefault();
     downloadReceiptPack().catch(()=>{
-      alert('Unable to download the receipt pack right now.');
+      setPurchaseFormMessage('Unable to download the receipt pack right now.', 'warn');
     });
+  });
+  document.getElementById('purchaseRefreshBtn')?.addEventListener('click', ()=>{
+    setPurchaseFormMessage('');
+    refreshPurchaseRows();
   });
 
   const addBtn = document.getElementById('purchase-addLine');
@@ -1413,6 +1456,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   addLine();
   renderReceiptPhotoPreview();
   renderPurchaseSaveVerification();
+  updatePurchaseSyncStatus(!navigator.onLine, purchaseLastSyncTs);
+  window.addEventListener('online', ()=> updatePurchaseSyncStatus(false, purchaseLastSyncTs));
+  window.addEventListener('offline', ()=> updatePurchaseSyncStatus(true, purchaseLastSyncTs));
 
   const receiptModal = document.getElementById('purchaseReceiptModal');
   receiptModal?.addEventListener('click', (event)=>{
@@ -1427,7 +1473,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     event.preventDefault();
     if(purchaseSubmitInFlight) return;
     if(receiptPhotoProcessing){
-      alert('Receipt photos are still being prepared. Please wait a moment and submit again.');
+      setPurchaseFormMessage('Receipt photos are still being prepared. Please wait a moment and submit again.', 'warn');
       return;
     }
     const submittedReceiptPhotoCount = receiptPhotos.length;
@@ -1438,17 +1484,19 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const vendor = document.getElementById('purchase-vendor').value.trim();
     const receipt = document.getElementById('purchase-receipt').value.trim();
     const notes = document.getElementById('purchase-notes').value.trim();
-    if(!lines.length){ alert('Add at least one line'); return; }
+    if(!lines.length){ setPurchaseFormMessage('Add at least one line before logging the purchase.', 'warn'); return; }
     const missingName = lines.find((line)=> !itemsCache.find((item)=> item.code === line.code) && !line.name);
-    if(missingName){ alert(`Name is required for new item ${missingName.code}`); return; }
+    if(missingName){ setPurchaseFormMessage(`Name is required for new item ${missingName.code}.`, 'warn'); return; }
     if(!pendingPurchaseBatchId) pendingPurchaseBatchId = `field-purchase-${uid()}`;
     purchaseSubmitInFlight = true;
+    setPurchaseFormMessage('Saving field purchase...', 'ok');
     syncReceiptPhotoControls();
     try{
-      const response = await fetch('/api/field-purchase', {
+      const result = await utils.requestJson('/api/field-purchase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        timeoutMs: 30000,
+        fallbackError: 'Failed to log purchase.',
+        json: {
           batchId: pendingPurchaseBatchId,
           lines,
           jobId,
@@ -1466,10 +1514,10 @@ document.addEventListener('DOMContentLoaded', async ()=>{
           notes,
           userEmail: session?.email,
           userName: session?.name
-        })
+        }
       });
-      const data = await response.json().catch(()=>({}));
-      if(!response.ok){
+      const data = result.data || {};
+      if(!result.ok){
         renderPurchaseSaveVerification({
           batchId: pendingPurchaseBatchId,
           count: lines.length,
@@ -1477,7 +1525,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
           savedReceiptPhotoCount: Number(data?.savedReceiptPhotoCount || 0),
           requestFailed: true
         });
-        alert(data.error || 'Failed to log purchase');
+        setPurchaseFormMessage(result.error || 'Failed to log purchase.', 'warn');
         return;
       }
       renderPurchaseSaveVerification({
@@ -1485,7 +1533,9 @@ document.addEventListener('DOMContentLoaded', async ()=>{
         submittedReceiptPhotoCount
       });
       if(submittedReceiptPhotoCount && !Number(data?.savedReceiptPhotoCount || 0)){
-        alert('Purchase logged, but the server did not confirm any saved receipt photos for that batch.');
+        setPurchaseFormMessage('Purchase logged, but the server did not confirm any saved receipt photo for that batch.', 'warn');
+      }else{
+        setPurchaseFormMessage(`Logged ${data.count} purchase(s).${submittedReceiptPhotoCount ? ` Saved receipt photos: ${Number(data?.savedReceiptPhotoCount || 0)}.` : ''}`, 'ok');
       }
       pendingPurchaseBatchId = '';
       form.reset();
@@ -1495,12 +1545,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       addLine();
       await loadItems();
       await refreshPurchaseRows();
-      const photoNote = submittedReceiptPhotoCount
-        ? ` Saved receipt photos: ${Number(data?.savedReceiptPhotoCount || 0)}.`
-        : '';
-      alert(`Logged ${data.count} purchase(s).${photoNote}`);
     }catch(e){
-      alert('Failed to log purchase');
+      setPurchaseFormMessage('Network timeout before confirmation. Refresh the purchase log to confirm whether the batch saved.', 'warn');
     }finally{
       purchaseSubmitInFlight = false;
       syncReceiptPhotoControls();

@@ -8,6 +8,24 @@ function getSession(){
 }
 
 function uid(){ return Math.random().toString(16).slice(2,8); }
+function setStatusMessage(target, message = '', tone = ''){
+  const el = typeof target === 'string' ? document.getElementById(target) : target;
+  if(!el) return;
+  el.className = tone ? `field-hint ${tone}` : 'field-hint';
+  el.textContent = message;
+}
+function getStableRequestBatchKey(formId, prefix){
+  const form = document.getElementById(formId);
+  if(!form) return utils?.makeRequestKey?.(prefix) || `${prefix}-${Date.now()}`;
+  if(!form.dataset.requestBatchKey){
+    form.dataset.requestBatchKey = utils?.makeRequestKey?.(prefix) || `${prefix}-${Date.now()}`;
+  }
+  return form.dataset.requestBatchKey;
+}
+function clearStableRequestBatchKey(formId){
+  const form = document.getElementById(formId);
+  if(form) delete form.dataset.requestBatchKey;
+}
 
 let itemsCache = [];
 let suppliersCache = [];
@@ -413,7 +431,7 @@ async function copyTextToClipboard(text){
   return !!ok;
 }
 
-async function reserveInventoryBeforeOrdering(lines, notes, session){
+async function reserveInventoryBeforeOrdering(lines, notes, session, requestBatchKey = ''){
   const grouped = new Map();
   for(const line of lines || []){
     const jobId = normalizeJobId(line.jobId || '');
@@ -421,21 +439,23 @@ async function reserveInventoryBeforeOrdering(lines, notes, session){
     if(!grouped.has(jobId)) grouped.set(jobId, []);
     grouped.get(jobId).push({ code: line.code, qty: Number(line.inventoryQty), jobMaterialId: line.jobMaterialId || '' });
   }
+  let groupIndex = 0;
   for(const [jobId, groupedLines] of grouped.entries()){
-    const response = await fetch('/api/inventory-reserve/bulk', {
+    groupIndex += 1;
+    const result = await utils.requestJson('/api/inventory-reserve/bulk', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      fallbackError: 'Failed to reserve available inventory before ordering.',
+      json: {
         jobId,
         notes: notes || 'Allocated from available inventory before procurement order',
         lines: groupedLines,
         userEmail: session.email,
-        userName: session.name
-      })
+        userName: session.name,
+        requestKey: requestBatchKey ? `${requestBatchKey}-reserve-${groupIndex}` : undefined
+      }
     });
-    const data = await response.json().catch(()=> ({}));
-    if(!response.ok){
-      return { ok: false, error: data.error || 'Failed to reserve available inventory' };
+    if(!result.ok){
+      return { ok: false, error: result.error || 'Failed to reserve available inventory before ordering.' };
     }
   }
   return { ok: true };
@@ -468,21 +488,20 @@ async function ensureCatalogItems(lines){
 
   if(!missingByCode.size) return { ok: true, created: 0 };
 
-  const response = await fetch('/api/items/bulk', {
+  const response = await utils.requestJson('/api/items/bulk', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items: Array.from(missingByCode.values()) })
+    fallbackError: 'Failed to add new items to the catalog.',
+    json: { items: Array.from(missingByCode.values()) }
   });
-  const data = await response.json().catch(()=>({}));
   if(!response.ok){
-    return { ok: false, error: data.error || 'Failed to add new items to catalog' };
+    return { ok: false, error: response.error || 'Failed to add new items to the catalog.' };
   }
 
   await loadItems();
   await loadSuppliers();
   refreshOrderLineSupplierOptions();
   refreshReserveSkuDatalist();
-  return { ok: true, created: Number(data.count || missingByCode.size) || missingByCode.size };
+  return { ok: true, created: Number(response.data?.count || missingByCode.size) || missingByCode.size };
 }
 
 function refreshSkuDatalist(){
@@ -781,7 +800,13 @@ function openReviewModal(lines, clearAll){
   const autoReserve = document.getElementById('order-auto-reserve')?.checked;
   const plan = buildProcurementPlan(lines);
 
-  pendingSubmit = { lines, clearAll, autoReserve, plan };
+  pendingSubmit = {
+    lines,
+    clearAll,
+    autoReserve,
+    plan,
+    requestBatchKey: pendingSubmit?.requestBatchKey || utils?.makeRequestKey?.('procure-submit') || `procure-submit-${Date.now()}`
+  };
   tbody.innerHTML = '';
   plan.plannedLines.forEach(line=>{
     const tr = document.createElement('tr');
@@ -981,10 +1006,10 @@ function openShoppingModal(lines){
 
 async function submitOrders(lines, clearAll){
   const msg = document.getElementById('orderMsg');
-  if(msg) msg.textContent = '';
+  setStatusMessage(msg);
   const session = getSession();
   if(!session || session.role !== 'admin'){
-    if(msg){ msg.style.color = '#b91c1c'; msg.textContent = 'Admin only'; }
+    setStatusMessage(msg, 'Admin only.', 'error');
     return false;
   }
 
@@ -1001,45 +1026,57 @@ async function submitOrders(lines, clearAll){
     notes,
     autoReserve
   }));
+  const requestBatchKey = pendingSubmit?.requestBatchKey || getStableRequestBatchKey('orderForm', 'procure-submit');
+  const submitBtn = document.getElementById('orderSubmitBtn');
+  const submitAnotherBtn = document.getElementById('orderSubmitAnother');
+  const reviewConfirmBtn = document.getElementById('orderReviewConfirm');
 
   try{
     const catalogResult = await ensureCatalogItems(lines);
     if(!catalogResult.ok){
-      if(msg){ msg.style.color = '#b91c1c'; msg.textContent = catalogResult.error; }
+      setStatusMessage(msg, catalogResult.error, 'error');
       return false;
     }
+    if(submitBtn) submitBtn.disabled = true;
+    if(submitAnotherBtn) submitAnotherBtn.disabled = true;
+    if(reviewConfirmBtn){
+      reviewConfirmBtn.disabled = true;
+      reviewConfirmBtn.textContent = 'Submitting...';
+    }
     if(plan.reserveLines.length){
-      const reserveResult = await reserveInventoryBeforeOrdering(plan.reserveLines, notes, session);
+      const reserveResult = await reserveInventoryBeforeOrdering(plan.reserveLines, notes, session, requestBatchKey);
       if(!reserveResult.ok){
-        if(msg){ msg.style.color = '#b91c1c'; msg.textContent = reserveResult.error; }
+        setStatusMessage(msg, reserveResult.error, 'error');
         return false;
       }
     }
     let orderedCount = 0;
+    let orderedDeduped = 0;
     if(payload.length){
-      const r = await fetch('/api/inventory-order/bulk',{
+      const result = await utils.requestJson('/api/inventory-order/bulk',{
         method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ orders: payload, userEmail: session.email, userName: session.name })
+        fallbackError: 'Failed to register procurement orders.',
+        json: { orders: payload, userEmail: session.email, userName: session.name, requestKey: `${requestBatchKey}-orders` }
       });
-      const data = await r.json().catch(()=>({}));
-      if(!r.ok){
-        if(msg){ msg.style.color = '#b91c1c'; msg.textContent = data.error || 'Failed to register orders'; }
+      if(!result.ok){
+        setStatusMessage(msg, result.error || 'Failed to register procurement orders.', 'error');
         return false;
       }
-      orderedCount = Number(data.count || payload.length) || payload.length;
+      orderedCount = Number(result.data?.count || payload.length) || payload.length;
+      orderedDeduped = result.data?.deduped ? payload.length : 0;
     }
-    if(msg){
-      msg.style.color = '#15803d';
-      const reservedUnits = plan.reserveLines.reduce((sum,line)=> sum + (Number(line.inventoryQty) || 0), 0);
-      const orderedUnits = plan.orderLines.reduce((sum,line)=> sum + (Number(line.orderQty) || 0), 0);
-      msg.textContent = `Allocated ${reservedUnits} from inventory and registered ${orderedCount} orders (${orderedUnits} units).`;
-      if(!plan.reserveLines.length){
-        msg.textContent = `Registered ${orderedCount} orders (${orderedUnits} units).`;
-      }else if(!payload.length){
-        msg.textContent = `Allocated ${reservedUnits} units from inventory. No procurement order needed.`;
-      }
+    const reservedUnits = plan.reserveLines.reduce((sum,line)=> sum + (Number(line.inventoryQty) || 0), 0);
+    const orderedUnits = plan.orderLines.reduce((sum,line)=> sum + (Number(line.orderQty) || 0), 0);
+    let successMessage = `Allocated ${reservedUnits} from inventory and registered ${orderedCount} orders (${orderedUnits} units).`;
+    if(!plan.reserveLines.length){
+      successMessage = `Registered ${orderedCount} orders (${orderedUnits} units).`;
+    }else if(!payload.length){
+      successMessage = `Allocated ${reservedUnits} units from inventory. No procurement order needed.`;
     }
+    if(orderedDeduped){
+      successMessage += ' Existing procurement order batch was detected and was not duplicated.';
+    }
+    setStatusMessage(msg, successMessage, 'ok');
 
     const keepJob = document.getElementById('order-stick-job')?.checked;
     const defaultJob = document.getElementById('orderJob')?.value || '';
@@ -1050,14 +1087,22 @@ async function submitOrders(lines, clearAll){
       if(defaultEta) document.getElementById('orderEta').value = defaultEta;
     }
     clearOrderLines();
+    clearStableRequestBatchKey('orderForm');
     if(keepJob) document.getElementById('orderJob').value = defaultJob;
 
     await renderRecentOrders();
     await refreshInventoryAvailability();
     return true;
   }catch(e){
-    if(msg){ msg.style.color = '#b91c1c'; msg.textContent = 'Failed to register orders'; }
+    setStatusMessage(msg, utils.normalizeRequestError?.(e.message, 'Failed to register procurement orders.') || 'Failed to register procurement orders.', 'error');
     return false;
+  }finally{
+    if(submitBtn) submitBtn.disabled = false;
+    if(submitAnotherBtn) submitAnotherBtn.disabled = false;
+    if(reviewConfirmBtn){
+      reviewConfirmBtn.disabled = false;
+      reviewConfirmBtn.textContent = 'Confirm';
+    }
   }
 }
 
@@ -1243,11 +1288,10 @@ function initOrders(){
 
   addLineBtn?.addEventListener('click', ()=> addOrderLine());
   shoppingListBtn?.addEventListener('click', ()=>{
-    msg.textContent = '';
+    setStatusMessage(msg);
     const { lines, hasError } = gatherOrderLines();
     if(hasError){
-      msg.style.color = '#b91c1c';
-      msg.textContent = 'Fix the highlighted lines before opening the shopping list.';
+      setStatusMessage(msg, 'Fix the highlighted lines before opening the shopping list.', 'error');
       return;
     }
     openShoppingModal(lines);
@@ -1265,30 +1309,29 @@ function initOrders(){
 
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
-    msg.textContent = '';
+    setStatusMessage(msg);
     const { lines, hasError } = gatherOrderLines();
     if(hasError){
-      msg.style.color = '#b91c1c';
-      msg.textContent = 'Fix the highlighted lines before submitting.';
+      setStatusMessage(msg, 'Fix the highlighted lines before submitting.', 'error');
       return;
     }
     openReviewModal(lines, true);
   });
 
   submitAnother?.addEventListener('click', async ()=>{
-    msg.textContent = '';
+    setStatusMessage(msg);
     const { lines, hasError } = gatherOrderLines();
     if(hasError){
-      msg.style.color = '#b91c1c';
-      msg.textContent = 'Fix the highlighted lines before submitting.';
+      setStatusMessage(msg, 'Fix the highlighted lines before submitting.', 'error');
       return;
     }
     openReviewModal(lines, false);
   });
 
   clearBtn?.addEventListener('click', ()=>{
+    clearStableRequestBatchKey('orderForm');
     form.reset();
-    msg.textContent = '';
+    setStatusMessage(msg);
     clearOrderLines();
     closeShoppingModal();
   });
@@ -1302,7 +1345,7 @@ function initOrders(){
     if(!bulkArea?.value.trim()) return;
     const parsed = parseBulkOrders(bulkArea.value.trim());
     if(!parsed.length){
-      if(msg){ msg.style.color = '#b91c1c'; msg.textContent = 'No valid lines found'; }
+      setStatusMessage(msg, 'No valid bulk lines found.', 'error');
       return;
     }
     parsed.forEach(line=> addOrderLine(line));
@@ -1310,17 +1353,16 @@ function initOrders(){
   });
 
   bulkApplyBtn?.addEventListener('click', async ()=>{
-    msg.textContent = '';
+    setStatusMessage(msg);
     if(!bulkArea?.value.trim()) return;
       const parsed = parseBulkOrders(bulkArea.value.trim());
       if(!parsed.length){
-        msg.style.color = '#b91c1c'; msg.textContent = 'No valid lines found';
+        setStatusMessage(msg, 'No valid bulk lines found.', 'error');
         return;
       }
       const catalogResult = await ensureCatalogItems(parsed);
       if(!catalogResult.ok){
-        msg.style.color = '#b91c1c';
-        msg.textContent = catalogResult.error;
+        setStatusMessage(msg, catalogResult.error, 'error');
         return;
       }
       const defaultEta = document.getElementById('orderEta')?.value || '';
@@ -1351,37 +1393,45 @@ function initOrders(){
       }));
     const session = getSession();
     if(!session || session.role !== 'admin'){
-      msg.style.color = '#b91c1c'; msg.textContent = 'Admin only';
+      setStatusMessage(msg, 'Admin only.', 'error');
       return;
     }
+    const bulkRequestKey = getStableRequestBatchKey('orderForm', 'procure-bulk');
     try{
       if(plan.reserveLines.length){
-        const reserveResult = await reserveInventoryBeforeOrdering(plan.reserveLines, notes, session);
-        if(!reserveResult.ok){ msg.style.color = '#b91c1c'; msg.textContent = reserveResult.error; return; }
+        const reserveResult = await reserveInventoryBeforeOrdering(plan.reserveLines, notes, session, bulkRequestKey);
+        if(!reserveResult.ok){ setStatusMessage(msg, reserveResult.error, 'error'); return; }
       }
       let orderedCount = 0;
+      let orderedDeduped = false;
       if(payload.length){
-        const r = await fetch('/api/inventory-order/bulk',{
+        const result = await utils.requestJson('/api/inventory-order/bulk',{
           method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ orders: payload, userEmail: session.email, userName: session.name })
+          fallbackError: 'Bulk procurement submit failed.',
+          json: { orders: payload, userEmail: session.email, userName: session.name, requestKey: `${bulkRequestKey}-orders` }
         });
-        const data = await r.json().catch(()=>({}));
-        if(!r.ok){ msg.style.color = '#b91c1c'; msg.textContent = data.error || 'Bulk failed'; return; }
-        orderedCount = Number(data.count || payload.length) || payload.length;
+        if(!result.ok){ setStatusMessage(msg, result.error || 'Bulk procurement submit failed.', 'error'); return; }
+        orderedCount = Number(result.data?.count || payload.length) || payload.length;
+        orderedDeduped = !!result.data?.deduped;
       }
       const reservedUnits = plan.reserveLines.reduce((sum,line)=> sum + (Number(line.inventoryQty) || 0), 0);
       const orderedUnits = plan.orderLines.reduce((sum,line)=> sum + (Number(line.orderQty) || 0), 0);
-      msg.style.color = '#15803d';
-      msg.textContent = !plan.reserveLines.length
+      let successMessage = !plan.reserveLines.length
         ? `Registered ${orderedCount} orders (${orderedUnits} units)`
         : !payload.length
           ? `Allocated ${reservedUnits} units from inventory. No procurement order needed.`
           : `Allocated ${reservedUnits} from inventory and registered ${orderedCount} orders (${orderedUnits} units)`;
+      if(orderedDeduped){
+        successMessage += '. Existing procurement order batch was detected and was not duplicated.';
+      }
+      setStatusMessage(msg, successMessage, 'ok');
       bulkArea.value = '';
+      clearStableRequestBatchKey('orderForm');
       await renderRecentOrders();
       await refreshInventoryAvailability();
-    }catch(e){ msg.style.color = '#b91c1c'; msg.textContent = 'Bulk failed'; }
+    }catch(e){
+      setStatusMessage(msg, utils.normalizeRequestError?.(e.message, 'Bulk procurement submit failed.') || 'Bulk procurement submit failed.', 'error');
+    }
   });
 
   bulkClearBtn?.addEventListener('click', ()=>{ if(bulkArea) bulkArea.value = ''; });
@@ -1546,38 +1596,69 @@ function initReserve(){
 
   reserveForm?.addEventListener('submit', async ev=>{
     ev.preventDefault();
-    reserveMsg.textContent = '';
+    setStatusMessage(reserveMsg);
     const session = getSession();
-    if(!session || session.role !== 'admin'){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'Admin only'; return; }
+    if(!session || session.role !== 'admin'){ setStatusMessage(reserveMsg, 'Admin only.', 'error'); return; }
     const jobId = document.getElementById('reserve-jobId').value.trim();
     const returnDate = document.getElementById('reserve-returnDate').value;
     const notes = document.getElementById('reserve-notes').value.trim();
     const lines = gatherReserve();
-    if(!jobId){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'Project is required'; return; }
-    if(!lines.length){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'Add at least one line'; return; }
+    if(!jobId){ setStatusMessage(reserveMsg, 'Project is required.', 'error'); return; }
+    if(!lines.length){ setStatusMessage(reserveMsg, 'Add at least one line.', 'error'); return; }
     const missing = lines.find(line=> !itemsCache.find(i=> i.code.toLowerCase() === line.code.toLowerCase()));
-    if(missing){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = `Unknown item code: ${missing.code}`; return; }
+    if(missing){ setStatusMessage(reserveMsg, `Unknown item code: ${missing.code}`, 'error'); return; }
     const locationPayload = getInventoryLocationPayload('reserve-location');
+    const batchKey = getStableRequestBatchKey('reserveForm', 'procure-reserve');
+    const reserveBtn = document.getElementById('reserveBtn');
 
     let okAll = true;
-    for(const line of lines){
-      const r = await fetch('/api/inventory-reserve',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ code: line.code, jobId, qty: line.qty, returnDate, notes, ...locationPayload, userEmail: session.email, userName: session.name })
-      });
-      if(!r.ok){
-        const data = await r.json().catch(()=>({ error: 'Failed' }));
-        reserveMsg.style.color = '#b91c1c';
-        reserveMsg.textContent = data.error || 'Failed to reserve';
-        okAll = false;
-        break;
-      }
+    let dedupedCount = 0;
+    if(reserveBtn){
+      reserveBtn.disabled = true;
+      reserveBtn.textContent = 'Reserving...';
     }
-    if(okAll){
-      reserveMsg.style.color = '#15803d'; reserveMsg.textContent = 'Reserved';
-      await refreshInventoryAvailability();
-      reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); renderReserves();
+    try{
+      for(let index = 0; index < lines.length; index += 1){
+        const line = lines[index];
+        const result = await utils.requestJson('/api/inventory-reserve',{
+          method:'POST',
+          fallbackError: 'Failed to reserve inventory.',
+          json: {
+            code: line.code,
+            jobId,
+            qty: line.qty,
+            returnDate,
+            notes,
+            ...locationPayload,
+            userEmail: session.email,
+            userName: session.name,
+            requestKey: `${batchKey}-line-${index + 1}`
+          }
+        });
+        if(!result.ok){
+          setStatusMessage(reserveMsg, result.error || 'Failed to reserve inventory.', 'error');
+          okAll = false;
+          break;
+        }
+        if(result.data?.deduped) dedupedCount += 1;
+      }
+      if(okAll){
+        setStatusMessage(
+          reserveMsg,
+          dedupedCount
+            ? `Reservation saved. ${dedupedCount} line${dedupedCount === 1 ? '' : 's'} were already reserved and were not duplicated.`
+            : 'Reserved successfully.',
+          'ok'
+        );
+        await refreshInventoryAvailability();
+        clearStableRequestBatchKey('reserveForm');
+        reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); renderReserves();
+      }
+    }finally{
+      if(reserveBtn){
+        reserveBtn.disabled = false;
+        reserveBtn.textContent = 'Reserve';
+      }
     }
   });
 
@@ -1598,18 +1679,18 @@ function initReserve(){
       if(!code || !qty) continue;
       payload.push({ code, qty: Number(qty) });
     }
-    if(!payload.length){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'No valid lines'; return; }
+    if(!payload.length){ setStatusMessage(reserveMsg, 'No valid lines.', 'error'); return; }
     payload.forEach(line=> addReserveLine(line));
     reserveBulkArea.value = '';
   });
 
   if(reserveBulkBtn && reserveBulkArea){
     reserveBulkBtn.addEventListener('click', async ()=>{
-      reserveMsg.textContent = '';
+      setStatusMessage(reserveMsg);
       const session = getSession();
-      if(!session || session.role !== 'admin'){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'Admin only'; return; }
+      if(!session || session.role !== 'admin'){ setStatusMessage(reserveMsg, 'Admin only.', 'error'); return; }
       const jobId = document.getElementById('reserve-jobId').value.trim();
-      if(!jobId){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'Project is required'; return; }
+      if(!jobId){ setStatusMessage(reserveMsg, 'Project is required.', 'error'); return; }
       const returnDate = document.getElementById('reserve-returnDate').value;
       const notes = document.getElementById('reserve-notes').value.trim();
       const locationPayload = getInventoryLocationPayload('reserve-location');
@@ -1622,19 +1703,26 @@ function initReserve(){
         if(!code || !qty) continue;
         payload.push({ code, qty: Number(qty) });
       }
-      if(!payload.length){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'No valid lines'; return; }
+      if(!payload.length){ setStatusMessage(reserveMsg, 'No valid lines.', 'error'); return; }
+      const bulkKey = getStableRequestBatchKey('reserveForm', 'procure-reserve-bulk');
       try{
-        const r = await fetch('/api/inventory-reserve/bulk',{
+        const result = await utils.requestJson('/api/inventory-reserve/bulk',{
           method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ jobId, returnDate, notes, lines: payload, ...locationPayload, userEmail: session.email, userName: session.name })
+          fallbackError: 'Bulk reserve failed.',
+          json: { jobId, returnDate, notes, lines: payload, ...locationPayload, userEmail: session.email, userName: session.name, requestKey: `${bulkKey}-lines` }
         });
-        const data = await r.json().catch(()=>({}));
-        if(!r.ok){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = data.error || 'Bulk reserve failed'; return; }
-        reserveMsg.style.color = '#15803d'; reserveMsg.textContent = `Reserved ${data.count} lines`;
+        if(!result.ok){ setStatusMessage(reserveMsg, result.error || 'Bulk reserve failed.', 'error'); return; }
+        setStatusMessage(
+          reserveMsg,
+          result.data?.deduped
+            ? `Bulk reserve confirmed. Existing reservation batch was detected and was not duplicated.`
+            : `Reserved ${result.data?.count || payload.length} lines.`,
+          'ok'
+        );
         await refreshInventoryAvailability();
+        clearStableRequestBatchKey('reserveForm');
         reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); reserveBulkArea.value=''; renderReserves();
-      }catch(e){ reserveMsg.style.color = '#b91c1c'; reserveMsg.textContent = 'Bulk reserve failed'; }
+      }catch(e){ setStatusMessage(reserveMsg, utils.normalizeRequestError?.(e.message, 'Bulk reserve failed.') || 'Bulk reserve failed.', 'error'); }
     });
     document.getElementById('reserve-bulk-clear')?.addEventListener('click', ()=>{ reserveBulkArea.value=''; });
   }
@@ -1654,36 +1742,40 @@ function initReassign(){
   }
   form.addEventListener('submit', async ev=>{
     ev.preventDefault();
-    msg.textContent = '';
+    setStatusMessage(msg);
     const session = getSession();
-    if(!session || session.role !== 'admin'){ msg.style.color = '#b91c1c'; msg.textContent = 'Admin only'; return; }
+    if(!session || session.role !== 'admin'){ setStatusMessage(msg, 'Admin only.', 'error'); return; }
     const code = document.getElementById('reassign-code').value.trim();
     const fromJobId = document.getElementById('reassign-from').value.trim();
     const toJobId = document.getElementById('reassign-to').value.trim();
     const qty = parseInt(document.getElementById('reassign-qty').value, 10) || 0;
     const reason = document.getElementById('reassign-reason').value.trim();
     if(!code || !fromJobId || qty <= 0 || !reason){
-      msg.style.color = '#b91c1c';
-      msg.textContent = 'Code, from project, qty, and reason are required';
+      setStatusMessage(msg, 'Code, from project, qty, and reason are required.', 'error');
       return;
     }
+    const batchKey = getStableRequestBatchKey('reassignForm', 'procure-reassign');
     try{
-      const r = await fetch('/api/inventory-reassign', {
+      const result = await utils.requestJson('/api/inventory-reassign', {
         method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ code, fromJobId, toJobId, qty, reason, userEmail: session.email, userName: session.name })
+        fallbackError: 'Failed to reassign reserved stock.',
+        json: { code, fromJobId, toJobId, qty, reason, userEmail: session.email, userName: session.name, requestKey: `${batchKey}-move` }
       });
-      const data = await r.json().catch(()=>({}));
-      if(!r.ok){ msg.style.color = '#b91c1c'; msg.textContent = data.error || 'Reassign failed'; return; }
-      msg.style.color = '#15803d'; msg.textContent = 'Reassigned reserved stock';
+      if(!result.ok){ setStatusMessage(msg, result.error || 'Failed to reassign reserved stock.', 'error'); return; }
+      setStatusMessage(
+        msg,
+        result.data?.deduped ? 'Reserved stock was already reassigned for this request and was not duplicated.' : 'Reassigned reserved stock successfully.',
+        'ok'
+      );
+      clearStableRequestBatchKey('reassignForm');
       form.reset();
       await refreshInventoryAvailability();
       document.getElementById('reserveFilter')?.dispatchEvent(new Event('input'));
     }catch(e){
-      msg.style.color = '#b91c1c'; msg.textContent = 'Reassign failed';
+      setStatusMessage(msg, utils.normalizeRequestError?.(e.message, 'Failed to reassign reserved stock.') || 'Failed to reassign reserved stock.', 'error');
     }
   });
-  clearBtn?.addEventListener('click', ()=>{ form.reset(); msg.textContent=''; });
+  clearBtn?.addEventListener('click', ()=>{ clearStableRequestBatchKey('reassignForm'); form.reset(); setStatusMessage(msg); });
 }
 
 function initFilterButtons(){

@@ -97,6 +97,7 @@
             <button id="purchaseBtn" type="submit">Log Purchase</button>
             <button id="purchase-clearBtn" type="button" class="muted">Clear All</button>
           </div>
+          <div id="purchaseFormMsg" class="field-hint"></div>
           <section id="purchase-saveVerification" class="purchase-save-card hidden" aria-live="polite">
             <div class="purchase-save-head">
               <div>
@@ -131,8 +132,16 @@
       </section>
 
       <section class="card">
-        <h3 style="margin:0;">Field Purchase Log</h3>
-        <p class="muted-text" style="margin:6px 0 10px 0;">Review receipt batches with photos, item summaries, and an exportable receipt pack.</p>
+        <div class="card-header">
+          <div>
+            <h3 style="margin:0;">Field Purchase Log</h3>
+            <p class="muted-text" style="margin:6px 0 10px 0;">Review receipt batches with photos, item summaries, and an exportable receipt pack.</p>
+          </div>
+          <div class="sync-row">
+            <div class="sync-chip" id="purchaseSyncStatus" aria-live="polite"></div>
+            <button id="purchaseRefreshBtn" type="button" class="muted">Refresh Data</button>
+          </div>
+        </div>
         <div class="report-controls">
           <div class="report-controls-main">
             <label>Search

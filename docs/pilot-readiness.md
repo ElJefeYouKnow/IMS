@@ -54,6 +54,61 @@ The smoke runner covers:
 - field purchase list load
 - inventory load
 
+## Admin Export Routine
+
+Before pilot open and after pilot close, use `Settings > Pilot Tools` and download:
+- Full Snapshot
+- Inventory CSV
+- Purchase History CSV
+- Suppliers CSV
+- Locations CSV
+
+Recommended habit:
+1. Export once before the team starts work.
+2. Export again after close.
+3. Save both export sets in a dated folder, for example `pilot-backups/2026-04-04-open` and `pilot-backups/2026-04-04-close`.
+
+## DB Backup Routine
+
+Use this when you want an actual Postgres backup in addition to the in-app exports.
+
+Default local connection in this repo:
+
+```powershell
+$env:DATABASE_URL='postgres://postgres:postgres@localhost:5432/ims'
+```
+
+Create a compressed backup:
+
+```powershell
+$stamp = Get-Date -Format 'yyyy-MM-dd_HH-mm'
+pg_dump --format=custom --file "backups\\ims_$stamp.dump" $env:DATABASE_URL
+```
+
+Create a plain SQL backup:
+
+```powershell
+$stamp = Get-Date -Format 'yyyy-MM-dd_HH-mm'
+pg_dump --file "backups\\ims_$stamp.sql" $env:DATABASE_URL
+```
+
+Restore a custom-format backup:
+
+```powershell
+pg_restore --clean --if-exists --dbname $env:DATABASE_URL "backups\\ims_YYYY-MM-DD_HH-mm.dump"
+```
+
+Restore a plain SQL backup:
+
+```powershell
+psql $env:DATABASE_URL -f "backups\\ims_YYYY-MM-DD_HH-mm.sql"
+```
+
+Minimum pilot rule:
+- take one DB backup before the first live day
+- take one DB backup after any schema or server update
+- take one DB backup at the end of each pilot day if transactions matter
+
 ## Go / No-Go
 
 Pilot ready means:

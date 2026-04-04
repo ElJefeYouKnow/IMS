@@ -3459,6 +3459,37 @@ function actorInfo(req) {
   const user = req.user || {};
   return { userEmail: user.email || '', userName: user.name || '' };
 }
+function readInventoryRequestKey(req) {
+  return String(
+    req.body?.requestKey
+    || req.body?.requestId
+    || req.body?.clientRequestId
+    || req.get('x-request-id')
+    || ''
+  ).trim().slice(0, 160);
+}
+function withRequestKeyMeta(sourceMeta, requestKey, operation) {
+  if (!requestKey) return sourceMeta || null;
+  const base = sourceMeta && typeof sourceMeta === 'object' ? { ...sourceMeta } : {};
+  base.requestKey = requestKey;
+  if (operation && !base.operation) base.operation = operation;
+  return base;
+}
+async function lockInventoryRequestTx(client, tenantIdVal, requestKey) {
+  if (!requestKey) return;
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`${tenantIdVal}:${requestKey}`]);
+}
+async function findInventoryEventsByRequestKeyTx(client, tenantIdVal, requestKey) {
+  if (!requestKey) return [];
+  const rows = await client.query(
+    `SELECT * FROM inventory
+     WHERE tenantId=$1
+       AND COALESCE(sourceMeta->>'requestKey','')=$2
+     ORDER BY ts ASC, id ASC`,
+    [tenantIdVal, requestKey]
+  );
+  return rows.rows || [];
+}
 async function loadItem(client, code, tenantIdVal) {
   const row = await client.query('SELECT * FROM items WHERE code=$1 AND tenantId=$2', [code, tenantIdVal]);
   return row.rows[0];
@@ -3768,9 +3799,20 @@ app.post('/api/inventory', async (req, res) => {
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     let materialsReadyNotification = null;
     let lowStockNotifications = [];
+    let deduped = false;
     const entry = await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = (await findInventoryEventsByRequestKeyTx(client, t, requestKey))
+          .find((row) => row.type === 'in');
+        if (existing) {
+          deduped = true;
+          return existing;
+        }
+      }
       const source = await loadSourceEvent(client, sourceType, sourceId, t);
       if (!source) throw new Error('source not found');
       if (source.code !== code) throw new Error('source item mismatch');
@@ -3806,7 +3848,8 @@ app.post('/api/inventory', async (req, res) => {
         userName: actor.userName,
         tenantIdVal: t,
         sourceType,
-        sourceId
+        sourceId,
+        sourceMeta: withRequestKeyMeta(null, requestKey, 'checkin')
       });
       await changeJobMaterialQtyTx(client, t, jobIdVal, jobMaterialId, 'qtyReceived', qtyNum);
       // If a project is selected, auto-reserve the same qty to earmark stock for that project.
@@ -3825,7 +3868,7 @@ app.post('/api/inventory', async (req, res) => {
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.in', details: { code, qty, jobId, location, sourceType, sourceId } });
     if (materialsReadyNotification) await sendProjectMaterialsReadyEmails(materialsReadyNotification);
     if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
-    res.status(201).json(entry);
+    res.status(deduped ? 200 : 201).json({ ...entry, deduped, requestKey: requestKey || null });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
@@ -3834,19 +3877,30 @@ app.post('/api/inventory-checkout', async (req, res) => {
     const { code, jobId, qty, reason, notes, ts, location, locationType, locationRef } = req.body;
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     let lowStockNotifications = [];
+    let deduped = false;
     const entry = await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = (await findInventoryEventsByRequestKeyTx(client, t, requestKey))
+          .find((row) => row.type === 'out');
+        if (existing) {
+          deduped = true;
+          return existing;
+        }
+      }
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'checkout', jobId, notes: notes || reason, qty });
       const tsNow = ts || Date.now();
       const due = tsNow + getReturnWindowMs(rules);
-      const result = await processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, location, locationType, locationRef, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const result = await processInventoryEvent(client, { type: 'out', code, jobId, qty, reason, notes, location, locationType, locationRef, ts: tsNow, returnDate: new Date(due).toISOString(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, sourceMeta: withRequestKeyMeta(null, requestKey, 'checkout') });
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return result;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty, jobId } });
     if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
-    res.status(201).json(entry);
+    res.status(deduped ? 200 : 201).json({ ...entry, deduped, requestKey: requestKey || null });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
@@ -3880,18 +3934,29 @@ app.post('/api/inventory-reserve', async (req, res) => {
     if (!jobId) return res.status(400).json({ error: 'jobId required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     let lowStockNotifications = [];
+    let deduped = false;
     const entry = await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = (await findInventoryEventsByRequestKeyTx(client, t, requestKey))
+          .find((row) => row.type === 'reserve');
+        if (existing) {
+          deduped = true;
+          return existing;
+        }
+      }
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'reserve', jobId, notes, qty });
-      const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, location, locationType, locationRef, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, location, locationType, locationRef, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, sourceMeta: withRequestKeyMeta(null, requestKey, 'reserve') });
       await changeJobMaterialQtyTx(client, t, normalizeJobId(jobId), jobMaterialId, 'qtyAllocated', Number(qty));
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty, jobId, returnDate } });
     if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
-    res.status(201).json(entry);
+    res.status(deduped ? 200 : 201).json({ ...entry, deduped, requestKey: requestKey || null });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
@@ -3904,16 +3969,28 @@ app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) =
     if (!entries.length) return res.status(400).json({ error: 'lines array required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     const results = [];
     let lowStockNotifications = [];
+    let deduped = false;
     await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = (await findInventoryEventsByRequestKeyTx(client, t, requestKey))
+          .filter((row) => row.type === 'reserve');
+        if (existing.length) {
+          deduped = true;
+          results.push(...existing);
+          return;
+        }
+      }
       for (const line of entries) {
         const code = (line?.code || '').trim();
         const qty = Number(line?.qty || 0);
         if (!code || qty <= 0) throw new Error(`Invalid line for code ${code || ''}`);
         const { rules } = await getItemCategoryRulesTx(client, t, code);
         enforceCategoryRules(rules, { action: 'reserve', jobId, notes, qty });
-        const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, location: line?.location || location, locationType: line?.locationType || locationType, locationRef: line?.locationRef || locationRef, ts: line?.ts || Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+        const ev = await processInventoryEvent(client, { type: 'reserve', code, jobId, qty, returnDate, notes, location: line?.location || location, locationType: line?.locationType || locationType, locationRef: line?.locationRef || locationRef, ts: line?.ts || Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, sourceMeta: withRequestKeyMeta(null, requestKey, 'reserve-bulk') });
         await changeJobMaterialQtyTx(client, t, normalizeJobId(jobId), line?.jobMaterialId || null, 'qtyAllocated', qty);
         results.push(ev);
       }
@@ -3921,7 +3998,7 @@ app.post('/api/inventory-reserve/bulk', requireRole('admin'), async (req, res) =
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { lines: results.length, jobId } });
     if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
-    res.status(201).json({ count: results.length, reserves: results });
+    res.status(deduped ? 200 : 201).json({ count: results.length, reserves: results, deduped, requestKey: requestKey || null });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }
@@ -3944,26 +4021,40 @@ app.post('/api/inventory-reassign', requireRole('admin'), async (req, res) => {
     if (!reason) return res.status(400).json({ error: 'reason required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     let lowStockNotifications = [];
     const fromId = normalizeJobId(fromJobId);
     const toId = normalizeJobId(toJobId);
+    let deduped = false;
     const result = await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = await findInventoryEventsByRequestKeyTx(client, t, requestKey);
+        const releaseExisting = existing.find((row) => row.type === 'reserve_release');
+        if (releaseExisting) {
+          deduped = true;
+          return {
+            release: releaseExisting,
+            reserve: existing.find((row) => row.type === 'reserve') || null
+          };
+        }
+      }
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'reserve', jobId: fromId, notes: reason, qty: qtyNum });
       const reserved = await calcReservedOutstandingTx(client, code, fromId, t);
       if (qtyNum > reserved) throw new Error('reassign exceeds reserved qty');
       const primaryLocation = await calcPrimaryReservedLocationTx(client, code, fromId, t);
-      const release = await processInventoryEvent(client, { type: 'reserve_release', code, jobId: fromId, qty: qtyNum, location: primaryLocation.location, locationType: primaryLocation.locationType, locationRef: primaryLocation.locationRef, notes: `reassign: ${reason}`, ts: Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      const release = await processInventoryEvent(client, { type: 'reserve_release', code, jobId: fromId, qty: qtyNum, location: primaryLocation.location, locationType: primaryLocation.locationType, locationRef: primaryLocation.locationRef, notes: `reassign: ${reason}`, ts: Date.now(), userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, sourceMeta: withRequestKeyMeta(null, requestKey, 'reassign') });
       let reserve = null;
       if (toId) {
-        reserve = await processInventoryEvent(client, { type: 'reserve', code, jobId: toId, qty: qtyNum, location: release.location, locationType: release.locationType, locationRef: release.locationRef, notes: `reassign: ${reason}`, ts: release.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+        reserve = await processInventoryEvent(client, { type: 'reserve', code, jobId: toId, qty: qtyNum, location: release.location, locationType: release.locationType, locationRef: release.locationRef, notes: `reassign: ${reason}`, ts: release.ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, sourceMeta: withRequestKeyMeta(null, requestKey, 'reassign') });
       }
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return { release, reserve };
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.reserve', details: { code, qty: qtyNum, fromJobId, toJobId, reason } });
     if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
-    res.status(201).json(result);
+    res.status(deduped ? 200 : 201).json({ ...result, deduped, requestKey: requestKey || null });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }
@@ -3982,18 +4073,29 @@ app.post('/api/inventory-return', async (req, res) => {
     if (!code) return res.status(400).json({ error: 'code required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     let lowStockNotifications = [];
+    let deduped = false;
     const entry = await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = (await findInventoryEventsByRequestKeyTx(client, t, requestKey))
+          .find((row) => row.type === 'return');
+        if (existing) {
+          deduped = true;
+          return existing;
+        }
+      }
       const resolvedJobId = await resolveReturnJobIdTx(client, code, t, jobId);
       const { rules } = await getItemCategoryRulesTx(client, t, code);
       enforceCategoryRules(rules, { action: 'return', jobId: resolvedJobId, location, notes: notes || reason, qty });
-      const ev = await processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, locationType, locationRef, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, requireRecentReturn: true, returnWindowDays: rules.returnWindowDays });
+      const ev = await processInventoryEvent(client, { type: 'return', code, jobId: resolvedJobId, qty, reason, location, locationType, locationRef, notes, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, requireRecentReturn: true, returnWindowDays: rules.returnWindowDays, sourceMeta: withRequestKeyMeta(null, requestKey, 'return') });
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.return', details: { code, qty, jobId: entry.jobId || null, reason } });
     if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
-    res.status(201).json(entry);
+    res.status(deduped ? 200 : 201).json({ ...entry, deduped, requestKey: requestKey || null });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
@@ -4095,15 +4197,25 @@ app.post('/api/inventory-consume', requireRole('admin'), async (req, res) => {
     if (!reason) return res.status(400).json({ error: 'reason required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     let lowStockNotifications = [];
+    let deduped = false;
     const entry = await withTransaction(async (client) => {
-      const ev = await processInventoryEvent(client, { type: 'consume', code, qty, reason, notes, location, locationType, locationRef, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t });
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = (await findInventoryEventsByRequestKeyTx(client, t, requestKey)).find((row) => row.type === 'consume');
+        if (existing) {
+          deduped = true;
+          return existing;
+        }
+      }
+      const ev = await processInventoryEvent(client, { type: 'consume', code, qty, reason, notes, location, locationType, locationRef, ts, userEmail: actor.userEmail, userName: actor.userName, tenantIdVal: t, sourceMeta: withRequestKeyMeta(null, requestKey, 'consume') });
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.out', details: { code, qty, reason } });
     if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
-    res.status(201).json(entry);
+    res.status(deduped ? 200 : 201).json({ ...entry, deduped, requestKey: requestKey || null });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
@@ -4116,8 +4228,19 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
     const deltaNum = Number(delta);
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     let lowStockNotifications = [];
+    let deduped = false;
     const entry = await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const expectedType = deltaNum > 0 ? 'in' : 'consume';
+        const existing = (await findInventoryEventsByRequestKeyTx(client, t, requestKey)).find((row) => row.type === expectedType);
+        if (existing) {
+          deduped = true;
+          return existing;
+        }
+      }
       if (deltaNum > 0) {
         const categoryInfo = await getItemCategoryRulesTx(client, t, code);
         const adjustmentNotes = [`Adjustment: ${String(reason).trim()}`];
@@ -4134,7 +4257,8 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
           ts,
           userEmail: actor.userEmail,
           userName: actor.userName,
-          tenantIdVal: t
+          tenantIdVal: t,
+          sourceMeta: withRequestKeyMeta(null, requestKey, 'adjust')
         });
         lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
         return ev;
@@ -4152,7 +4276,8 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
         userEmail: actor.userEmail,
         userName: actor.userName,
         tenantIdVal: t,
-        consumeAgainstOnHand: true
+        consumeAgainstOnHand: true,
+        sourceMeta: withRequestKeyMeta(null, requestKey, 'adjust')
       });
       lowStockNotifications = await collectLowStockTransitionsTx(client, t, [code]);
       return ev;
@@ -4164,7 +4289,7 @@ app.post('/api/inventory-adjust', requireRole('admin'), async (req, res) => {
       details: { code, delta: deltaNum, qty: qtyNum, reason, location: location || null }
     });
     if (lowStockNotifications.length) await sendLowStockAlertEmails({ tenantId: t, items: lowStockNotifications });
-    res.status(201).json(entry);
+    res.status(deduped ? 200 : 201).json({ ...entry, deduped, requestKey: requestKey || null });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }
@@ -4200,9 +4325,23 @@ app.post('/api/inventory-transfer', requireRole('admin'), async (req, res) => {
     }
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     const transferTs = ts || Date.now();
     const transferId = newId();
+    let deduped = false;
+    let transferOut = null;
+    let transferIn = null;
     await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = await findInventoryEventsByRequestKeyTx(client, t, requestKey);
+        transferOut = existing.find((row) => row.type === 'consume' && row.sourcetype === 'transfer') || null;
+        transferIn = existing.find((row) => row.type === 'in' && row.sourcetype === 'transfer') || null;
+        if (transferOut || transferIn) {
+          deduped = true;
+          return;
+        }
+      }
       const availableAtSource = await calcAvailabilityAtLocationTx(
         client,
         code,
@@ -4210,7 +4349,7 @@ app.post('/api/inventory-transfer', requireRole('admin'), async (req, res) => {
         t
       );
       if (qtyNum > availableAtSource) throw new Error('insufficient available stock in source location');
-      await processInventoryEvent(client, {
+      transferOut = await processInventoryEvent(client, {
         type: 'consume',
         code,
         qty: qtyNum,
@@ -4225,14 +4364,14 @@ app.post('/api/inventory-transfer', requireRole('admin'), async (req, res) => {
         tenantIdVal: t,
         sourceType: 'transfer',
         sourceId: transferId,
-        sourceMeta: {
+        sourceMeta: withRequestKeyMeta({
           fromLocation: normalizedFromLocation,
           fromLocationRef: normalizedFromRef,
           toLocation: normalizedToLocation,
           toLocationRef: normalizedToRef
-        }
+        }, requestKey, 'transfer')
       });
-      await processInventoryEvent(client, {
+      transferIn = await processInventoryEvent(client, {
         type: 'in',
         code,
         qty: qtyNum,
@@ -4246,12 +4385,12 @@ app.post('/api/inventory-transfer', requireRole('admin'), async (req, res) => {
         tenantIdVal: t,
         sourceType: 'transfer',
         sourceId: transferId,
-        sourceMeta: {
+        sourceMeta: withRequestKeyMeta({
           fromLocation: normalizedFromLocation,
           fromLocationRef: normalizedFromRef,
           toLocation: normalizedToLocation,
           toLocationRef: normalizedToRef
-        }
+        }, requestKey, 'transfer')
       });
     });
     await logAudit({
@@ -4266,7 +4405,7 @@ app.post('/api/inventory-transfer', requireRole('admin'), async (req, res) => {
         toLocation: normalizedToLocation
       }
     });
-    res.status(201).json({ ok: true, code, qty: qtyNum });
+    res.status(deduped ? 200 : 201).json({ ok: true, code, qty: qtyNum, transferOut, transferIn, deduped, requestKey: requestKey || null });
   } catch (e) {
     res.status(400).json({ error: e.message || 'unable to move stock' });
   }
@@ -5554,10 +5693,20 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     const jobIdVal = (jobId || '').trim() || null;
+    let deduped = false;
     const entry = await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = (await findInventoryEventsByRequestKeyTx(client, t, requestKey)).find((row) => row.type === 'ordered');
+        if (existing) {
+          deduped = true;
+          return existing;
+        }
+      }
       await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-      const sourceMeta = { autoReserve: autoReserve !== false, jobMaterialId: jobMaterialId || null };
+      const sourceMeta = withRequestKeyMeta({ autoReserve: autoReserve !== false, jobMaterialId: jobMaterialId || null }, requestKey, 'order');
       const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
       ev.sourceId = ev.id;
       ev.sourceMeta.batchId = ev.sourceId;
@@ -5567,7 +5716,7 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
       return ev;
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta } });
-    res.status(201).json(entry);
+    res.status(deduped ? 200 : 201).json({ ...entry, deduped, requestKey: requestKey || null });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
 
@@ -5578,16 +5727,27 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
     if (!lines.length) return res.status(400).json({ error: 'orders array required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
+    const requestKey = readInventoryRequestKey(req);
     const results = [];
     const batchId = newId();
+    let deduped = false;
     await withTransaction(async (client) => {
+      await lockInventoryRequestTx(client, t, requestKey);
+      if (requestKey) {
+        const existing = (await findInventoryEventsByRequestKeyTx(client, t, requestKey)).filter((row) => row.type === 'ordered');
+        if (existing.length) {
+          deduped = true;
+          results.push(...existing);
+          return;
+        }
+      }
       for (const line of lines) {
         const { code, name, qty, eta, notes, ts, jobId, autoReserve, jobMaterialId } = line || {};
         const qtyNum = Number(qty);
         if (!code || !qtyNum || qtyNum <= 0) throw new Error(`Invalid order line for code ${code || ''}`);
         const jobIdVal = (jobId || '').trim() || null;
         await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-        const sourceMeta = { autoReserve: autoReserve !== false, batchId, jobMaterialId: jobMaterialId || null };
+        const sourceMeta = withRequestKeyMeta({ autoReserve: autoReserve !== false, batchId, jobMaterialId: jobMaterialId || null }, requestKey, 'order-bulk');
         const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
         ev.sourceId = ev.id;
         await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
@@ -5597,7 +5757,7 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
       }
     });
     await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { lines: results.length } });
-    res.status(201).json({ count: results.length, batchId, orders: results });
+    res.status(deduped ? 200 : 201).json({ count: results.length, batchId, orders: results, deduped, requestKey: requestKey || null });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });
   }
@@ -6456,6 +6616,91 @@ app.get('/api/export/inventory', async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="inventory-${type || 'all'}.csv"`);
     res.send(csv);
   } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.get('/api/export/purchase-history', requireRole('admin'), async (req, res) => {
+  try {
+    const t = tenantId(req);
+    const rows = await allAsync(
+      `SELECT * FROM inventory
+       WHERE tenantId=$1 AND type='purchase'
+       ORDER BY ts DESC, id DESC`,
+      [t]
+    );
+    if (!rows.length) return res.status(400).json({ error: 'no data' });
+    const exportRows = rows.map((row) => {
+      const meta = parseFieldPurchaseSourceMeta(row.sourcemeta || row.sourceMeta || {});
+      const photos = readFieldPurchaseReceiptPhotos(meta);
+      return {
+        batchId: meta.batchId || meta.batchid || row.sourceid || row.sourceId || row.id || '',
+        code: row.code || '',
+        name: row.name || '',
+        qty: row.qty || 0,
+        vendor: meta.vendor || meta.Vendor || '',
+        receipt: meta.receipt || meta.receiptNumber || meta.receiptnumber || '',
+        receiptPhotoCount: photos.length,
+        cost: meta.cost ?? meta.unitCost ?? meta.unitcost ?? '',
+        location: row.location || '',
+        locationType: row.locationtype || row.locationType || '',
+        locationRef: row.locationref || row.locationRef || '',
+        jobId: row.jobid || row.jobId || '',
+        notes: row.notes || '',
+        purchasedAt: row.ts || meta.purchasedAt || meta.purchasedat || '',
+        createdBy: row.useremail || row.userEmail || ''
+      };
+    });
+    const parser = new Parser();
+    const csv = parser.parse(exportRows);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="purchase-history.csv"`);
+    res.send(csv);
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.get('/api/export/suppliers', requireRole('admin'), async (req, res) => {
+  try {
+    const rows = await readSuppliers(tenantId(req));
+    if (!rows.length) return res.status(400).json({ error: 'no data' });
+    const parser = new Parser();
+    const csv = parser.parse(rows.map(normalizeSupplierRow));
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="suppliers.csv"');
+    res.send(csv);
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
+});
+
+app.get('/api/export/locations', requireRole('admin'), async (req, res) => {
+  try {
+    const rows = await listManagedInventoryLocations(tenantId(req));
+    if (!rows.length) return res.status(400).json({ error: 'no data' });
+    const exportRows = rows.map((row) => ({
+      id: row.id || '',
+      ref: row.ref || '',
+      name: row.name || '',
+      label: row.label || '',
+      type: row.type || '',
+      parentId: row.parentId || '',
+      parentName: row.parentName || '',
+      depth: row.depth || 0,
+      sortOrder: row.sortOrder || 0,
+      isActive: row.isActive !== false,
+      isConsumptionPoint: row.isConsumptionPoint === true,
+      notes: row.notes || '',
+      createdAt: row.createdAt || '',
+      updatedAt: row.updatedAt || ''
+    }));
+    const parser = new Parser();
+    const csv = parser.parse(exportRows);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="locations.csv"');
+    res.send(csv);
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'server error' });
+  }
 });
 
 app.get('/api/export/pilot-snapshot', requireRole('admin'), async (req, res) => {

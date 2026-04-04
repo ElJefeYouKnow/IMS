@@ -61,6 +61,29 @@ function uid(){ return Math.random().toString(16).slice(2,8); }
 function getSessionUser(){
   try{ return JSON.parse(localStorage.getItem(SESSION_KEY)||'null'); }catch(e){ return null; }
 }
+function setOpsFormMessage(id, message = '', tone = ''){
+  const el = document.getElementById(id);
+  if(!el) return;
+  const cls = ['field-hint'];
+  if(tone) cls.push(tone);
+  el.className = cls.join(' ');
+  el.textContent = message;
+}
+function getStableRequestBatchKey(formId, prefix){
+  const form = document.getElementById(formId);
+  if(!form) return utils?.makeRequestKey?.(prefix) || `${prefix}-${Date.now()}`;
+  if(!form.dataset.requestBatchKey){
+    form.dataset.requestBatchKey = utils?.makeRequestKey?.(prefix) || `${prefix}-${Date.now()}`;
+  }
+  return form.dataset.requestBatchKey;
+}
+function clearStableRequestBatchKey(formId){
+  const form = document.getElementById(formId);
+  if(form) delete form.dataset.requestBatchKey;
+}
+function buildLineRequestKey(batchKey, index){
+  return `${batchKey}-line-${index + 1}`;
+}
 function readOpsStorage(key, fallback){
   try{
     const raw = localStorage.getItem(key);
@@ -1036,16 +1059,16 @@ function addOrderGroup(batchId){
 }
 
 async function addCheckin(e){
-  try{
-    const r = await fetch('/api/inventory',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...e, type:'in'})
-    });
-    if(r.ok){
-      await renderCheckinTable();
-      return true;
-    }
-  }catch(e){}
-  return false;
+  const result = await utils.requestJson('/api/inventory', {
+    method: 'POST',
+    fallbackError: 'Failed to receive inventory.',
+    json: { ...e, type: 'in' }
+  });
+  if(result.ok){
+    await renderCheckinTable();
+    return { ok:true, deduped: !!result.data?.deduped };
+  }
+  return { ok:false, error: result.error || 'Failed to receive inventory.' };
 }
 
 async function clearCheckins(){
@@ -1083,19 +1106,16 @@ async function renderCheckoutTable(){
 }
 
 async function addCheckout(e){
-  try{
-    const r = await fetch('/api/inventory-checkout',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(e)
-    });
-    const data = await r.json().catch(()=>({}));
-    if(r.ok){
-      await renderCheckoutTable();
-      return { ok:true };
-    }
-    return { ok:false, error: data.error || 'Checkout failed' };
-  }catch(err){
-    return { ok:false, error: err.message || 'Checkout failed' };
+  const result = await utils.requestJson('/api/inventory-checkout', {
+    method: 'POST',
+    fallbackError: 'Failed to check out inventory.',
+    json: e
+  });
+  if(result.ok){
+    await renderCheckoutTable();
+    return { ok:true, deduped: !!result.data?.deduped };
   }
+  return { ok:false, error: result.error || 'Failed to check out inventory.' };
 }
 
 async function clearCheckouts(){
@@ -1281,16 +1301,16 @@ async function renderReserveTable(){
 }
 
 async function addReservation(e){
-  try{
-    const r = await fetch('/api/inventory-reserve',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(e)
-    });
-    if(r.ok){
-      await renderReserveTable();
-      return true;
-    }
-  }catch(e){}
-  return false;
+  const result = await utils.requestJson('/api/inventory-reserve', {
+    method: 'POST',
+    fallbackError: 'Failed to reserve inventory.',
+    json: e
+  });
+  if(result.ok){
+    await renderReserveTable();
+    return { ok:true, deduped: !!result.data?.deduped };
+  }
+  return { ok:false, error: result.error || 'Failed to reserve inventory.' };
 }
 
 async function clearReservations(){
@@ -1346,18 +1366,16 @@ async function updateOpsMetrics(){
 }
 
 async function addReturn(e){
-  try{
-    const r = await fetch('/api/inventory-return',{
-      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(e)
-    });
-    const data = await r.json().catch(()=>({}));
-    if(r.ok){
-      await renderReturnTable();
-      return { ok:true };
-    }
-    return { ok:false, error: data.error || 'Return failed' };
-  }catch(e){}
-  return { ok:false, error: 'Return failed' };
+  const result = await utils.requestJson('/api/inventory-return', {
+    method: 'POST',
+    fallbackError: 'Failed to return inventory.',
+    json: e
+  });
+  if(result.ok){
+    await renderReturnTable();
+    return { ok:true, deduped: !!result.data?.deduped };
+  }
+  return { ok:false, error: result.error || 'Failed to return inventory.' };
 }
 
 async function clearReturns(){
@@ -1621,43 +1639,91 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   const checkinForm = document.getElementById('checkinForm');
   checkinForm.addEventListener('submit', async ev=>{
     ev.preventDefault();
+    const submitBtn = document.getElementById('checkinBtn');
     const lines = gatherLines('checkin');
     const locationPayload = getInventoryLocationPayload('checkin-location');
     const notes = document.getElementById('checkin-notes').value.trim();
     const user = getSessionUser();
-    if(!lines.length){alert('Add at least one incoming order line before receiving.'); return;}
+    setOpsFormMessage('checkinMsg');
+    if(!lines.length){ setOpsFormMessage('checkinMsg', 'Add at least one incoming order line before receiving.', 'error'); return; }
     const missingSource = lines.find(l=> !l.sourceId || !l.sourceType);
-    if(missingSource){ alert('Each check-in line must be linked to an incoming order.'); return; }
+    if(missingSource){ setOpsFormMessage('checkinMsg', 'Each check-in line must be linked to an incoming order.', 'error'); return; }
     const overLimit = [...document.querySelectorAll('#checkin-lines .line-row')].find(row=>{
       const qty = parseInt(row.querySelector('input[name="qty"]')?.value || '0', 10) || 0;
       const open = Number(row.dataset.openQty || 0);
       return open > 0 && qty > open;
     });
-    if(overLimit){ alert('Check-in quantity exceeds open order quantity.'); return; }
+    if(overLimit){ setOpsFormMessage('checkinMsg', 'Check-in quantity exceeds the remaining open order quantity.', 'error'); return; }
+    const batchKey = getStableRequestBatchKey('checkinForm', 'ops-checkin');
+    if(submitBtn){
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Receiving...';
+    }
     let okAll=true;
-    for(const line of lines){
-      const ok = await addCheckin({code: line.code, name: line.name, qty: line.qty, ...locationPayload, jobId: line.jobId, notes, ts: Date.now(), userEmail: user?.email, userName: user?.name, category: line.category, sourceType: line.sourceType, sourceId: line.sourceId});
-      if(ok){
-        addItemLocally({code: line.code, name: line.name, category: line.category});
-      }else{
-        okAll=false;
+    const errors = [];
+    let dedupedCount = 0;
+    try{
+      for(let index = 0; index < lines.length; index += 1){
+        const line = lines[index];
+        const result = await addCheckin({
+          code: line.code,
+          name: line.name,
+          qty: line.qty,
+          ...locationPayload,
+          jobId: line.jobId,
+          notes,
+          ts: Date.now(),
+          userEmail: user?.email,
+          userName: user?.name,
+          category: line.category,
+          sourceType: line.sourceType,
+          sourceId: line.sourceId,
+          requestKey: buildLineRequestKey(batchKey, index)
+        });
+        if(result.ok){
+          if(result.deduped) dedupedCount += 1;
+          addItemLocally({code: line.code, name: line.name, category: line.category});
+        }else{
+          okAll = false;
+          if(result.error) errors.push(`${line.code}: ${result.error}`);
+        }
+      }
+      if(!okAll){
+        setOpsFormMessage('checkinMsg', errors.join(' ') || 'Some items failed to check in.', 'error');
+        return;
+      }
+      checkinForm.reset();
+      clearStableRequestBatchKey('checkinForm');
+      resetLines('checkin');
+      clearOpsDraft('checkin');
+      applyOpsDefaultsForPrefix('checkin');
+      await loadOpenOrders();
+      populateOrderSelect();
+      await loadInventoryEntries(true);
+      refreshCheckoutLocationOptions();
+      await updateOpsMetrics();
+      updateSyncStamp(fmtDT(Date.now()));
+      setOpsFormMessage(
+        'checkinMsg',
+        dedupedCount
+          ? `Receive saved. ${dedupedCount} line${dedupedCount === 1 ? '' : 's'} were already logged and were not duplicated.`
+          : 'Inventory received successfully.',
+        'ok'
+      );
+    }finally{
+      if(submitBtn){
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Receive to Inventory';
       }
     }
-    if(!okAll) alert('Some items failed to check in');
-    checkinForm.reset();
-    resetLines('checkin');
-    clearOpsDraft('checkin');
-    applyOpsDefaultsForPrefix('checkin');
-    await loadOpenOrders();
-    populateOrderSelect();
-    await loadInventoryEntries(true);
-    refreshCheckoutLocationOptions();
-    await updateOpsMetrics();
-    updateSyncStamp(fmtDT(Date.now()));
   });
   
   document.getElementById('checkin-clearBtn').addEventListener('click', async ()=>{
-    if(confirm('Clear all check-in entries?')) await clearCheckins();
+    if(confirm('Clear all check-in entries?')){
+      clearStableRequestBatchKey('checkinForm');
+      setOpsFormMessage('checkinMsg');
+      await clearCheckins();
+    }
   });
   document.getElementById('checkin-exportBtn').addEventListener('click', exportCheckinCSV);
   
@@ -1668,15 +1734,35 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const locationPayload = getInventoryLocationPayload('checkout-location');
     let okAll=true;
     const errors=[];
-    for(const line of lines){
-      const res = await addCheckout({code: line.code, jobId, qty: line.qty, ...locationPayload, notes, ts: Date.now(), type: 'out', userEmail: user?.email, userName: user?.name});
+    let dedupedCount = 0;
+    const batchKey = getStableRequestBatchKey('checkoutForm', 'ops-checkout');
+    for(let index = 0; index < lines.length; index += 1){
+      const line = lines[index];
+      const res = await addCheckout({
+        code: line.code,
+        jobId,
+        qty: line.qty,
+        ...locationPayload,
+        notes,
+        ts: Date.now(),
+        type: 'out',
+        userEmail: user?.email,
+        userName: user?.name,
+        requestKey: buildLineRequestKey(batchKey, index)
+      });
       if(!res.ok){
         okAll=false;
         if(res.error) errors.push(`${line.code}: ${res.error}`);
+      }else if(res.deduped){
+        dedupedCount += 1;
       }
     }
-    if(!okAll) alert(errors.join('\n') || 'Some items failed to check out');
+    if(!okAll){
+      setOpsFormMessage('checkoutMsg', errors.join(' ') || 'Some items failed to check out.', 'error');
+      return false;
+    }
     checkoutForm.reset();
+    clearStableRequestBatchKey('checkoutForm');
     resetLines('checkout');
     clearOpsDraft('checkout');
     applyOpsDefaultsForPrefix('checkout');
@@ -1685,19 +1771,27 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     refreshCheckoutLocationOptions();
     await updateOpsMetrics();
     updateSyncStamp(fmtDT(Date.now()));
+    setOpsFormMessage(
+      'checkoutMsg',
+      dedupedCount
+        ? `Pick saved. ${dedupedCount} line${dedupedCount === 1 ? '' : 's'} were already logged and were not duplicated.`
+        : 'Inventory checked out successfully.',
+      'ok'
+    );
     return okAll;
   };
 
   checkoutForm.addEventListener('submit', async ev=>{
     ev.preventDefault();
+    setOpsFormMessage('checkoutMsg');
     const lines = gatherLines('checkout');
     const jobId = document.getElementById('checkout-jobId').value.trim();
     const notes = document.getElementById('checkout-notes').value.trim();
     
-    if(!jobId){alert('Job ID required'); return;}
-    if(!lines.length){alert('Add at least one line with code and quantity'); return;}
+    if(!jobId){ setOpsFormMessage('checkoutMsg', 'Project ID is required.', 'error'); return; }
+    if(!lines.length){ setOpsFormMessage('checkoutMsg', 'Add at least one line with code and quantity.', 'error'); return; }
     const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
-    if(missing){ alert(`Item ${missing.code} does not exist. Check it in first or add via check-in.`); return; }
+    if(missing){ setOpsFormMessage('checkoutMsg', `Item ${missing.code} does not exist. Receive it first or add it through receiving.`, 'error'); return; }
     
     openCheckoutConfirm(lines, jobId, notes);
   });
@@ -1716,7 +1810,11 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
   
   document.getElementById('checkout-clearBtn').addEventListener('click', async ()=>{
-    if(confirm('Clear all check-out entries?')) await clearCheckouts();
+    if(confirm('Clear all check-out entries?')){
+      clearStableRequestBatchKey('checkoutForm');
+      setOpsFormMessage('checkoutMsg');
+      await clearCheckouts();
+    }
   });
   document.getElementById('checkout-exportBtn').addEventListener('click', exportCheckoutCSV);
   const devBtn = document.getElementById('devResetBtn');
@@ -1741,6 +1839,8 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   if(reserveForm){
     reserveForm.addEventListener('submit', async ev=>{
       ev.preventDefault();
+      const reserveMsgEl = document.getElementById('reserveMsg');
+      const reserveBtn = document.getElementById('reserveBtn');
       const lines = gatherLines('reserve');
       const jobId = document.getElementById('reserve-jobId').value.trim();
       const returnDate = document.getElementById('reserve-returnDate').value;
@@ -1748,28 +1848,79 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const user = getSessionUser();
       const locationPayload = getInventoryLocationPayload('checkout-location');
       
-      if(!jobId){alert('Job ID required'); return;}
-      if(!lines.length){alert('Add at least one line with code and quantity'); return;}
+      if(reserveMsgEl){ reserveMsgEl.className = 'field-hint'; reserveMsgEl.textContent = ''; }
+      if(!jobId){ if(reserveMsgEl){ reserveMsgEl.className = 'field-hint error'; reserveMsgEl.textContent = 'Project ID is required.'; } return; }
+      if(!lines.length){ if(reserveMsgEl){ reserveMsgEl.className = 'field-hint error'; reserveMsgEl.textContent = 'Add at least one line with code and quantity.'; } return; }
       const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
-      if(missing){ alert(`Item ${missing.code} does not exist. Check it in first or add via check-in.`); return; }
+      if(missing){ if(reserveMsgEl){ reserveMsgEl.className = 'field-hint error'; reserveMsgEl.textContent = `Item ${missing.code} does not exist. Receive it first or add it through receiving.`; } return; }
       
-      let okAll=true;
-      for(const line of lines){
-        const ok = await addReservation({code: line.code, jobId, qty: line.qty, ...locationPayload, returnDate, notes, ts: Date.now(), type: 'reserve', userEmail: user?.email, userName: user?.name});
-        if(!ok) okAll=false;
+      const batchKey = getStableRequestBatchKey('reserveForm', 'ops-reserve');
+      if(reserveBtn){
+        reserveBtn.disabled = true;
+        reserveBtn.textContent = 'Reserving...';
       }
-      if(!okAll) alert('Some items failed to reserve');
-      reserveForm.reset();
-      resetLines('reserve');
-      ensureJobOption(jobId);
-      await loadInventoryEntries(true);
-      refreshCheckoutLocationOptions();
-      await updateOpsMetrics();
+      let okAll=true;
+      const errors = [];
+      let dedupedCount = 0;
+      try{
+        for(let index = 0; index < lines.length; index += 1){
+          const line = lines[index];
+          const result = await addReservation({
+            code: line.code,
+            jobId,
+            qty: line.qty,
+            ...locationPayload,
+            returnDate,
+            notes,
+            ts: Date.now(),
+            type: 'reserve',
+            userEmail: user?.email,
+            userName: user?.name,
+            requestKey: buildLineRequestKey(batchKey, index)
+          });
+          if(!result.ok){
+            okAll = false;
+            if(result.error) errors.push(`${line.code}: ${result.error}`);
+          }else if(result.deduped){
+            dedupedCount += 1;
+          }
+        }
+        if(!okAll){
+          if(reserveMsgEl){ reserveMsgEl.className = 'field-hint error'; reserveMsgEl.textContent = errors.join(' ') || 'Some items failed to reserve.'; }
+          return;
+        }
+        reserveForm.reset();
+        clearStableRequestBatchKey('reserveForm');
+        resetLines('reserve');
+        ensureJobOption(jobId);
+        await loadInventoryEntries(true);
+        refreshCheckoutLocationOptions();
+        await updateOpsMetrics();
+        if(reserveMsgEl){
+          reserveMsgEl.className = 'field-hint ok';
+          reserveMsgEl.textContent = dedupedCount
+            ? `Reservation saved. ${dedupedCount} line${dedupedCount === 1 ? '' : 's'} were already reserved and were not duplicated.`
+            : 'Inventory reserved successfully.';
+        }
+      }finally{
+        if(reserveBtn){
+          reserveBtn.disabled = false;
+          reserveBtn.textContent = 'Reserve';
+        }
+      }
     });
     
     const reserveClearBtn = document.getElementById('reserve-clearBtn');
     reserveClearBtn?.addEventListener('click', async ()=>{
-      if(confirm('Clear all reservations?')) await clearReservations();
+      if(confirm('Clear all reservations?')){
+        clearStableRequestBatchKey('reserveForm');
+        const reserveMsgEl = document.getElementById('reserveMsg');
+        if(reserveMsgEl){
+          reserveMsgEl.className = 'field-hint';
+          reserveMsgEl.textContent = '';
+        }
+        await clearReservations();
+      }
     });
     document.getElementById('reserve-exportBtn')?.addEventListener('click', exportReserveCSV);
   }
@@ -1779,6 +1930,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   if(returnForm){
     returnForm.addEventListener('submit', async ev=>{
       ev.preventDefault();
+      const returnBtn = document.getElementById('returnBtn');
       const jobId = document.getElementById('return-jobId').value.trim();
       const reason = document.getElementById('return-reason').value.trim();
       const locationPayload = getInventoryLocationPayload('return-location');
@@ -1786,40 +1938,84 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const user = getSessionUser();
       
       const lines = gatherLines('return');
-      if(!lines.length){alert('Add at least one line with code and quantity'); return}
-      if(!reason){alert('Return reason required'); return;}
+      setOpsFormMessage('returnMsg');
+      if(!lines.length){ setOpsFormMessage('returnMsg', 'Add at least one line with code and quantity.', 'error'); return; }
+      if(!reason){ setOpsFormMessage('returnMsg', 'Return reason is required.', 'error'); return; }
       const missing = lines.find(l=> !allItems.find(i=> i.code === l.code));
-      if(missing){ alert(`Item ${missing.code} does not exist. Check it in first.`); return; }
+      if(missing){ setOpsFormMessage('returnMsg', `Item ${missing.code} does not exist. Receive it first before returning it.`, 'error'); return; }
       
+      const batchKey = getStableRequestBatchKey('returnForm', 'ops-return');
+      if(returnBtn){
+        returnBtn.disabled = true;
+        returnBtn.textContent = 'Returning...';
+      }
       let okAll=true;
       const errors=[];
-      for(const line of lines){
-        const lineJobId = line.jobId || jobId;
-        const res = await addReturn({code: line.code, jobId: lineJobId, qty: line.qty, reason, ...locationPayload, notes, ts: Date.now(), type: 'return', userEmail: user?.email, userName: user?.name});
-        if(!res.ok){
-          okAll=false;
-          if(res.error) errors.push(`${line.code}: ${res.error}`);
+      let dedupedCount = 0;
+      try{
+        for(let index = 0; index < lines.length; index += 1){
+          const line = lines[index];
+          const lineJobId = line.jobId || jobId;
+          const res = await addReturn({
+            code: line.code,
+            jobId: lineJobId,
+            qty: line.qty,
+            reason,
+            ...locationPayload,
+            notes,
+            ts: Date.now(),
+            type: 'return',
+            userEmail: user?.email,
+            userName: user?.name,
+            requestKey: buildLineRequestKey(batchKey, index)
+          });
+          if(!res.ok){
+            okAll=false;
+            if(res.error) errors.push(`${line.code}: ${res.error}`);
+          }else if(res.deduped){
+            dedupedCount += 1;
+          }
+        }
+        if(!okAll){
+          setOpsFormMessage('returnMsg', errors.join(' ') || 'Some items failed to return.', 'error');
+          return;
+        }
+        returnForm.reset();
+        clearStableRequestBatchKey('returnForm');
+        resetLines('return');
+        clearOpsDraft('return');
+        applyOpsDefaultsForPrefix('return');
+        const select = document.getElementById('return-fromCheckout');
+        if(select) await refreshReturnDropdown(select);
+        ensureJobOption(jobId);
+        await loadInventoryEntries(true);
+        refreshCheckoutLocationOptions();
+        await updateOpsMetrics();
+        updateSyncStamp(fmtDT(Date.now()));
+        setOpsFormMessage(
+          'returnMsg',
+          dedupedCount
+            ? `Return saved. ${dedupedCount} line${dedupedCount === 1 ? '' : 's'} were already returned and were not duplicated.`
+            : 'Inventory returned successfully.',
+          'ok'
+        );
+      }finally{
+        if(returnBtn){
+          returnBtn.disabled = false;
+          returnBtn.textContent = 'Return to Inventory';
         }
       }
-      if(!okAll) alert(errors.join('\n') || 'Some items failed to return');
-      returnForm.reset();
-      resetLines('return');
-      clearOpsDraft('return');
-      applyOpsDefaultsForPrefix('return');
-      const select = document.getElementById('return-fromCheckout');
-      if(select) await refreshReturnDropdown(select);
-      ensureJobOption(jobId);
-      await loadInventoryEntries(true);
-      refreshCheckoutLocationOptions();
-      await updateOpsMetrics();
-      updateSyncStamp(fmtDT(Date.now()));
     });
   }
   
   const returnClearBtn = document.getElementById('return-clearBtn');
   if(returnClearBtn){
     returnClearBtn.addEventListener('click', async ()=>{
-      if(confirm('Clear all returns?')) await clearReturns();
+      if(confirm('Clear all returns?')){
+        clearStableRequestBatchKey('returnForm');
+        setOpsFormMessage('returnMsg');
+        await clearReturns();
+      }
     });
   }
   

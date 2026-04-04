@@ -29,6 +29,7 @@ let itemPanelEls = null;
 let lastSyncTs = null;
 let inventoryEventCache = [];
 let inventoryLocationOptions = [];
+let inventoryRefreshInFlight = false;
 
 function haptic(kind){
   if(!navigator.vibrate) return;
@@ -130,6 +131,14 @@ function updateSyncStatus(offline, ts){
     const label = lastSyncTs ? `Online · Synced ${fmtDate(lastSyncTs)}` : 'Online';
     el.textContent = label;
     el.classList.remove('offline');
+  }
+}
+function setInventoryRefreshState(isRefreshing){
+  inventoryRefreshInFlight = !!isRefreshing;
+  const button = document.getElementById('inventoryRefreshBtn');
+  if(button){
+    button.disabled = inventoryRefreshInFlight;
+    button.textContent = inventoryRefreshInFlight ? 'Refreshing...' : 'Refresh Data';
   }
 }
 const drawerState = {
@@ -1312,31 +1321,23 @@ async function saveSettings(code, payload){
 }
 
 async function adjustInventoryFromDrawer(code, payload){
-  try{
-    const res = await fetch('/api/inventory-adjust', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, ...payload, ts: Date.now() })
-    });
-    const data = await res.json().catch(()=> ({}));
-    return { ok: res.ok, data, error: data?.error || '' };
-  }catch(e){
-    return { ok: false, error: 'Adjustment failed' };
-  }
+  const result = await utils.requestJson('/api/inventory-adjust', {
+    method: 'POST',
+    json: { code, ...payload, ts: Date.now() },
+    requestKeyPrefix: `adjust-${code}`,
+    fallbackError: 'Adjustment failed.'
+  });
+  return { ok: result.ok, data: result.data, error: result.error || '' };
 }
 
 async function transferInventoryFromDrawer(code, payload){
-  try{
-    const res = await fetch('/api/inventory-transfer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, ...payload, ts: Date.now() })
-    });
-    const data = await res.json().catch(()=> ({}));
-    return { ok: res.ok, data, error: data?.error || '' };
-  }catch(e){
-    return { ok: false, error: 'Move failed' };
-  }
+  const result = await utils.requestJson('/api/inventory-transfer', {
+    method: 'POST',
+    json: { code, ...payload, ts: Date.now() },
+    requestKeyPrefix: `transfer-${code}`,
+    fallbackError: 'Move failed.'
+  });
+  return { ok: result.ok, data: result.data, error: result.error || '' };
 }
 
 function reopenDrawerForCode(code){
@@ -1669,14 +1670,17 @@ async function fetchCounts(){
 }
 
 async function saveCounts(lines){
+  const result = await utils.requestJson('/api/inventory-counts', {
+    method: 'POST',
+    json: { counts: lines },
+    requestKeyPrefix: 'counts-save',
+    fallbackError: 'Failed to save counts.'
+  });
+  if(!result.ok){
+    return { ok:false, error: result.error || 'Failed to save counts.' };
+  }
+  const data = Array.isArray(result.data) ? result.data : [];
   try{
-    const r = await fetch('/api/inventory-counts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ counts: lines })
-    });
-    const data = await r.json().catch(()=>[]);
-    if(!r.ok) return { ok:false, error: data?.error || 'Failed to save counts' };
     countCache = {};
     (data || []).forEach(r=>{
       const code = r.code;
@@ -1688,7 +1692,7 @@ async function saveCounts(lines){
     });
     return { ok:true };
   }catch(e){
-    return { ok:false, error: 'Failed to save counts' };
+    return { ok:false, error: 'Failed to save counts.' };
   }
 }
 
@@ -2534,54 +2538,63 @@ async function fetchJson(url){
   }
 }
 
-async function refreshAll(){
-  const cached = readCache() || {};
-  const [
-    inventoryRes,
-    ordersRes,
-    countsRes,
-    itemsRes,
-    categoriesRes,
-    jobsRes
-  ] = await Promise.all([
-    fetchJson('/api/inventory'),
-    fetchJson('/api/inventory?type=ordered'),
-    fetchJson('/api/inventory-counts'),
-    fetchJson('/api/items'),
-    fetchJson('/api/categories'),
-    fetchJson('/api/jobs')
-  ]);
+async function refreshAll(force = false){
+  if(inventoryRefreshInFlight && !force) return;
+  setInventoryRefreshState(true);
+  try{
+    if(force){
+      window.utils?.invalidateApiCache?.();
+    }
+    const cached = readCache() || {};
+    const [
+      inventoryRes,
+      ordersRes,
+      countsRes,
+      itemsRes,
+      categoriesRes,
+      jobsRes
+    ] = await Promise.all([
+      fetchJson('/api/inventory'),
+      fetchJson('/api/inventory?type=ordered'),
+      fetchJson('/api/inventory-counts'),
+      fetchJson('/api/items'),
+      fetchJson('/api/categories'),
+      fetchJson('/api/jobs')
+    ]);
 
-  const inventory = inventoryRes.ok ? inventoryRes.data : (cached.inventory || []);
-  const orders = ordersRes.ok ? ordersRes.data : (cached.orders || []);
-  const counts = countsRes.ok ? countsRes.data : (cached.counts || []);
-  const items = itemsRes.ok ? itemsRes.data : (cached.items || []);
-  const categories = categoriesRes.ok ? categoriesRes.data : (cached.categories || []);
-  const jobs = jobsRes.ok ? jobsRes.data : (cached.jobs || []);
+    const inventory = inventoryRes.ok ? inventoryRes.data : (cached.inventory || []);
+    const orders = ordersRes.ok ? ordersRes.data : (cached.orders || []);
+    const counts = countsRes.ok ? countsRes.data : (cached.counts || []);
+    const items = itemsRes.ok ? itemsRes.data : (cached.items || []);
+    const categories = categoriesRes.ok ? categoriesRes.data : (cached.categories || []);
+    const jobs = jobsRes.ok ? jobsRes.data : (cached.jobs || []);
 
-  const offline = !(inventoryRes.ok && ordersRes.ok && countsRes.ok && itemsRes.ok && categoriesRes.ok && jobsRes.ok);
-  if(!offline){
-    lastSyncTs = Date.now();
-    writeCache({ inventory, orders, counts, items, categories, jobs, ts: lastSyncTs });
-  }else{
-    lastSyncTs = cached.ts || lastSyncTs;
+    const offline = !(inventoryRes.ok && ordersRes.ok && countsRes.ok && itemsRes.ok && categoriesRes.ok && jobsRes.ok);
+    if(!offline){
+      lastSyncTs = Date.now();
+      writeCache({ inventory, orders, counts, items, categories, jobs, ts: lastSyncTs });
+    }else{
+      lastSyncTs = cached.ts || lastSyncTs;
+    }
+    updateSyncStatus(offline, lastSyncTs);
+
+    setCountsFromRows(counts);
+    setItemsMetaFromRows(items);
+    setCategoryRulesFromRows(categories);
+    setClosedJobsFromRows(jobs);
+
+    window.__cachedInventory = inventory;
+    inventoryEventCache = inventory;
+    incomingBaseRows = buildIncomingRows(orders, inventory);
+    onhandBaseRows = computeOnhandRows(inventory);
+    overdueRows = buildOverdueRows(inventory);
+    renderIncoming();
+    renderOnhand();
+    renderOverdue();
+    updateSummary();
+  }finally{
+    setInventoryRefreshState(false);
   }
-  updateSyncStatus(offline, lastSyncTs);
-
-  setCountsFromRows(counts);
-  setItemsMetaFromRows(items);
-  setCategoryRulesFromRows(categories);
-  setClosedJobsFromRows(jobs);
-
-  window.__cachedInventory = inventory;
-  inventoryEventCache = inventory;
-  incomingBaseRows = buildIncomingRows(orders, inventory);
-  onhandBaseRows = computeOnhandRows(inventory);
-  overdueRows = buildOverdueRows(inventory);
-  renderIncoming();
-  renderOnhand();
-  renderOverdue();
-  updateSummary();
 }
 
 function applyQueryParams(){
@@ -2641,7 +2654,8 @@ document.addEventListener('DOMContentLoaded',async ()=>{
   updateSyncStatus(!navigator.onLine, lastSyncTs);
   window.addEventListener('online', ()=> updateSyncStatus(false, lastSyncTs));
   window.addEventListener('offline', ()=> updateSyncStatus(true, lastSyncTs));
-  await refreshAll();
+  document.getElementById('inventoryRefreshBtn')?.addEventListener('click', ()=> refreshAll(true));
+  await refreshAll(true);
   applyQueryParams();
 
   const incomingSearchBox = document.getElementById('incomingSearchBox');

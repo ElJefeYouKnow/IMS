@@ -341,33 +341,50 @@ async function downloadPilotSnapshot(){
   const msg = document.getElementById('pilotExportMsg');
   if(msg) msg.textContent = 'Preparing snapshot...';
   try{
-    const response = await fetch('/api/export/pilot-snapshot');
-    const errorData = !response.ok ? await response.json().catch(()=> ({})) : null;
-    if(!response.ok) throw new Error(errorData?.error || 'Unable to download snapshot');
-    const blob = await response.blob();
-    const filename = parseDownloadFilename(response.headers.get('Content-Disposition'), `pilot-snapshot-${new Date().toISOString().slice(0, 10)}.json`);
-    triggerBlobDownload(blob, filename);
-    if(msg) msg.textContent = `Downloaded ${filename}`;
+    const result = await utils.downloadFile('/api/export/pilot-snapshot', {
+      fallbackFilename: `pilot-snapshot-${new Date().toISOString().slice(0, 10)}.json`
+    });
+    if(!result.ok) throw new Error(result.error || 'Unable to download snapshot');
+    if(msg) msg.textContent = `Downloaded ${result.filename}`;
   }catch(e){
     if(msg) msg.textContent = e.message || 'Unable to download snapshot.';
   }
 }
 
-function exportPilotInventoryCsv(){
+async function exportPilotCsv(endpoint, fallbackFilename, label){
   const msg = document.getElementById('pilotExportMsg');
-  const link = document.createElement('a');
-  link.href = '/api/export/inventory';
-  link.download = `inventory-all-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  if(msg) msg.textContent = 'Inventory CSV export started.';
+  if(msg) msg.textContent = `Preparing ${label}...`;
+  const result = await utils.downloadFile(endpoint, { fallbackFilename });
+  if(!result.ok){
+    if(msg) msg.textContent = result.error || `Unable to export ${label}.`;
+    return;
+  }
+  if(msg) msg.textContent = `Downloaded ${result.filename}`;
+}
+
+function exportPilotInventoryCsv(){
+  return exportPilotCsv('/api/export/inventory', `inventory-all-${new Date().toISOString().slice(0, 10)}.csv`, 'inventory CSV');
+}
+
+function exportPilotPurchaseHistoryCsv(){
+  return exportPilotCsv('/api/export/purchase-history', `purchase-history-${new Date().toISOString().slice(0, 10)}.csv`, 'purchase history CSV');
+}
+
+function exportPilotSuppliersCsv(){
+  return exportPilotCsv('/api/export/suppliers', `suppliers-${new Date().toISOString().slice(0, 10)}.csv`, 'suppliers CSV');
+}
+
+function exportPilotLocationsCsv(){
+  return exportPilotCsv('/api/export/locations', `locations-${new Date().toISOString().slice(0, 10)}.csv`, 'locations CSV');
 }
 
 function initPilotTools(){
   document.getElementById('pilotRefreshBtn')?.addEventListener('click', loadPilotSummary);
   document.getElementById('pilotDownloadSnapshotBtn')?.addEventListener('click', downloadPilotSnapshot);
   document.getElementById('pilotExportInventoryBtn')?.addEventListener('click', exportPilotInventoryCsv);
+  document.getElementById('pilotExportPurchasesBtn')?.addEventListener('click', exportPilotPurchaseHistoryCsv);
+  document.getElementById('pilotExportSuppliersBtn')?.addEventListener('click', exportPilotSuppliersCsv);
+  document.getElementById('pilotExportLocationsBtn')?.addEventListener('click', exportPilotLocationsCsv);
   loadPilotSummary();
 }
 

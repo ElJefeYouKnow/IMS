@@ -28,6 +28,141 @@
         return fallback;
       }
     },
+    makeRequestKey(prefix = 'req'){
+      const safePrefix = String(prefix || 'req').trim().replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '') || 'req';
+      return `${safePrefix}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+    },
+    normalizeRequestError(message, fallback = 'Request failed'){
+      const raw = String(message || '').trim();
+      if(!raw) return fallback;
+      const lower = raw.toLowerCase();
+      if(lower.includes('receipt photos are too large') || lower.includes('receipt image too large') || lower.includes('request entity too large')){
+        return 'Receipt image too large. Use a smaller photo or fewer photos.';
+      }
+      if(lower.includes('receipt photos were not saved')){
+        return 'Server saved the purchase but did not confirm any receipt photo for that batch.';
+      }
+      if(lower.includes('unauthorized') || lower.includes('session expired')){
+        return 'Session expired. Sign in again.';
+      }
+      return raw;
+    },
+    async requestJson(url, options = {}){
+      const method = String(options.method || (options.json !== undefined ? 'POST' : 'GET')).toUpperCase();
+      const timeoutMs = Number(options.timeoutMs || 20000);
+      const fallbackError = options.fallbackError || 'Request failed';
+      const requestKey = options.requestKey || (options.requestKeyPrefix ? this.makeRequestKey(options.requestKeyPrefix) : '');
+      const headers = options.headers ? { ...options.headers } : {};
+      const fetchOptions = { ...options };
+      delete fetchOptions.json;
+      delete fetchOptions.timeoutMs;
+      delete fetchOptions.fallbackError;
+      delete fetchOptions.requestKey;
+      delete fetchOptions.requestKeyPrefix;
+      let body = options.body;
+      if(options.json !== undefined){
+        let jsonBody = options.json;
+        if(
+          requestKey
+          && jsonBody
+          && typeof jsonBody === 'object'
+          && !Array.isArray(jsonBody)
+          && !Object.prototype.hasOwnProperty.call(jsonBody, 'requestKey')
+        ){
+          jsonBody = { ...jsonBody, requestKey };
+        }
+        headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+        body = JSON.stringify(jsonBody);
+      }
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timer = controller ? setTimeout(()=> controller.abort(new Error('timeout')), timeoutMs) : null;
+      try{
+        const res = await fetch(url, {
+          ...fetchOptions,
+          method,
+          headers,
+          body,
+          ...(controller ? { signal: controller.signal } : {})
+        });
+        if(timer) clearTimeout(timer);
+        const text = await res.text();
+        let data = null;
+        if(text){
+          try{
+            data = JSON.parse(text);
+          }catch(e){
+            data = text;
+          }
+        }
+        if(res.status === 401){
+          this.clearSession?.();
+          return { ok:false, status:401, data, requestKey, code:'session_expired', error:'Session expired. Sign in again.' };
+        }
+        if(!res.ok){
+          const message = typeof data === 'object' && data && data.error ? data.error : text;
+          return {
+            ok:false,
+            status:res.status,
+            data,
+            requestKey,
+            error:this.normalizeRequestError(message, fallbackError)
+          };
+        }
+        return { ok:true, status:res.status, data, requestKey };
+      }catch(e){
+        if(timer) clearTimeout(timer);
+        const timedOut = e?.name === 'AbortError' || /timeout/i.test(String(e?.message || ''));
+        return {
+          ok:false,
+          status:0,
+          data:null,
+          requestKey,
+          code:timedOut ? 'timeout' : 'network_error',
+          error: timedOut
+            ? 'Network timeout before confirmation. Refresh to confirm whether the request completed.'
+            : 'Network error. Check your connection and try again.'
+        };
+      }
+    },
+    async downloadFile(url, options = {}){
+      const fallbackFilename = options.fallbackFilename || `download-${Date.now()}`;
+      try{
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutMs = Number(options.timeoutMs || 30000);
+        const timer = controller ? setTimeout(()=> controller.abort(new Error('timeout')), timeoutMs) : null;
+        const response = await fetch(url, {
+          method: options.method || 'GET',
+          headers: options.headers || {},
+          ...(controller ? { signal: controller.signal } : {})
+        });
+        if(timer) clearTimeout(timer);
+        if(!response.ok){
+          const data = await response.json().catch(()=> ({}));
+          return { ok:false, error:this.normalizeRequestError(data?.error, 'Download failed') };
+        }
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const match = /filename="([^"]+)"/i.exec(disposition) || /filename=([^;]+)/i.exec(disposition);
+        const filename = match?.[1] ? match[1].trim() : fallbackFilename;
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(blobUrl);
+        return { ok:true, filename };
+      }catch(e){
+        const timedOut = e?.name === 'AbortError' || /timeout/i.test(String(e?.message || ''));
+        return {
+          ok:false,
+          error: timedOut
+            ? 'Network timeout before confirmation. Refresh to confirm whether the export finished.'
+            : 'Download failed. Check your connection and try again.'
+        };
+      }
+    },
     invalidateApiCache(match){
       if(!this._apiCache) return;
       if(!match){

@@ -67,7 +67,10 @@
           <button class="mode-btn" data-tab="incoming">Incoming</button>
           <button class="mode-btn" data-tab="overdue">Overdue Returns</button>
         </div>
-        <div class="sync-chip" id="syncStatus" aria-live="polite"></div>
+        <div class="sync-row">
+          <div class="sync-chip" id="syncStatus" aria-live="polite"></div>
+          <button id="inventoryRefreshBtn" type="button" class="muted">Refresh Data</button>
+        </div>
 
         <div id="incoming-tab" class="mode-content">
           <div class="data-toolbar inventory-toolbar">
