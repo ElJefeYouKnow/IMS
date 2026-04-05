@@ -347,7 +347,7 @@ body[data-page="employee-dashboard"] .employee-action:hover{
 
 body[data-page="inventory-operations"] .ops-hero{
   display:grid;
-  grid-template-columns:1.6fr 1fr;
+  grid-template-columns:1fr;
   gap:14px;
   margin-bottom:16px;
 }
