@@ -6,6 +6,8 @@ let isAdmin = false;
 let editingCode = null;
 let projectMaterialsReportCache = new Map();
 let workflowOverviewCache = null;
+let projectRenderRequestId = 0;
+let reportRenderRequestId = 0;
 const REPORT_SORT_DEFAULT = 'closestUpcoming';
 const CLOSED_PROJECT_STATUSES = new Set(['complete','completed','closed','archived','cancelled','canceled']);
 
@@ -524,8 +526,10 @@ async function deleteProjectApi(code){
 async function renderProjects(){
   const tbody = document.querySelector('#projectTable tbody');
   if(!tbody) return;
+  const requestId = ++projectRenderRequestId;
   tbody.innerHTML = '';
   const jobs = await loadJobs();
+  if(requestId !== projectRenderRequestId) return;
   const search = (document.getElementById('projectSearchBox')?.value || '').toLowerCase();
   let filtered = jobs.slice();
   if(search){
@@ -1159,14 +1163,18 @@ function renderProjectProcurementSuggestions(suggestions){
 async function renderReport(){
   const list = document.getElementById('reportCards');
   if(!list) return;
+  const requestId = ++reportRenderRequestId;
   list.innerHTML = '';
   projectMaterialsReportCache = new Map();
   workflowOverviewCache = null;
   await loadJobs();
+  if(requestId !== reportRenderRequestId) return;
   const workflow = await loadWorkflowOverview(true);
+  if(requestId !== reportRenderRequestId) return;
   renderFulfillmentBoard(workflow.fulfillmentBoard || []);
   renderProjectProcurementSuggestions(workflow.procurementSuggestions || []);
   const entries = await loadEntries();
+  if(requestId !== reportRenderRequestId) return;
   const items = aggregateByProject(entries);
   const summary = buildReportSummary(items);
   const filtered = applyReportFilters(summary);
@@ -1190,6 +1198,7 @@ async function renderReport(){
     ...project,
     materials: isGeneralProject(project.projectId) ? [] : await loadProjectMaterials(project.projectId),
   })));
+  if(requestId !== reportRenderRequestId) return;
   const rows = enriched
     .map(project=> ({ ...project, materialStats: summarizeProjectMaterials(project.materials || []), lastActivityTs: lastActivityMap.get(project.projectId) || 0 }))
     .sort(compareReportProjects);
@@ -1426,8 +1435,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   });
   initTabs();
   initProjectForm();
-  await renderProjects();
-  await renderReport();
 
   const searchParam = new URLSearchParams(window.location.search).get('search');
   const projectSearch = document.getElementById('projectSearchBox');
