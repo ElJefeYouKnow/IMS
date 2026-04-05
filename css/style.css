@@ -1056,7 +1056,9 @@ body:not(.panel-open) .drawer-floating-close{display:none}
 .dark .summary-item strong{color:var(--ink)}
 .summary-list{margin-top:10px}
 .summary-items{display:flex;flex-direction:column;gap:6px;margin-top:6px}
-.summary-row{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:#ffffff;font-size:0.85rem;font-weight:700;color:var(--ink)}
+.summary-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:#ffffff;font-size:0.85rem;font-weight:700;color:var(--ink)}
+.summary-row span:first-child{flex:1 1 180px;min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.summary-row span:last-child{flex:0 0 auto;max-width:100%;text-align:right}
 .filter-chips{display:flex;gap:6px;flex-wrap:wrap}
 .filter-btn{padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.12em;font-size:0.72rem}
 .filter-btn.active{background:linear-gradient(135deg,#132a24,#1f6f5c);color:#fff;border-color:rgba(31,111,92,0.45)}
@@ -1414,6 +1416,7 @@ select option{
   .report-card-grid.compact,.report-compact-stats{grid-template-columns:1fr}
 }
 .page-grid{display:grid;grid-template-columns:2fr 1.3fr;gap:14px;align-items:start}
+.page-grid > *{min-width:0}
 @media(max-width:960px){
   .page-grid{grid-template-columns:1fr}
 }
