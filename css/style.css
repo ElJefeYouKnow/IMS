@@ -1101,6 +1101,7 @@ body:not(.panel-open) .drawer-floating-close{display:none}
 .receipt-upload-chip input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .receipt-upload-chip:hover{border-color:rgba(31,111,92,0.45);transform:translateY(-1px)}
 .receipt-upload-chip:focus-within{outline:none;border-color:rgba(31,111,92,0.65);box-shadow:0 0 0 3px rgba(31,111,92,0.16)}
+.receipt-upload-actions .muted{min-height:44px}
 .purchase-save-card{margin-top:14px;padding:16px;border:1px solid rgba(31,111,92,0.22);border-radius:16px;background:linear-gradient(180deg,rgba(31,111,92,0.08),rgba(255,255,255,0.82));display:flex;flex-direction:column;gap:12px}
 .purchase-save-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .purchase-save-head strong{font-size:0.98rem;color:var(--ink)}

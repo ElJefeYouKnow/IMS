@@ -15,6 +15,33 @@ const { Pool } = require('pg');
 const { Parser } = require('json2csv');
 const nodemailer = require('nodemailer');
 
+function loadOptionalEnvFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const raw = fs.readFileSync(filePath, 'utf8');
+    raw.split(/\r?\n/).forEach((line) => {
+      const trimmed = String(line || '').trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const eqIndex = trimmed.indexOf('=');
+      if (eqIndex <= 0) return;
+      const key = trimmed.slice(0, eqIndex).trim();
+      if (!key || process.env[key] !== undefined) return;
+      let value = trimmed.slice(eqIndex + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"'))
+        || (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value.replace(/\\n/g, '\n');
+    });
+  } catch (e) {
+    console.warn('Could not load optional env file', filePath, e.message);
+  }
+}
+
+loadOptionalEnvFile(path.join(__dirname, '.env.local'));
+
 const PORT = process.env.PORT || 8000;
 const BASE_DOMAIN = process.env.BASE_DOMAIN || 'modulr.pro';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || (IS_PROD ? `https://${BASE_DOMAIN}` : `http://localhost:${PORT}`);
@@ -30,6 +57,15 @@ const SMTP_USER = process.env.SMTP_USER || '';
 const SMTP_PASS = process.env.SMTP_PASS || '';
 const SMTP_SECURE = process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : SMTP_PORT === 465;
 const REQUIRE_EMAIL_VERIFICATION = process.env.EMAIL_VERIFICATION_REQUIRED ? process.env.EMAIL_VERIFICATION_REQUIRED === 'true' : IS_PROD;
+const VERYFI_API_URL = process.env.VERYFI_API_URL || 'https://api.veryfi.com/api/v8/partner/documents';
+const VERYFI_CLIENT_ID = process.env.VERYFI_CLIENT_ID || '';
+const VERYFI_AUTHORIZATION = process.env.VERYFI_AUTHORIZATION
+  || (
+    process.env.VERYFI_USERNAME && process.env.VERYFI_API_KEY
+      ? `apikey ${process.env.VERYFI_USERNAME}:${process.env.VERYFI_API_KEY}`
+      : ''
+  );
+const VERYFI_TIMEOUT_MS = process.env.VERYFI_TIMEOUT_MS ? Math.max(1000, Number(process.env.VERYFI_TIMEOUT_MS) || 30000) : 30000;
 const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || (IS_PROD ? PUBLIC_BASE_URL : '')).split(',')
   .map((value) => value.trim())
   .filter(Boolean));
@@ -5855,6 +5891,121 @@ function fieldPurchaseReceiptExt(type = '') {
   return 'jpg';
 }
 
+function isVeryfiConfigured() {
+  return !!(VERYFI_CLIENT_ID && VERYFI_AUTHORIZATION);
+}
+
+function normalizeVeryfiScalar(value) {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object') {
+    return String(
+      value.value
+      || value.text
+      || value.name
+      || value.label
+      || value.number
+      || value.code
+      || ''
+    ).trim();
+  }
+  return '';
+}
+
+function normalizeVeryfiNumber(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'object') {
+    return normalizeVeryfiNumber(
+      value.amount
+      ?? value.value
+      ?? value.number
+      ?? value.total
+      ?? null
+    );
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeVeryfiDate(value) {
+  const raw = normalizeVeryfiScalar(value?.date || value?.value || value);
+  if (!raw) return '';
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) return raw;
+  return new Date(parsed).toISOString();
+}
+
+function normalizeVeryfiLineItems(rawItems) {
+  const items = Array.isArray(rawItems) ? rawItems : [];
+  return items.map((item) => {
+    const description = normalizeVeryfiScalar(
+      item?.description
+      || item?.normalized_description
+      || item?.normalizedDescription
+      || item?.full_description
+      || item?.fullDescription
+      || item?.name
+      || ''
+    );
+    const reference = normalizeVeryfiScalar(
+      item?.reference
+      || item?.product_code
+      || item?.productCode
+      || item?.sku
+      || item?.code
+      || ''
+    );
+    const quantity = normalizeVeryfiNumber(item?.quantity);
+    const price = normalizeVeryfiNumber(item?.price ?? item?.unit_price ?? item?.unitPrice ?? null);
+    const total = normalizeVeryfiNumber(item?.total ?? item?.line_total ?? item?.amount ?? null);
+    return {
+      description,
+      reference,
+      quantity: quantity && quantity > 0 ? quantity : 1,
+      price,
+      total,
+      section: normalizeVeryfiScalar(item?.section || ''),
+      category: Array.isArray(item?.category) ? item.category.map((entry) => normalizeVeryfiScalar(entry)).filter(Boolean) : []
+    };
+  }).filter((item) => item.description || item.reference);
+}
+
+function summarizeVeryfiDocument(document, { attachedPhotoCount = 1 } = {}) {
+  const vendor = normalizeVeryfiScalar(
+    document?.vendor?.name
+    || document?.vendor
+    || document?.vendors?.[0]?.name
+    || document?.meta?.vendor?.value
+    || document?.meta?.vendor?.name
+    || ''
+  );
+  const receiptNumber = normalizeVeryfiScalar(
+    document?.invoice_number
+    || document?.document_reference_number
+    || document?.purchase_order_number
+    || document?.receipt_number
+    || document?.external_id
+    || ''
+  );
+  return {
+    documentId: document?.id || null,
+    externalId: normalizeVeryfiScalar(document?.external_id || ''),
+    vendor,
+    receiptNumber,
+    total: normalizeVeryfiNumber(document?.total ?? document?.meta?.total ?? null),
+    subtotal: normalizeVeryfiNumber(document?.subtotal ?? document?.meta?.subtotal ?? null),
+    tax: normalizeVeryfiNumber(document?.tax ?? document?.meta?.tax ?? null),
+    currencyCode: normalizeVeryfiScalar(document?.currency_code?.code || document?.currency_code || document?.meta?.currency_code?.code || document?.meta?.currency_code || ''),
+    date: normalizeVeryfiDate(document?.date || document?.meta?.date || ''),
+    documentType: normalizeVeryfiScalar(document?.document_type?.value || document?.document_type || document?.meta?.document_type?.value || document?.meta?.document_type || ''),
+    warnings: Array.isArray(document?.warnings) ? document.warnings.map((entry) => normalizeVeryfiScalar(entry)).filter(Boolean) : [],
+    lineItems: normalizeVeryfiLineItems(document?.line_items),
+    attachedPhotoCount
+  };
+}
+
 function persistFieldPurchaseReceiptPhoto({ batchId, index, type, normalizedDataUrl, name, sizeBytes, width, height }) {
   const ext = fieldPurchaseReceiptExt(type);
   const safeBatch = String(batchId || 'receipt')
@@ -5968,7 +6119,27 @@ function mergeFieldPurchaseSourceMeta(entries) {
   return merged;
 }
 
-function normalizeFieldPurchaseReceiptPhotos(rawPhotos, batchId = '') {
+function normalizeFieldPurchaseVeryfiMeta(rawValue) {
+  if (!rawValue || typeof rawValue !== 'object') return null;
+  const warnings = Array.isArray(rawValue.warnings)
+    ? rawValue.warnings.map((entry) => normalizeVeryfiScalar(entry)).filter(Boolean).slice(0, 5)
+    : [];
+  return {
+    documentId: rawValue.documentId || rawValue.id || null,
+    externalId: normalizeVeryfiScalar(rawValue.externalId || ''),
+    vendor: normalizeVeryfiScalar(rawValue.vendor || ''),
+    receiptNumber: normalizeVeryfiScalar(rawValue.receiptNumber || ''),
+    total: normalizeVeryfiNumber(rawValue.total),
+    currencyCode: normalizeVeryfiScalar(rawValue.currencyCode || ''),
+    date: normalizeVeryfiDate(rawValue.date || ''),
+    documentType: normalizeVeryfiScalar(rawValue.documentType || ''),
+    matchedLineCount: Math.max(0, Number(rawValue.matchedLineCount || 0) || 0),
+    extractedLineCount: Math.max(0, Number(rawValue.extractedLineCount || 0) || 0),
+    warnings
+  };
+}
+
+function prepareFieldPurchaseReceiptPhotos(rawPhotos) {
   const photos = Array.isArray(rawPhotos) ? rawPhotos : [];
   if (!photos.length) return [];
   if (photos.length > FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT) throw new Error(`only ${FIELD_PURCHASE_RECEIPT_PHOTO_LIMIT} receipt photos allowed`);
@@ -5994,6 +6165,11 @@ function normalizeFieldPurchaseReceiptPhotos(rawPhotos, batchId = '') {
   });
   const totalBytes = normalized.reduce((sum, photo) => sum + Number(photo.sizeBytes || 0), 0);
   if (totalBytes > FIELD_PURCHASE_RECEIPT_PHOTO_TOTAL_BYTES) throw new Error('receipt photos are too large together');
+  return normalized;
+}
+
+function normalizeFieldPurchaseReceiptPhotos(rawPhotos, batchId = '') {
+  const normalized = prepareFieldPurchaseReceiptPhotos(rawPhotos);
   return normalized.map((photo, index) => persistFieldPurchaseReceiptPhoto({
     batchId,
     index,
@@ -6005,6 +6181,73 @@ function normalizeFieldPurchaseReceiptPhotos(rawPhotos, batchId = '') {
     height: photo.height
   }));
 }
+
+app.post('/api/field-purchase/veryfi-process', async (req, res) => {
+  if (!isVeryfiConfigured()) {
+    return res.status(503).json({ error: 'Veryfi is not configured on this server.' });
+  }
+  if (typeof fetch !== 'function') {
+    return res.status(500).json({ error: 'This Node runtime does not support outbound fetch. Use Node 18 or newer.' });
+  }
+  try {
+    const batchId = String(req.body?.batchId || '').trim().slice(0, 120) || `field-purchase-${newId()}`;
+    const preparedPhotos = prepareFieldPurchaseReceiptPhotos(req.body?.receiptPhotos);
+    if (!preparedPhotos.length) {
+      return res.status(400).json({ error: 'Attach at least one receipt photo before scanning with Veryfi.' });
+    }
+    const targetPhoto = preparedPhotos[0];
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(new Error('Veryfi request timed out')), VERYFI_TIMEOUT_MS) : null;
+    let upstream;
+    try {
+      upstream = await fetch(VERYFI_API_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'CLIENT-ID': VERYFI_CLIENT_ID,
+          AUTHORIZATION: VERYFI_AUTHORIZATION
+        },
+        body: JSON.stringify({
+          external_id: batchId,
+          file_data: targetPhoto.normalizedDataUrl,
+          file_name: targetPhoto.name,
+          document_type: 'receipt',
+          country: String(req.body?.country || 'US').trim().toUpperCase() || 'US',
+          boost_mode: false,
+          async: false,
+          compute: true,
+          auto_delete: true,
+          max_pages_to_process: 1
+        }),
+        ...(controller ? { signal: controller.signal } : {})
+      });
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+
+    const rawText = await upstream.text();
+    let payload = null;
+    if (rawText) {
+      try {
+        payload = JSON.parse(rawText);
+      } catch (e) {
+        payload = null;
+      }
+    }
+    if (!upstream.ok) {
+      const message = payload?.error || payload?.detail || rawText || `Veryfi request failed with status ${upstream.status}`;
+      return res.status(upstream.status || 502).json({ error: message });
+    }
+    const extracted = summarizeVeryfiDocument(payload || {}, { attachedPhotoCount: preparedPhotos.length });
+    return res.json({ extracted });
+  } catch (e) {
+    const message = e?.name === 'AbortError'
+      ? 'Veryfi request timed out.'
+      : (e.message || 'Unable to process receipt with Veryfi.');
+    return res.status(/timed out/i.test(message) ? 504 : 500).json({ error: message });
+  }
+});
 
 app.get('/api/field-purchases', async (req, res) => {
   try {
@@ -6066,6 +6309,7 @@ app.post('/api/field-purchase', async (req, res) => {
     const actor = actorInfo(req);
     const batchId = String(req.body?.batchId || '').trim().slice(0, 120) || `field-purchase-${newId()}`;
     const receiptPhotos = normalizeFieldPurchaseReceiptPhotos(req.body?.receiptPhotos, batchId);
+    const veryfiMeta = normalizeFieldPurchaseVeryfiMeta(req.body?.veryfi);
     const results = [];
     let lowStockNotifications = [];
     let deduped = false;
@@ -6129,6 +6373,7 @@ app.post('/api/field-purchase', async (req, res) => {
           vendor: line?.vendor || req.body?.vendor || '',
           receipt: line?.receipt || req.body?.receipt || '',
           ...(receiptPhotos.length ? { receiptPhotos } : {}),
+          ...(veryfiMeta ? { veryfi: veryfiMeta } : {}),
           cost: line?.cost ?? line?.unitPrice ?? null,
           purchasedAt: tsVal
         };

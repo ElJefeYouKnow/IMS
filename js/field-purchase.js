@@ -11,6 +11,8 @@ let purchaseSubmitInFlight = false;
 let pendingPurchaseBatchId = '';
 let purchaseLastSyncTs = null;
 let purchaseRefreshInFlight = false;
+let veryfiReceiptData = null;
+let veryfiScanInFlight = false;
 const DEFAULT_CATEGORY_NAME = 'Uncategorized';
 const SESSION_KEY = 'sessionUser';
 const MAX_RECEIPT_PHOTOS = 2;
@@ -208,6 +210,77 @@ function setPurchaseFormMessage(message = '', tone = ''){
   el.textContent = message;
 }
 
+function setVeryfiMessage(message = '', tone = ''){
+  const el = document.getElementById('purchase-veryfiMsg');
+  if(!el) return;
+  const cls = ['field-hint'];
+  if(tone) cls.push(tone);
+  el.className = cls.join(' ');
+  el.textContent = message;
+}
+
+function formatMaybeCurrency(value, currencyCode = 'USD'){
+  const amount = Number(value);
+  if(!Number.isFinite(amount)) return '-';
+  const code = String(currencyCode || 'USD').trim().toUpperCase() || 'USD';
+  try{
+    return new Intl.NumberFormat('en-US', { style:'currency', currency:code, maximumFractionDigits:2 }).format(amount);
+  }catch(e){
+    return amount.toFixed(2);
+  }
+}
+
+function normalizeVeryfiText(value){
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function veryfiCodeCandidate(value){
+  const raw = String(value || '').trim();
+  if(!raw) return '';
+  const safe = raw
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^a-z0-9._/-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  if(!safe) return '';
+  if(/^\d+$/.test(safe) && safe.length < 4) return '';
+  return safe.toUpperCase();
+}
+
+function findCatalogItemForVeryfiLine(line){
+  const refCandidates = [
+    line?.reference,
+    line?.productCode,
+    line?.product_code,
+    line?.sku,
+    line?.code
+  ].map((value)=> normalizeVeryfiText(value)).filter(Boolean);
+  for(const ref of refCandidates){
+    const codeMatch = itemsCache.find((item)=> normalizeVeryfiText(item?.code) === ref);
+    if(codeMatch) return codeMatch;
+  }
+  const descriptions = [
+    line?.description,
+    line?.normalizedDescription,
+    line?.normalized_description,
+    line?.fullDescription,
+    line?.full_description
+  ].map((value)=> normalizeVeryfiText(value)).filter(Boolean);
+  for(const description of descriptions){
+    const exactNameMatch = itemsCache.find((item)=> normalizeVeryfiText(item?.name) === description);
+    if(exactNameMatch) return exactNameMatch;
+  }
+  for(const description of descriptions){
+    if(description.length < 5) continue;
+    const partialNameMatch = itemsCache.find((item)=>{
+      const itemName = normalizeVeryfiText(item?.name);
+      return itemName && (description.includes(itemName) || itemName.includes(description));
+    });
+    if(partialNameMatch) return partialNameMatch;
+  }
+  return null;
+}
+
 function updatePurchaseSyncStatus(offline, ts){
   const el = document.getElementById('purchaseSyncStatus');
   if(!el) return;
@@ -293,15 +366,57 @@ function renderPurchaseSaveVerification(data = null){
     : '<span class="muted-text">No saved receipt links were returned for this batch.</span>';
 }
 
+function renderVeryfiSummary(summary = null){
+  const card = document.getElementById('purchase-veryfiSummary');
+  const textEl = document.getElementById('purchase-veryfiSummaryText');
+  const statusEl = document.getElementById('purchase-veryfiStatus');
+  const vendorEl = document.getElementById('purchase-veryfiVendor');
+  const receiptEl = document.getElementById('purchase-veryfiReceipt');
+  const totalEl = document.getElementById('purchase-veryfiTotal');
+  const linesEl = document.getElementById('purchase-veryfiLines');
+  if(!card || !textEl || !statusEl || !vendorEl || !receiptEl || !totalEl || !linesEl) return;
+  if(!summary){
+    card.classList.add('hidden');
+    textEl.textContent = 'Attach a receipt photo and scan it to prefill vendor, receipt number, and line items.';
+    statusEl.className = 'status-chip success';
+    statusEl.innerHTML = '<span class="dot"></span><span class="label">Ready</span>';
+    vendorEl.textContent = '-';
+    receiptEl.textContent = '-';
+    totalEl.textContent = '-';
+    linesEl.textContent = '0';
+    return;
+  }
+  const statusTone = summary.statusTone || 'success';
+  card.classList.remove('hidden');
+  textEl.textContent = summary.message || 'Veryfi receipt scan completed.';
+  statusEl.className = `status-chip ${statusTone}`;
+  statusEl.innerHTML = `<span class="dot"></span><span class="label">${escapeHtml(summary.statusLabel || 'Scanned')}</span>`;
+  vendorEl.textContent = summary.vendor || '-';
+  receiptEl.textContent = summary.receiptNumber || '-';
+  totalEl.textContent = summary.totalLabel || '-';
+  linesEl.textContent = String(summary.extractedLineCount || 0);
+}
+
+function resetVeryfiScanState(){
+  veryfiReceiptData = null;
+  renderVeryfiSummary();
+  setVeryfiMessage('');
+}
+
 function syncReceiptPhotoControls(){
   const input = document.getElementById('purchase-receiptPhotos');
   const captureInput = document.getElementById('purchase-receiptCapture');
+  const veryfiBtn = document.getElementById('purchase-veryfiScanBtn');
   const submitBtn = document.getElementById('purchaseBtn');
   const addBtn = document.getElementById('purchase-addLine');
   const clearBtn = document.getElementById('purchase-clearBtn');
-  const isBusy = receiptPhotoProcessing || purchaseSubmitInFlight;
+  const isBusy = receiptPhotoProcessing || purchaseSubmitInFlight || veryfiScanInFlight;
   if(input) input.disabled = isBusy || receiptPhotos.length >= MAX_RECEIPT_PHOTOS;
   if(captureInput) captureInput.disabled = isBusy || receiptPhotos.length >= MAX_RECEIPT_PHOTOS;
+  if(veryfiBtn){
+    veryfiBtn.disabled = isBusy || !receiptPhotos.length;
+    veryfiBtn.textContent = veryfiScanInFlight ? 'Scanning...' : 'Scan With Veryfi';
+  }
   if(submitBtn){
     submitBtn.disabled = isBusy;
     submitBtn.textContent = purchaseSubmitInFlight ? 'Logging...' : 'Log Purchase';
@@ -335,6 +450,7 @@ function renderReceiptPhotoPreview(){
   wrap.querySelectorAll('.remove-receipt-photo').forEach((button)=>{
     button.addEventListener('click', ()=>{
       receiptPhotos = receiptPhotos.filter((photo)=> photo.id !== button.dataset.id);
+      resetVeryfiScanState();
       renderReceiptPhotoPreview();
       setReceiptPhotoMessage(receiptPhotos.length ? `${receiptPhotos.length} receipt photo${receiptPhotos.length === 1 ? '' : 's'} ready.` : '', receiptPhotos.length ? 'ok' : '');
     });
@@ -344,6 +460,7 @@ function renderReceiptPhotoPreview(){
 
 function resetReceiptPhotos(message = '', tone = ''){
   receiptPhotos = [];
+  resetVeryfiScanState();
   renderReceiptPhotoPreview();
   setReceiptPhotoMessage(message, tone);
 }
@@ -445,6 +562,7 @@ async function handleReceiptPhotoSelection(event){
   }
 
   const selectedFiles = files.slice(0, remainingSlots);
+  resetVeryfiScanState();
   receiptPhotoProcessing = true;
   syncReceiptPhotoControls();
   setReceiptPhotoMessage(`Preparing ${selectedFiles.length} receipt photo${selectedFiles.length === 1 ? '' : 's'}...`, 'warn');
@@ -674,7 +792,7 @@ async function loadJobs(){
   if(current) select.value = current;
 }
 
-function addLine(){
+function addLine(initialValues = null){
   const container = document.getElementById('purchase-lines');
   if(!container) return;
   const id = uid();
@@ -714,6 +832,8 @@ function addLine(){
   const codeInput = row.querySelector(`#${codeId}`);
   const nameInput = row.querySelector(`#${nameId}`);
   const categoryInput = row.querySelector(`#${categoryId}`);
+  const qtyInput = row.querySelector(`#${qtyId}`);
+  const costInput = row.querySelector(`#${costId}`);
   const fillFromExisting = ()=>{
     const value = codeInput?.value.trim().toLowerCase() || '';
     if(!value){
@@ -733,6 +853,139 @@ function addLine(){
   };
   codeInput?.addEventListener('change', fillFromExisting);
   codeInput?.addEventListener('blur', fillFromExisting);
+  if(initialValues && typeof initialValues === 'object'){
+    if(codeInput) codeInput.value = String(initialValues.code || '').trim();
+    if(nameInput) nameInput.value = String(initialValues.name || '').trim();
+    if(categoryInput && initialValues.category) categoryInput.value = String(initialValues.category).trim();
+    if(qtyInput) qtyInput.value = String(initialValues.qty || 1);
+    if(costInput && initialValues.cost !== null && initialValues.cost !== undefined && initialValues.cost !== ''){
+      costInput.value = String(initialValues.cost);
+    }
+    fillFromExisting();
+  }
+}
+
+function hasMeaningfulPurchaseLineContent(){
+  return [...document.querySelectorAll('#purchase-lines .line-row')].some((row)=>{
+    const code = row.querySelector('input[name="code"]')?.value.trim() || '';
+    const name = row.querySelector('input[name="name"]')?.value.trim() || '';
+    const cost = row.querySelector('input[name="cost"]')?.value.trim() || '';
+    return !!(code || name || cost);
+  });
+}
+
+function replacePurchaseLines(lines){
+  const container = document.getElementById('purchase-lines');
+  if(!container) return;
+  container.innerHTML = '';
+  const nextLines = Array.isArray(lines) && lines.length ? lines : [{}];
+  nextLines.forEach((line)=> addLine(line));
+}
+
+function mapVeryfiLineToPurchaseLine(line, index){
+  const catalogItem = findCatalogItemForVeryfiLine(line);
+  const description = String(
+    line?.description
+    || line?.normalizedDescription
+    || line?.normalized_description
+    || line?.fullDescription
+    || line?.full_description
+    || ''
+  ).trim();
+  const quantity = Math.max(1, Math.round(Number(line?.quantity || 0) || 1));
+  const total = Number(line?.total);
+  const price = Number(line?.price);
+  const referenceCode = veryfiCodeCandidate(
+    line?.reference
+    || line?.productCode
+    || line?.product_code
+    || line?.sku
+    || ''
+  );
+  let cost = null;
+  if(Number.isFinite(price) && price >= 0){
+    cost = Number(price.toFixed(2));
+  }else if(Number.isFinite(total) && total >= 0 && quantity > 0){
+    cost = Number((total / quantity).toFixed(2));
+  }
+  return {
+    code: catalogItem?.code || referenceCode || '',
+    name: catalogItem?.name || description || '',
+    category: catalogItem?.category || DEFAULT_CATEGORY_NAME,
+    qty: quantity,
+    cost,
+    matchedCatalogItem: !!catalogItem,
+    sourceReference: referenceCode,
+    sourceIndex: index
+  };
+}
+
+function applyVeryfiExtraction(extracted){
+  const vendorInput = document.getElementById('purchase-vendor');
+  const receiptInput = document.getElementById('purchase-receipt');
+  const lineItems = Array.isArray(extracted?.lineItems) ? extracted.lineItems : [];
+  const mappedLines = lineItems.map(mapVeryfiLineToPurchaseLine);
+  const matchedCatalogItemCount = mappedLines.filter((line)=> line.matchedCatalogItem).length;
+  const unresolvedLineCount = mappedLines.filter((line)=> !line.code).length;
+  let replacedLines = false;
+
+  if(vendorInput && !vendorInput.value.trim() && extracted?.vendor){
+    vendorInput.value = extracted.vendor;
+  }
+  if(receiptInput && !receiptInput.value.trim() && extracted?.receiptNumber){
+    receiptInput.value = extracted.receiptNumber;
+  }
+
+  if(mappedLines.length){
+    const shouldReplace = !hasMeaningfulPurchaseLineContent()
+      || window.confirm('Replace the current purchase lines with the receipt items extracted by Veryfi?');
+    if(shouldReplace){
+      replacePurchaseLines(mappedLines);
+      replacedLines = true;
+    }
+  }
+
+  veryfiReceiptData = {
+    ...extracted,
+    matchedCatalogItemCount,
+    unresolvedLineCount,
+    appliedLineCount: replacedLines ? mappedLines.length : 0
+  };
+
+  const totalLabel = formatMaybeCurrency(extracted?.total, extracted?.currencyCode || 'USD');
+  const messageParts = [];
+  if(mappedLines.length){
+    if(replacedLines){
+      messageParts.push(`Loaded ${mappedLines.length} line item${mappedLines.length === 1 ? '' : 's'} from Veryfi.`);
+    }else{
+      messageParts.push(`Extracted ${mappedLines.length} line item${mappedLines.length === 1 ? '' : 's'} from Veryfi. Current purchase lines were kept.`);
+    }
+    if(matchedCatalogItemCount){
+      messageParts.push(`${matchedCatalogItemCount} matched existing catalog item${matchedCatalogItemCount === 1 ? '' : 's'}.`);
+    }
+    if(unresolvedLineCount){
+      messageParts.push(`Review ${unresolvedLineCount} line${unresolvedLineCount === 1 ? '' : 's'} and fill any missing item codes before logging the purchase.`);
+    }
+  }else{
+    messageParts.push('Veryfi returned header details but no usable line items.');
+  }
+  if(Number(extracted?.attachedPhotoCount || 0) > 1){
+    messageParts.push('Only the first attached receipt photo was scanned.');
+  }
+
+  renderVeryfiSummary({
+    statusTone: (!mappedLines.length || unresolvedLineCount) ? 'warn' : 'success',
+    statusLabel: (!mappedLines.length || unresolvedLineCount) ? 'Review' : 'Scanned',
+    vendor: extracted?.vendor || '',
+    receiptNumber: extracted?.receiptNumber || '',
+    totalLabel,
+    extractedLineCount: mappedLines.length,
+    message: messageParts.join(' ')
+  });
+
+  setVeryfiMessage(replacedLines || !mappedLines.length
+    ? 'Veryfi scan applied to the form.'
+    : 'Veryfi scan completed. Review the summary above.', (!mappedLines.length || unresolvedLineCount) ? 'warn' : 'ok');
 }
 
 function gatherLines(){
@@ -749,6 +1002,17 @@ function gatherLines(){
     }
   });
   return output;
+}
+
+function findIncompletePurchaseLine(){
+  const rows = [...document.querySelectorAll('#purchase-lines .line-row')];
+  return rows.find((row)=>{
+    const code = row.querySelector('input[name="code"]')?.value.trim() || '';
+    const name = row.querySelector('input[name="name"]')?.value.trim() || '';
+    const cost = row.querySelector('input[name="cost"]')?.value.trim() || '';
+    const qtyRaw = row.querySelector('input[name="qty"]')?.value.trim() || '';
+    return !code && !!(name || cost || (qtyRaw && qtyRaw !== '1'));
+  }) || null;
 }
 
 function downloadBlob(blob, filename){
@@ -1285,6 +1549,60 @@ function openReceiptModal(index){
   document.body.classList.add('panel-open');
 }
 
+async function scanReceiptWithVeryfi(){
+  if(veryfiScanInFlight || receiptPhotoProcessing || purchaseSubmitInFlight) return;
+  if(!receiptPhotos.length){
+    setVeryfiMessage('Attach a receipt photo before scanning with Veryfi.', 'warn');
+    return;
+  }
+  if(!itemsCache.length){
+    await loadItems();
+  }
+  if(!pendingPurchaseBatchId) pendingPurchaseBatchId = `field-purchase-${uid()}`;
+  veryfiReceiptData = null;
+  veryfiScanInFlight = true;
+  setVeryfiMessage('Scanning receipt with Veryfi...', 'warn');
+  syncReceiptPhotoControls();
+  try{
+    const result = await utils.requestJson('/api/field-purchase/veryfi-process', {
+      method: 'POST',
+      timeoutMs: 45000,
+      fallbackError: 'Veryfi scan failed.',
+      json: {
+        batchId: pendingPurchaseBatchId,
+        country: 'US',
+        receiptPhotos: receiptPhotos.map((photo)=>({
+          name: photo.name,
+          type: photo.type,
+          sizeBytes: photo.sizeBytes,
+          width: photo.width,
+          height: photo.height,
+          dataUrl: photo.dataUrl
+        }))
+      }
+    });
+    if(!result.ok){
+      veryfiReceiptData = null;
+      renderVeryfiSummary({
+        statusTone: 'danger',
+        statusLabel: 'Failed',
+        vendor: '',
+        receiptNumber: '',
+        totalLabel: '-',
+        extractedLineCount: 0,
+        message: result.error || 'Veryfi scan failed.'
+      });
+      setVeryfiMessage(result.error || 'Veryfi scan failed.', 'warn');
+      return;
+    }
+    const extracted = result.data?.extracted || {};
+    applyVeryfiExtraction(extracted);
+  }finally{
+    veryfiScanInFlight = false;
+    syncReceiptPhotoControls();
+  }
+}
+
 async function refreshPurchaseRows(){
   if(purchaseRefreshInFlight) return;
   setPurchaseRefreshState(true);
@@ -1452,10 +1770,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   receiptPhotoInput?.addEventListener('change', handleReceiptPhotoSelection);
   const receiptCaptureInput = document.getElementById('purchase-receiptCapture');
   receiptCaptureInput?.addEventListener('change', handleReceiptPhotoSelection);
+  document.getElementById('purchase-veryfiScanBtn')?.addEventListener('click', scanReceiptWithVeryfi);
 
   addLine();
   renderReceiptPhotoPreview();
   renderPurchaseSaveVerification();
+  renderVeryfiSummary();
   updatePurchaseSyncStatus(!navigator.onLine, purchaseLastSyncTs);
   window.addEventListener('online', ()=> updatePurchaseSyncStatus(false, purchaseLastSyncTs));
   window.addEventListener('offline', ()=> updatePurchaseSyncStatus(true, purchaseLastSyncTs));
@@ -1479,11 +1799,13 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     const submittedReceiptPhotoCount = receiptPhotos.length;
     const session = getSession();
     const lines = gatherLines();
+    const incompleteLine = findIncompletePurchaseLine();
     const jobId = document.getElementById('purchase-jobId').value.trim();
     const locationPayload = getInventoryLocationPayload('purchase-location');
     const vendor = document.getElementById('purchase-vendor').value.trim();
     const receipt = document.getElementById('purchase-receipt').value.trim();
     const notes = document.getElementById('purchase-notes').value.trim();
+    if(incompleteLine){ setPurchaseFormMessage('One or more purchase lines are missing an item code. Complete or remove those lines before logging the purchase.', 'warn'); return; }
     if(!lines.length){ setPurchaseFormMessage('Add at least one line before logging the purchase.', 'warn'); return; }
     const missingName = lines.find((line)=> !itemsCache.find((item)=> item.code === line.code) && !line.name);
     if(missingName){ setPurchaseFormMessage(`Name is required for new item ${missingName.code}.`, 'warn'); return; }
@@ -1511,6 +1833,19 @@ document.addEventListener('DOMContentLoaded', async ()=>{
             height: photo.height,
             dataUrl: photo.dataUrl
           })),
+          veryfi: veryfiReceiptData ? {
+            documentId: veryfiReceiptData.documentId || '',
+            externalId: veryfiReceiptData.externalId || '',
+            vendor: veryfiReceiptData.vendor || '',
+            receiptNumber: veryfiReceiptData.receiptNumber || '',
+            total: Number.isFinite(Number(veryfiReceiptData.total)) ? Number(veryfiReceiptData.total) : null,
+            currencyCode: veryfiReceiptData.currencyCode || '',
+            date: veryfiReceiptData.date || '',
+            documentType: veryfiReceiptData.documentType || '',
+            matchedLineCount: Number(veryfiReceiptData.matchedCatalogItemCount || 0) || 0,
+            extractedLineCount: Number((veryfiReceiptData.lineItems || []).length || 0) || 0,
+            warnings: Array.isArray(veryfiReceiptData.warnings) ? veryfiReceiptData.warnings.slice(0, 5) : []
+          } : null,
           notes,
           userEmail: session?.email,
           userName: session?.name

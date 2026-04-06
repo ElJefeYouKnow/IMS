@@ -84,12 +84,44 @@
                   <span>Add From Gallery</span>
                   <input id="purchase-receiptPhotos" type="file" accept="image/*" multiple>
                 </label>
+                <button id="purchase-veryfiScanBtn" type="button" class="muted">Scan With Veryfi</button>
               </div>
-              <span class="muted-text" style="display:block;margin-top:6px;">Add up to 2 receipt photos. Camera capture and gallery upload are both compressed before upload.</span>
+              <span class="muted-text" style="display:block;margin-top:6px;">Add up to 2 receipt photos. Camera capture and gallery upload are both compressed before upload. Veryfi scanning uses the first attached receipt photo.</span>
               <span id="purchase-receiptPhotoMsg" class="field-hint ok"></span>
+              <span id="purchase-veryfiMsg" class="field-hint"></span>
             </label>
           </div>
           <div id="purchase-receiptPreview" class="receipt-photo-grid hidden"></div>
+          <section id="purchase-veryfiSummary" class="purchase-save-card hidden" aria-live="polite">
+            <div class="purchase-save-head">
+              <div>
+                <strong>Veryfi Receipt Scan</strong>
+                <p id="purchase-veryfiSummaryText" class="muted-text" style="margin:6px 0 0 0;">Attach a receipt photo and scan it to prefill vendor, receipt number, and line items.</p>
+              </div>
+              <span id="purchase-veryfiStatus" class="status-chip success">
+                <span class="dot"></span>
+                <span class="label">Ready</span>
+              </span>
+            </div>
+            <div class="purchase-save-summary">
+              <div class="summary-item">
+                <span>Vendor</span>
+                <strong id="purchase-veryfiVendor">-</strong>
+              </div>
+              <div class="summary-item">
+                <span>Receipt #</span>
+                <strong id="purchase-veryfiReceipt">-</strong>
+              </div>
+              <div class="summary-item">
+                <span>Document Total</span>
+                <strong id="purchase-veryfiTotal">-</strong>
+              </div>
+              <div class="summary-item">
+                <span>Extracted Lines</span>
+                <strong id="purchase-veryfiLines">0</strong>
+              </div>
+            </div>
+          </section>
           <div class="form-row">
             <label style="flex:1">Notes<textarea id="purchase-notes" rows="2" placeholder="Optional notes"></textarea></label>
           </div>
