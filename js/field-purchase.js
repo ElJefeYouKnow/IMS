@@ -36,6 +36,7 @@ const FALLBACK_LOCATION_OPTIONS = [
   { id: 'loc:field:field', name: 'Field Stock', label: 'Field Stock', type: 'field', ref: 'field' },
   { id: 'loc:writeoff:writeoff', name: 'Lost / Write-off', label: 'Lost / Write-off', type: 'writeoff', ref: 'writeoff' }
 ];
+const CLOSED_JOB_STATUSES = new Set(['complete', 'completed', 'closed', 'archived', 'cancelled', 'canceled']);
 
 function getSession(){
   if(window.utils?.getSession) return utils.getSession();
@@ -64,6 +65,49 @@ function formatBytes(bytes){
 
 function normalizeText(value){
   return String(value || '').trim().toLowerCase();
+}
+
+function parseDateValue(value){
+  if(value === undefined || value === null) return null;
+  if(typeof value === 'string'){
+    const trimmed = value.trim();
+    if(!trimmed) return null;
+    if(/^\d+$/.test(trimmed)){
+      const numeric = Number(trimmed);
+      const date = new Date(numeric);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if(dateOnlyMatch){
+      const date = new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]));
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeJobRecord(job){
+  if(!job) return null;
+  const code = String(job.code || '').trim();
+  if(!code) return null;
+  return {
+    code,
+    status: String(job.status || '').trim().toLowerCase(),
+    endDate: parseDateValue(job.endDate || job.enddate || '')
+  };
+}
+
+function isJobPurchaseRelevant(job, today){
+  if(!job) return false;
+  if(CLOSED_JOB_STATUSES.has(job.status)) return false;
+  if(job.endDate && job.endDate.getTime() < today.getTime()) return false;
+  return true;
+}
+
+function sortUniqueJobIds(values){
+  return [...new Set((values || []).map((value)=> String(value || '').trim()).filter(Boolean))]
+    .sort((a, b)=> a.localeCompare(b));
 }
 
 function parseJsonObject(value){
@@ -467,6 +511,7 @@ function resetReceiptPhotos(message = '', tone = ''){
 
 function invalidatePendingPurchaseBatch(){
   if(purchaseSubmitInFlight) return;
+  if(veryfiReceiptData) return;
   pendingPurchaseBatchId = '';
 }
 
@@ -778,7 +823,14 @@ function refreshCategorySelects(){
 
 async function loadJobs(){
   const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
-  jobOptions = (jobs || []).map((job)=> job.code).filter(Boolean).sort();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  jobOptions = sortUniqueJobIds(
+    (jobs || [])
+      .map(normalizeJobRecord)
+      .filter((job)=> isJobPurchaseRelevant(job, today))
+      .map((job)=> job.code)
+  );
   const select = document.getElementById('purchase-jobId');
   if(!select) return;
   const current = select.value;
@@ -789,7 +841,7 @@ async function loadJobs(){
     opt.textContent = job;
     select.appendChild(opt);
   });
-  if(current) select.value = current;
+  if(current && jobOptions.includes(current)) select.value = current;
 }
 
 function addLine(initialValues = null){
@@ -1835,7 +1887,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
           })),
           veryfi: veryfiReceiptData ? {
             documentId: veryfiReceiptData.documentId || '',
-            externalId: veryfiReceiptData.externalId || '',
+            externalId: pendingPurchaseBatchId || veryfiReceiptData.externalId || '',
             vendor: veryfiReceiptData.vendor || '',
             receiptNumber: veryfiReceiptData.receiptNumber || '',
             total: Number.isFinite(Number(veryfiReceiptData.total)) ? Number(veryfiReceiptData.total) : null,

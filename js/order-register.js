@@ -45,6 +45,8 @@ const FALLBACK_LOCATION_OPTIONS = [
   { id: 'loc:field:default', name: 'Field Stock', label: 'Field Stock', type: 'field', ref: 'default' },
   { id: 'loc:writeoff:default', name: 'Lost / Write-off', label: 'Lost / Write-off', type: 'writeoff', ref: 'default' }
 ];
+let reassignFromJobOptions = [];
+const CLOSED_JOB_STATUSES = new Set(['complete', 'completed', 'closed', 'archived', 'cancelled', 'canceled']);
 
 function normalizeJobId(value){
   const val = (value || '').toString().trim();
@@ -56,6 +58,103 @@ function normalizeJobId(value){
 
 function getEntryJobId(entry){
   return normalizeJobId(entry?.jobId || entry?.jobid || '');
+}
+
+function parseDateValue(value){
+  if(value === undefined || value === null) return null;
+  if(typeof value === 'string'){
+    const trimmed = value.trim();
+    if(!trimmed) return null;
+    if(/^\d+$/.test(trimmed)){
+      const numeric = Number(trimmed);
+      const date = new Date(numeric);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if(dateOnlyMatch){
+      const date = new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]));
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeJobRecord(job){
+  if(!job) return null;
+  const code = String(job.code || '').trim();
+  if(!code) return null;
+  return {
+    code,
+    status: String(job.status || '').trim().toLowerCase(),
+    startDate: parseDateValue(job.startDate || job.startdate || job.scheduleDate || job.scheduledate || ''),
+    endDate: parseDateValue(job.endDate || job.enddate || '')
+  };
+}
+
+function isJobPlanningRelevant(job, today){
+  if(!job) return false;
+  if(CLOSED_JOB_STATUSES.has(job.status)) return false;
+  if(job.endDate && job.endDate.getTime() < today.getTime()) return false;
+  return true;
+}
+
+function sortUniqueJobIds(values){
+  return [...new Set((values || []).map((value)=> normalizeJobId(value)).filter(Boolean))]
+    .sort((a, b)=> a.localeCompare(b));
+}
+
+function buildReassignFromJobOptions(inventory){
+  const reservedByJob = new Map();
+  (inventory || []).forEach((entry)=>{
+    const type = String(entry?.type || '').trim().toLowerCase();
+    if(type !== 'reserve' && type !== 'reserve_release') return;
+    const jobId = getEntryJobId(entry);
+    if(!jobId) return;
+    const qty = Number(entry?.qty || 0) || 0;
+    if(!qty) return;
+    const delta = type === 'reserve' ? qty : -qty;
+    reservedByJob.set(jobId, (reservedByJob.get(jobId) || 0) + delta);
+  });
+  return sortUniqueJobIds(
+    [...reservedByJob.entries()]
+      .filter(([, qty])=> qty > 0)
+      .map(([jobId])=> jobId)
+  );
+}
+
+function populateProjectSelectOptions(select, options, { projectOnly = false } = {}){
+  if(!select) return;
+  const current = normalizeJobId(select.value);
+  select.disabled = false;
+  select.innerHTML = projectOnly
+    ? '<option value="">Select project...</option>'
+    : '<option value="">General Inventory</option>';
+  options.forEach((jobId)=>{
+    const option = document.createElement('option');
+    option.value = jobId;
+    option.textContent = jobId;
+    select.appendChild(option);
+  });
+  if(current && options.includes(current)){
+    select.value = current;
+  }else{
+    select.value = '';
+  }
+}
+
+function applyJobSelectOptions(){
+  const configs = [
+    { id: 'orderJob', options: jobOptions, projectOnly: false },
+    { id: 'orderMaterialsJob', options: openMaterialJobOptions, projectOnly: true },
+    { id: 'reserve-jobId', options: jobOptions, projectOnly: true },
+    { id: 'reassign-from', options: reassignFromJobOptions, projectOnly: true },
+    { id: 'reassign-to', options: jobOptions, projectOnly: false }
+  ];
+  configs.forEach(({ id, options, projectOnly })=>{
+    populateProjectSelectOptions(document.getElementById(id), options, { projectOnly });
+  });
+  refreshOrderLineJobOptions();
 }
 
 async function loadInventoryLocations(force = false){
@@ -196,27 +295,26 @@ function fillNameIfKnown(codeInput, nameInput){
 
 async function loadJobs(){
   try{
-    const [jobs, openMaterialJobs] = await Promise.all([
+    const inventoryPromise = inventoryCache.length
+      ? Promise.resolve(inventoryCache)
+      : utils.fetchJsonSafe('/api/inventory', {}, []);
+    const [jobs, openMaterialJobs, inventory] = await Promise.all([
       utils.fetchJsonSafe('/api/jobs', {}, []),
-      utils.fetchJsonSafe('/api/jobs/open-material-needs', {}, [])
+      utils.fetchJsonSafe('/api/jobs/open-material-needs', {}, []),
+      inventoryPromise
     ]);
-    jobOptions = (jobs || []).map(j=> j.code).filter(Boolean).sort();
-    openMaterialJobOptions = (openMaterialJobs || []).map((job)=> job.jobId).filter(Boolean).sort();
-    const selects = ['orderJob','orderMaterialsJob','reserve-jobId','reassign-from','reassign-to'].map(id=> document.getElementById(id)).filter(Boolean);
-    selects.forEach(sel=>{
-      const current = sel.value;
-      const projectOnly = sel.id === 'orderMaterialsJob' || sel.id === 'reserve-jobId' || sel.id === 'reassign-from';
-      const optionSource = sel.id === 'orderMaterialsJob' ? openMaterialJobOptions : jobOptions;
-      sel.innerHTML = projectOnly ? '<option value="">Select project...</option>' : '<option value="">General Inventory</option>';
-      optionSource.forEach(job=>{
-        const opt = document.createElement('option');
-        opt.value = job;
-        opt.textContent = job;
-        sel.appendChild(opt);
-      });
-      if(current && optionSource.includes(current)) sel.value = current;
-    });
-    refreshOrderLineJobOptions();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const jobRecords = (jobs || []).map(normalizeJobRecord).filter(Boolean);
+    jobOptions = sortUniqueJobIds(
+      jobRecords
+        .filter((job)=> isJobPlanningRelevant(job, today))
+        .map((job)=> job.code)
+    );
+    openMaterialJobOptions = sortUniqueJobIds((openMaterialJobs || []).map((job)=> job.jobId));
+    if(Array.isArray(inventory)) inventoryCache = inventory;
+    reassignFromJobOptions = buildReassignFromJobOptions(inventoryCache);
+    applyJobSelectOptions();
   }catch(e){}
 }
 
@@ -1491,6 +1589,8 @@ async function refreshInventoryAvailability(){
   const inventory = await utils.fetchJsonSafe('/api/inventory', {}, []) || [];
   inventoryCache = inventory;
   computeAvailability(inventory);
+  reassignFromJobOptions = buildReassignFromJobOptions(inventory);
+  applyJobSelectOptions();
   updateReserveAvailability();
   refreshReserveSkuDatalist();
 }
@@ -1651,6 +1751,7 @@ function initReserve(){
           'ok'
         );
         await refreshInventoryAvailability();
+        await loadJobs();
         clearStableRequestBatchKey('reserveForm');
         reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); renderReserves();
       }
@@ -1720,6 +1821,7 @@ function initReserve(){
           'ok'
         );
         await refreshInventoryAvailability();
+        await loadJobs();
         clearStableRequestBatchKey('reserveForm');
         reserveForm.reset(); reserveLines.innerHTML=''; addReserveLine(); reserveBulkArea.value=''; renderReserves();
       }catch(e){ setStatusMessage(reserveMsg, utils.normalizeRequestError?.(e.message, 'Bulk reserve failed.') || 'Bulk reserve failed.', 'error'); }
@@ -1770,6 +1872,7 @@ function initReassign(){
       clearStableRequestBatchKey('reassignForm');
       form.reset();
       await refreshInventoryAvailability();
+      await loadJobs();
       document.getElementById('reserveFilter')?.dispatchEvent(new Event('input'));
     }catch(e){
       setStatusMessage(msg, utils.normalizeRequestError?.(e.message, 'Failed to reassign reserved stock.') || 'Failed to reassign reserved stock.', 'error');

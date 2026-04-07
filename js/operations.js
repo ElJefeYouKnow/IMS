@@ -481,6 +481,11 @@ function jobOptionLabel(job){
   return `${job.code}${suffix}`;
 }
 
+function sortUniqueJobIds(values){
+  return [...new Set((values || []).map((value)=> normalizeJobId(value)).filter(Boolean))]
+    .sort((a, b)=> a.localeCompare(b));
+}
+
 // ===== SHARED UTILITIES =====
 async function loadItems(){
   allItems = await utils.fetchJsonSafe('/api/items', {}, []) || [];
@@ -519,20 +524,19 @@ function addItemLocally(item){
 }
 
 async function loadJobOptions(){
-  const jobs = await utils.fetchJsonSafe('/api/jobs', {}, []);
+  const [jobs, checkouts, returns] = await Promise.all([
+    utils.fetchJsonSafe('/api/jobs', {}, []),
+    loadCheckouts(),
+    loadReturns()
+  ]);
   const today = new Date();
   today.setHours(0,0,0,0);
   const records = (jobs || []).map(normalizeJobRecord).filter(Boolean);
   const upcoming = records.filter(job=> isJobUpcoming(job, today));
-  const returnEligible = records.filter(job=> isJobReturnEligible(job, today));
-  jobOptions = upcoming
-    .map(j=> j.code)
-    .filter(Boolean)
-    .sort();
-  returnJobOptions = returnEligible
-    .map(j=> j.code)
-    .filter(Boolean)
-    .sort();
+  const outstandingReturnJobs = getOutstandingCheckouts(checkouts, returns)
+    .map((row)=> getEntryJobId(row.entry));
+  jobOptions = sortUniqueJobIds(upcoming.map((job)=> job.code));
+  returnJobOptions = sortUniqueJobIds(outstandingReturnJobs);
   upcomingJobs = upcoming
     .slice()
     .sort((a,b)=> jobSortValue(a, today) - jobSortValue(b, today) || a.code.localeCompare(b.code));
