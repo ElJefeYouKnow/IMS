@@ -5724,13 +5724,14 @@ app.delete('/api/jobs/:code', requireRole('admin'), async (req, res) => {
 // ADMIN ORDERS
 app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
   try {
-    const { code, name, qty, eta, notes, ts, jobId, autoReserve, jobMaterialId } = req.body;
+    const { code, name, qty, eta, notes, ts, jobId, autoReserve, jobMaterialId, orderNumber } = req.body;
     const qtyNum = Number(qty);
     if (!code || !qtyNum || qtyNum <= 0) return res.status(400).json({ error: 'code and positive qty required' });
     const t = tenantId(req);
     const actor = actorInfo(req);
     const requestKey = readInventoryRequestKey(req);
     const jobIdVal = (jobId || '').trim() || null;
+    const orderNumberVal = String(orderNumber || '').trim().slice(0, 80);
     let deduped = false;
     const entry = await withTransaction(async (client) => {
       await lockInventoryRequestTx(client, t, requestKey);
@@ -5742,7 +5743,7 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
         }
       }
       await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-      const sourceMeta = withRequestKeyMeta({ autoReserve: autoReserve !== false, jobMaterialId: jobMaterialId || null }, requestKey, 'order');
+      const sourceMeta = withRequestKeyMeta({ autoReserve: autoReserve !== false, jobMaterialId: jobMaterialId || null, orderNumber: orderNumberVal }, requestKey, 'order');
       const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
       ev.sourceId = ev.id;
       ev.sourceMeta.batchId = ev.sourceId;
@@ -5751,7 +5752,7 @@ app.post('/api/inventory-order', requireRole('admin'), async (req, res) => {
       await changeJobMaterialQtyTx(client, t, jobIdVal, jobMaterialId, 'qtyOrdered', qtyNum);
       return ev;
     });
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta } });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { code, qty: qtyNum, jobId, eta, orderNumber: orderNumberVal } });
     res.status(deduped ? 200 : 201).json({ ...entry, deduped, requestKey: requestKey || null });
   } catch (e) { res.status(500).json({ error: e.message || 'server error' }); }
 });
@@ -5778,12 +5779,13 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
         }
       }
       for (const line of lines) {
-        const { code, name, qty, eta, notes, ts, jobId, autoReserve, jobMaterialId } = line || {};
+        const { code, name, qty, eta, notes, ts, jobId, autoReserve, jobMaterialId, orderNumber } = line || {};
         const qtyNum = Number(qty);
         if (!code || !qtyNum || qtyNum <= 0) throw new Error(`Invalid order line for code ${code || ''}`);
         const jobIdVal = (jobId || '').trim() || null;
+        const orderNumberVal = String(orderNumber || '').trim().slice(0, 80);
         await ensureItem(client, { code, name: name || code, category: '', unitPrice: null, tenantIdVal: t });
-        const sourceMeta = withRequestKeyMeta({ autoReserve: autoReserve !== false, batchId, jobMaterialId: jobMaterialId || null }, requestKey, 'order-bulk');
+        const sourceMeta = withRequestKeyMeta({ autoReserve: autoReserve !== false, batchId, jobMaterialId: jobMaterialId || null, orderNumber: orderNumberVal }, requestKey, 'order-bulk');
         const ev = { id: newId(), code, name: name || code, qty: qtyNum, eta, notes, jobId: jobIdVal, ts: ts || Date.now(), type: 'ordered', status: statusForType('ordered'), userEmail: actor.userEmail, userName: actor.userName, tenantId: t, sourceType: 'order', sourceId: null, sourceMeta };
         ev.sourceId = ev.id;
         await client.query(`INSERT INTO inventory(id,code,name,qty,eta,notes,jobId,ts,type,status,userEmail,userName,tenantId,sourceType,sourceId,sourceMeta) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
@@ -5792,7 +5794,7 @@ app.post('/api/inventory-order/bulk', requireRole('admin'), async (req, res) => 
         results.push(ev);
       }
     });
-    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { lines: results.length } });
+    await logAudit({ tenantId: t, userId: currentUserId(req), action: 'inventory.order', details: { lines: results.length, orderNumbers: [...new Set(results.map((row) => String(row?.sourceMeta?.orderNumber || '').trim()).filter(Boolean))] } });
     res.status(deduped ? 200 : 201).json({ count: results.length, batchId, orders: results, deduped, requestKey: requestKey || null });
   } catch (e) {
     res.status(500).json({ error: e.message || 'server error' });

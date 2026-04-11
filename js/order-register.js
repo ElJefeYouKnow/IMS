@@ -56,8 +56,32 @@ function normalizeJobId(value){
   return val;
 }
 
+function parseSourceMeta(value){
+  if(!value) return {};
+  if(typeof value === 'string'){
+    try{
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    }catch(e){
+      return {};
+    }
+  }
+  return value && typeof value === 'object' ? value : {};
+}
+
 function getEntryJobId(entry){
   return normalizeJobId(entry?.jobId || entry?.jobid || '');
+}
+
+function getOrderNumber(entry){
+  const meta = parseSourceMeta(entry?.sourceMeta || entry?.sourcemeta || {});
+  return String(
+    meta.orderNumber
+    || meta.ordernumber
+    || meta.orderNo
+    || meta.orderno
+    || ''
+  ).trim();
 }
 
 function parseDateValue(value){
@@ -218,12 +242,14 @@ function buildOrderBalance(orders, inventory){
     if(status === 'cancelled' || status === 'canceled') return;
     const sourceId = o.sourceId || o.id;
     const jobId = normalizeJobId(o.jobId || o.jobid || '');
+    const orderNumber = getOrderNumber(o);
     const key = sourceId;
-    if(!map.has(key)) map.set(key, { sourceId, code: o.code, jobId, name: o.name || '', ordered: 0, checkedIn: 0, eta: o.eta || '', lastOrderTs: 0 });
+    if(!map.has(key)) map.set(key, { sourceId, code: o.code, jobId, name: o.name || '', ordered: 0, checkedIn: 0, eta: o.eta || '', orderNumber: orderNumber || '', lastOrderTs: 0 });
     const rec = map.get(key);
     rec.ordered += Number(o.qty || 0);
     rec.lastOrderTs = Math.max(rec.lastOrderTs, o.ts || 0);
     if(!rec.eta && o.eta) rec.eta = o.eta;
+    if(!rec.orderNumber && orderNumber) rec.orderNumber = orderNumber;
   });
   (inventory||[]).filter(e=> e.type === 'in' && e.sourceId).forEach(ci=>{
     const key = ci.sourceId;
@@ -832,6 +858,7 @@ function gatherOrderLines(){
   const rows = Array.from(document.querySelectorAll('#order-lines .order-line'));
   const defaultJob = document.getElementById('orderJob')?.value.trim() || '';
   const defaultEta = document.getElementById('orderEta')?.value || '';
+  const orderNumber = document.getElementById('orderNumber')?.value.trim() || '';
   const applyDefault = document.getElementById('order-apply-default')?.checked;
 
   const lines = rows.map(row=>{
@@ -843,7 +870,7 @@ function gatherOrderLines(){
     const jobId = lineJob || (applyDefault ? defaultJob : '');
     const jobMaterialId = row.querySelector('input[name="jobMaterialId"]')?.value.trim() || '';
     const supplierId = row.querySelector('select[name="supplierId"]')?.value.trim() || '';
-    return { row, code, name, qty, eta, jobId, jobMaterialId, supplierId };
+    return { row, code, name, qty, eta, jobId, jobMaterialId, supplierId, orderNumber };
   });
 
   let hasError = false;
@@ -883,9 +910,9 @@ function parseBulkOrders(text){
   const lines = text.split('\n').map(l=> l.split(','));
   const orders = [];
   for(const parts of lines){
-    const [code,name,qty,eta,jobId] = parts.map(p=> (p||'').trim());
+    const [code,name,qty,eta,jobId,orderNumber] = parts.map(p=> (p||'').trim());
     if(!code || !qty) continue;
-    orders.push({ code, name, qty:Number(qty), eta, jobId });
+    orders.push({ code, name, qty:Number(qty), eta, jobId, orderNumber });
   }
   return orders;
 }
@@ -909,6 +936,9 @@ function openReviewModal(lines, clearAll){
   plan.plannedLines.forEach(line=>{
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${line.code}</td><td>${line.name || ''}</td><td>${line.requestedQty}</td><td>${line.inventoryQty || '—'}</td><td>${line.orderQty || '—'}</td><td>${line.eta}</td><td>${line.jobId || 'General'}</td>`;
+    const orderNumberCell = document.createElement('td');
+    orderNumberCell.textContent = line.orderNumber || FALLBACK;
+    tr.appendChild(orderNumberCell);
     tbody.appendChild(tr);
   });
   const totalRequested = plan.plannedLines.reduce((sum,line)=> sum + (Number(line.requestedQty) || 0), 0);
@@ -1120,6 +1150,7 @@ async function submitOrders(lines, clearAll){
     qty: line.orderQty,
     eta: line.eta,
     jobId: line.jobId,
+    orderNumber: line.orderNumber || '',
     jobMaterialId: line.jobMaterialId || '',
     notes,
     autoReserve
@@ -1287,7 +1318,8 @@ async function renderRecentOrders(){
     const openQty = Math.max(0, rec.ordered - rec.checkedIn);
     if(openQty <= 0) return;
     const job = normalizeJobId(rec.jobId || '').toLowerCase();
-    if(filter && !(rec.code.toLowerCase().includes(filter) || job.includes(filter))) return;
+    const orderNumber = String(rec.orderNumber || '').toLowerCase();
+    if(filter && !(rec.code.toLowerCase().includes(filter) || job.includes(filter) || orderNumber.includes(filter))) return;
     rows.push({ ...rec, openQty });
   });
 
@@ -1309,7 +1341,7 @@ async function renderRecentOrders(){
   const recent = filtered.sort((a,b)=> (b.lastOrderTs||0)-(a.lastOrderTs||0)).slice(0,12);
   if(!recent.length){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td colspan="7" class="ds-table-empty">No orders yet</td>`;
+    tr.innerHTML=`<td colspan="8" class="ds-table-empty">No orders yet</td>`;
     tbody.appendChild(tr);
   }else{
     recent.forEach(o=>{
@@ -1317,7 +1349,7 @@ async function renderRecentOrders(){
       const jobValue = o.jobId || '';
       const jobLabel = jobValue && jobValue.trim() ? jobValue : 'General';
       const tsLabel = utils.formatDateTime?.(o.lastOrderTs) || '';
-      tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.openQty}</td><td>${jobLabel}</td><td>${o.eta||''}</td><td>${tsLabel}</td><td><button type="button" class="muted cancel-order-btn" data-source-id="${o.sourceId}">Cancel</button></td>`;
+      tr.innerHTML=`<td>${o.code}</td><td>${o.name||''}</td><td>${o.openQty}</td><td>${jobLabel}</td><td>${o.orderNumber || FALLBACK}</td><td>${o.eta||''}</td><td>${tsLabel}</td><td><button type="button" class="muted cancel-order-btn" data-source-id="${o.sourceId}">Cancel</button></td>`;
       tbody.appendChild(tr);
     });
     tbody.querySelectorAll('.cancel-order-btn').forEach(btn=>{
@@ -1475,6 +1507,7 @@ function initOrders(){
           name: line.name || match?.name || '',
           eta: line.eta || defaultEta,
           jobId: line.jobId || defaultJobValue,
+          orderNumber: line.orderNumber || (document.getElementById('orderNumber')?.value.trim() || ''),
           jobMaterialId: line.jobMaterialId || ''
         };
       });
@@ -1485,6 +1518,7 @@ function initOrders(){
         qty: line.orderQty,
         eta: line.eta,
         jobId: line.jobId,
+        orderNumber: line.orderNumber || '',
         jobMaterialId: line.jobMaterialId || '',
         notes,
         autoReserve
