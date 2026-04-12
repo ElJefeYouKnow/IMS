@@ -21,7 +21,7 @@ function Test-CommandExists {
     }
 }
 
-function Ensure-EnvFile {
+function Initialize-EnvFile {
     param(
         [string]$EnvPath,
         [string]$TemplatePath
@@ -49,7 +49,7 @@ function Ensure-EnvFile {
     Write-Host "Edit .env.local if your PostgreSQL credentials differ from postgres/postgres." -ForegroundColor Yellow
 }
 
-function Ensure-Dependencies {
+function Install-Dependencies {
     param([switch]$ForceInstall)
 
     $needsInstall = $ForceInstall -or -not (Test-Path (Join-Path $scriptDir 'node_modules'))
@@ -81,8 +81,8 @@ if (-not (Test-CommandExists 'npm')) {
 
 $envPath = Join-Path $scriptDir '.env.local'
 $templatePath = Join-Path $scriptDir '.env.local.example'
-Ensure-EnvFile -EnvPath $envPath -TemplatePath $templatePath
-Ensure-Dependencies -ForceInstall:$Install
+Initialize-EnvFile -EnvPath $envPath -TemplatePath $templatePath
+Install-Dependencies -ForceInstall:$Install
 
 Write-Host "`nLocal app URLs:" -ForegroundColor Cyan
 Write-Host "  Login:      http://localhost:8000/login.html"
