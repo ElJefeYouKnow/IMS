@@ -1,0 +1,64 @@
+{
+  "clients": [
+    {
+      "id": "cli_5d38ed7019d7f6fcd30",
+      "name": "Acme Builders",
+      "email": "ops@acme.com",
+      "plan": "growth",
+      "status": "active",
+      "activeUsers": 12,
+      "notes": "Expansion",
+      "updatedAt": 1775873126704
+    },
+    {
+      "id": "cli_2d257bfa19d7f6fcd30",
+      "name": "Northline Group",
+      "email": "admin@northline.com",
+      "plan": "starter",
+      "status": "trial",
+      "activeUsers": 4,
+      "notes": "",
+      "updatedAt": 1775916326704
+    },
+    {
+      "id": "cli_3e40609c19d7f6fcd30",
+      "name": "Stonefield",
+      "email": "it@stonefield.com",
+      "plan": "enterprise",
+      "status": "past_due",
+      "activeUsers": 28,
+      "notes": "Invoice overdue",
+      "updatedAt": 1775937926704
+    }
+  ],
+  "tickets": [
+    {
+      "id": "tkt_78d732d719d7f6fcd30",
+      "clientId": "cli_5d38ed7019d7f6fcd30",
+      "subject": "Inventory sync delay",
+      "priority": "medium",
+      "status": "open",
+      "updatedAt": 1775954126704
+    },
+    {
+      "id": "tkt_2132fecf19d7f6fcd30",
+      "clientId": "cli_3e40609c19d7f6fcd30",
+      "subject": "Billing access request",
+      "priority": "high",
+      "status": "pending",
+      "updatedAt": 1775952326704
+    }
+  ],
+  "activities": [
+    {
+      "id": "act_78d2a84219d7f6fcd30",
+      "message": "Acme Builders upgraded to Growth",
+      "ts": 1775952326704
+    },
+    {
+      "id": "act_312070d119d7f6fcd30",
+      "message": "New ticket opened for Stonefield",
+      "ts": 1775954126704
+    }
+  ]
+}
