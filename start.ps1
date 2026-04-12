@@ -1,29 +1,100 @@
 #!/usr/bin/env powershell
-# IMS Setup Script - Install dependencies and start server
+param(
+    [ValidateSet('dev', 'start')]
+    [string]$Mode = 'dev',
+    [switch]$Install
+)
 
-Write-Host "=== Inventory Management System Setup ===" -ForegroundColor Green
+$ErrorActionPreference = 'Stop'
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $scriptDir
 
-# Check if Node.js is installed
-$nodeCheck = node --version 2>$null
-if ($LASTEXITCODE -ne 0) {
+Write-Host "=== IMS Local Dev Startup ===" -ForegroundColor Green
+
+function Test-CommandExists {
+    param([string]$CommandName)
+    try {
+        Get-Command $CommandName -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Ensure-EnvFile {
+    param(
+        [string]$EnvPath,
+        [string]$TemplatePath
+    )
+
+    if (Test-Path $EnvPath) {
+        Write-Host "Using existing .env.local" -ForegroundColor Green
+        return
+    }
+
+    if (Test-Path $TemplatePath) {
+        Copy-Item $TemplatePath $EnvPath
+    } else {
+        New-Item -ItemType File -Path $EnvPath -Force | Out-Null
+        Add-Content -Path $EnvPath -Value @(
+            'DATABASE_URL=postgres://postgres:postgres@localhost:5432/ims'
+            'DATABASE_SSL=false'
+            'NODE_ENV=development'
+            'SESSION_STORE=memory'
+            'COOKIE_SECURE=false'
+        )
+    }
+
+    Write-Host "Created .env.local with local development defaults." -ForegroundColor Yellow
+    Write-Host "Edit .env.local if your PostgreSQL credentials differ from postgres/postgres." -ForegroundColor Yellow
+}
+
+function Ensure-Dependencies {
+    param([switch]$ForceInstall)
+
+    $needsInstall = $ForceInstall -or -not (Test-Path (Join-Path $scriptDir 'node_modules'))
+    if (-not $needsInstall) {
+        Write-Host "Dependencies already installed. Skipping npm install." -ForegroundColor Green
+        return
+    }
+
+    Write-Host "`nInstalling dependencies..." -ForegroundColor Cyan
+    npm install
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install dependencies."
+    }
+}
+
+if (-not (Test-CommandExists 'node')) {
     Write-Host "Node.js is not installed or not in PATH" -ForegroundColor Red
-    Write-Host "Please install Node.js from https://nodejs.org/" -ForegroundColor Yellow
+    Write-Host "Install Node.js from https://nodejs.org/" -ForegroundColor Yellow
     exit 1
 }
 
-Write-Host "Node.js version: $nodeCheck" -ForegroundColor Green
+$nodeVersion = node --version
+Write-Host "Node.js version: $nodeVersion" -ForegroundColor Green
 
-# Install npm dependencies
-Write-Host "`nInstalling dependencies..." -ForegroundColor Cyan
-npm install
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to install dependencies" -ForegroundColor Red
+if (-not (Test-CommandExists 'npm')) {
+    Write-Host "npm is not available in PATH" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "`nDependencies installed successfully!" -ForegroundColor Green
-Write-Host "`nStarting server..." -ForegroundColor Cyan
+$envPath = Join-Path $scriptDir '.env.local'
+$templatePath = Join-Path $scriptDir '.env.local.example'
+Ensure-EnvFile -EnvPath $envPath -TemplatePath $templatePath
+Ensure-Dependencies -ForceInstall:$Install
 
-# Start the server
-node server.js
+Write-Host "`nLocal app URLs:" -ForegroundColor Cyan
+Write-Host "  Login:      http://localhost:8000/login.html"
+Write-Host "  Dashboard:  http://localhost:8000/dashboard.html"
+Write-Host "  Procurement:http://localhost:8000/order-register.html"
+Write-Host "  Operations: http://localhost:8000/inventory-operations.html"
+Write-Host "  Projects:   http://localhost:8000/job-creator.html"
+
+if ($Mode -eq 'dev') {
+    Write-Host "`nStarting in watch mode (nodemon)..." -ForegroundColor Cyan
+    npm run dev
+} else {
+    Write-Host "`nStarting in normal mode..." -ForegroundColor Cyan
+    npm start
+}
