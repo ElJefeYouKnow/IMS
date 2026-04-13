@@ -655,6 +655,16 @@
       }
       const fragment = document.createDocumentFragment();
       if(this.isLocalDevHost?.()){
+        const currentPage = (window.location.pathname.split('/').pop() || '').toLowerCase();
+        const operationsPages = [
+          { href: 'operations-system-overview.html', label: 'Overview' },
+          { href: 'operations-system-work-orders.html', label: 'Work Orders' },
+          { href: 'operations-system-schedule.html', label: 'Schedule' },
+          { href: 'operations-system-dispatch.html', label: 'Dispatch' },
+          { href: 'operations-system-team.html', label: 'Team' },
+          { href: 'operations-system-issues.html', label: 'Issues' },
+          { href: 'operations-system-reports.html', label: 'Reports' }
+        ];
         const moduleToggle = document.createElement('button');
         moduleToggle.type = 'button';
         moduleToggle.className = 'nav-module-toggle';
@@ -662,13 +672,13 @@
         const moduleItems = document.createElement('div');
         moduleItems.className = 'nav-module-items';
         moduleItems.dataset.module = 'operations-system';
-        const overviewLink = document.createElement('a');
-        overviewLink.href = 'operations-system-overview.html';
-        overviewLink.textContent = 'Overview';
-        if(window.location.pathname.endsWith('operations-system-overview.html')){
-          overviewLink.classList.add('active');
-        }
-        moduleItems.appendChild(overviewLink);
+        operationsPages.forEach((page)=>{
+          const link = document.createElement('a');
+          link.href = page.href;
+          link.textContent = page.label;
+          if(currentPage === page.href) link.classList.add('active');
+          moduleItems.appendChild(link);
+        });
         moduleToggle.addEventListener('click', ()=>{
           const open = moduleItems.classList.toggle('open');
           moduleToggle.classList.toggle('open', open);
