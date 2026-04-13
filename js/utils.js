@@ -607,11 +607,11 @@
       nav.appendChild(modulesLabel);
       const invToggle = document.createElement('button');
       invToggle.type = 'button';
-      invToggle.className = 'nav-module-toggle open';
+      invToggle.className = 'nav-module-toggle';
       invToggle.textContent = 'Inventory System';
       nav.appendChild(invToggle);
       const invWrap = document.createElement('div');
-      invWrap.className = 'nav-module-items open';
+      invWrap.className = 'nav-module-items';
       invWrap.dataset.module = 'inventory';
       inventoryLinks.forEach(link=> invWrap.appendChild(link));
       nav.appendChild(invWrap);
@@ -633,29 +633,53 @@
       nav.dataset.modulesInjected = 'true';
       if(nav.querySelector('.nav-locked')) return;
       const moduleWrap = nav.querySelector('.nav-module-items[data-module="inventory"]');
-      const section = document.createElement('div');
-      section.className = 'nav-section-label';
-      section.textContent = moduleWrap ? 'Available Soon' : 'Modules';
-      if(moduleWrap && moduleWrap.parentElement === nav){
-        if(moduleWrap.nextSibling){
-          nav.insertBefore(section, moduleWrap.nextSibling);
+      let section = null;
+      if(!this.isLocalDevHost?.()){
+        section = document.createElement('div');
+        section.className = 'nav-section-label';
+        section.textContent = moduleWrap ? 'Available Soon' : 'Modules';
+        if(moduleWrap && moduleWrap.parentElement === nav){
+          if(moduleWrap.nextSibling){
+            nav.insertBefore(section, moduleWrap.nextSibling);
+          }else{
+            nav.appendChild(section);
+          }
         }else{
-          nav.appendChild(section);
-        }
-      }else{
-        const anchor = nav.querySelector('a[href="inventory-list.html"]') || nav.lastElementChild;
-        if(anchor && anchor.parentElement === nav && anchor.nextSibling){
-          nav.insertBefore(section, anchor.nextSibling);
-        }else{
-          nav.appendChild(section);
+          const anchor = nav.querySelector('a[href="inventory-list.html"]') || nav.lastElementChild;
+          if(anchor && anchor.parentElement === nav && anchor.nextSibling){
+            nav.insertBefore(section, anchor.nextSibling);
+          }else{
+            nav.appendChild(section);
+          }
         }
       }
       const fragment = document.createDocumentFragment();
-        [
-          { label: 'Operations System', module: 'oms' },
-          { label: 'Management System', module: 'bms' },
-          { label: 'Finance System', module: 'fms' }
-        ].forEach((item)=>{
+      if(this.isLocalDevHost?.()){
+        const moduleToggle = document.createElement('button');
+        moduleToggle.type = 'button';
+        moduleToggle.className = 'nav-module-toggle';
+        moduleToggle.textContent = 'Operations System';
+        const moduleItems = document.createElement('div');
+        moduleItems.className = 'nav-module-items';
+        moduleItems.dataset.module = 'operations-system';
+        const overviewLink = document.createElement('a');
+        overviewLink.href = 'operations-system-overview.html';
+        overviewLink.textContent = 'Overview';
+        if(window.location.pathname.endsWith('operations-system-overview.html')){
+          overviewLink.classList.add('active');
+        }
+        moduleItems.appendChild(overviewLink);
+        moduleToggle.addEventListener('click', ()=>{
+          const open = moduleItems.classList.toggle('open');
+          moduleToggle.classList.toggle('open', open);
+        });
+        fragment.appendChild(moduleToggle);
+        fragment.appendChild(moduleItems);
+      }
+      [
+        { label: 'Management System', module: 'bms' },
+        { label: 'Finance System', module: 'fms' }
+      ].forEach((item)=>{
         const link = document.createElement('a');
         link.href = '#';
         link.textContent = item.label;
@@ -664,8 +688,15 @@
         link.dataset.module = item.module;
         fragment.appendChild(link);
       });
-      if(section.parentElement === nav && section.nextSibling){
+      if(section && section.parentElement === nav && section.nextSibling){
         nav.insertBefore(fragment, section.nextSibling);
+      }else if(this.isLocalDevHost?.()){
+        const accountLabel = Array.from(nav.querySelectorAll('.nav-section-label')).find(el=> (el.textContent || '').trim() === 'Account');
+        if(accountLabel && accountLabel.parentElement === nav){
+          nav.insertBefore(fragment, accountLabel);
+        }else{
+          nav.appendChild(fragment);
+        }
       }else{
         nav.appendChild(fragment);
       }
@@ -767,7 +798,7 @@
 
       const role = (this.getSession?.()?.role || '').toLowerCase();
       dashboardBtn.href = this.getDashboardHref(role);
-      opsBtn.href = 'inventory-operations.html';
+      opsBtn.href = this.isLocalDevHost?.() ? 'operations-system-overview.html' : 'inventory-operations.html';
       if(window.location.pathname.endsWith(dashboardBtn.href)) dashboardBtn.classList.add('active');
       if(window.location.pathname.endsWith(opsBtn.href)) opsBtn.classList.add('active');
 
