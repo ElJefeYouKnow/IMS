@@ -59,7 +59,7 @@ function Install-Dependencies {
     }
 
     Write-Host "`nInstalling dependencies..." -ForegroundColor Cyan
-    npm install
+    & $script:npmCommand install
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to install dependencies."
     }
@@ -79,6 +79,12 @@ if (-not (Test-CommandExists 'npm')) {
     exit 1
 }
 
+$script:npmCommand = 'npm.cmd'
+if (-not (Test-CommandExists $script:npmCommand)) {
+    Write-Host "npm.cmd is not available in PATH" -ForegroundColor Red
+    exit 1
+}
+
 $envPath = Join-Path $scriptDir '.env.local'
 $templatePath = Join-Path $scriptDir '.env.local.example'
 Initialize-EnvFile -EnvPath $envPath -TemplatePath $templatePath
@@ -93,8 +99,8 @@ Write-Host "  Projects:   http://localhost:8000/job-creator.html"
 
 if ($Mode -eq 'dev') {
     Write-Host "`nStarting in watch mode (nodemon)..." -ForegroundColor Cyan
-    npm run dev
+    & $script:npmCommand run dev
 } else {
     Write-Host "`nStarting in normal mode..." -ForegroundColor Cyan
-    npm start
+    & $script:npmCommand start
 }

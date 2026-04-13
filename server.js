@@ -2718,6 +2718,12 @@ function currentUserId(req) {
   return (req.user && (req.user.id || req.user.userid)) || null;
 }
 
+function isLocalhostRequest(req) {
+  const host = String(req.hostname || req.headers.host || '').toLowerCase().split(':')[0];
+  const remote = String(req.ip || req.socket?.remoteAddress || '').toLowerCase().replace('::ffff:', '');
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || remote === '127.0.0.1' || remote === '::1';
+}
+
 async function requireAuth(req, res, next) {
   const cookies = parseCookies(req);
   const token = cookies[SESSION_COOKIE];
@@ -3203,6 +3209,11 @@ async function initDb() {
     )
     DELETE FROM items WHERE ctid IN (SELECT ctid FROM dup)
   `);
+  await runAsync('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_code_fkey');
+  await runAsync('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_code_fk');
+  await runAsync('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_jobid_fkey');
+  await runAsync('ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_jobid_fk');
+  await runAsync('ALTER TABLE inventory_counts DROP CONSTRAINT IF EXISTS inventory_counts_code_fk');
   await runAsync('ALTER TABLE items DROP CONSTRAINT IF EXISTS items_pkey');
   await runAsync('ALTER TABLE items ADD CONSTRAINT items_pkey PRIMARY KEY (code, tenantId)');
   // Clean any legacy duplicate jobs per tenant before enforcing composite PK
@@ -5182,6 +5193,22 @@ const LOCK_MS = 15 * 60 * 1000;
     await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login', details: { email: emailNorm } });
     res.json(safeUser(user));
   } catch (e) { res.status(500).json({ error: 'server error' }); }
+});
+
+app.post('/api/auth/dev-login', async (req, res) => {
+  try {
+    if (IS_PROD || !isLocalhostRequest(req)) return res.status(404).json({ error: 'not found' });
+    await ensureDevAccount();
+    const tenantId = DEV_TENANT_ID || normalizeTenantCode(DEV_TENANT_CODE);
+    const user = await getAsync('SELECT * FROM users WHERE LOWER(email)=LOWER($1) AND tenantId=$2', [DEV_EMAIL, tenantId]);
+    if (!user) return res.status(500).json({ error: 'dev account unavailable' });
+    const token = await createSession(user.id, REMEMBER_SESSION_TTL_MS);
+    setSessionCookie(res, token, REMEMBER_SESSION_TTL_MS);
+    await logAudit({ tenantId: user.tenantId, userId: user.id, action: 'auth.login', details: { email: user.email, source: 'dev-auto-login' } });
+    res.json(safeUser(user));
+  } catch (e) {
+    res.status(500).json({ error: 'server error' });
+  }
 });
 
 app.post('/api/auth/verify/resend', async (req, res) => {

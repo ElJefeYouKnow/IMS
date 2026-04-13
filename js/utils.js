@@ -314,6 +314,23 @@
     requireSession(){
       const user = this.getSession();
       if(!user){
+        if(this.isLocalDevHost?.()){
+          this.autoDevLogin?.().then(devUser=>{
+            if(!devUser){
+              window.location.href = 'login.html';
+              return;
+            }
+            const current = (window.location.pathname.split('/').pop() || '').toLowerCase();
+            if(!current || current === 'login.html'){
+              window.location.href = this.getDashboardHref?.(devUser.role) || 'dashboard.html';
+              return;
+            }
+            window.location.reload();
+          }).catch(()=>{
+            window.location.href = 'login.html';
+          });
+          return false;
+        }
         window.location.href = 'login.html';
         return false;
       }
@@ -398,6 +415,28 @@
       }catch(e){
         return null;
       }
+    },
+    isLocalDevHost(){
+      const host = (window.location.hostname || '').toLowerCase();
+      return host === 'localhost' || host === '127.0.0.1';
+    },
+    async autoDevLogin(force=false){
+      if(!this.isLocalDevHost?.()) return null;
+      if(this._devLoginPromise && !force) return this._devLoginPromise;
+      this._devLoginPromise = (async ()=>{
+        try{
+          const res = await fetch('/api/auth/dev-login', { method:'POST' });
+          if(!res.ok) return null;
+          const user = await res.json();
+          if(user?.id) this.setSession?.(user);
+          return user?.id ? user : null;
+        }catch(e){
+          return null;
+        }finally{
+          this._devLoginPromise = null;
+        }
+      })();
+      return this._devLoginPromise;
     },
     requireRole(role){
       const user = this.getSession();

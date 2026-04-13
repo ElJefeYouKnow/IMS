@@ -4,7 +4,18 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
+        {
+            "name": "IMS: Local Dev (Terminal)",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "npm run local"
+        },
+        {
+            "name": "IMS: Local Start (Terminal)",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "npm run local:start"
+        },
         {
             "name": "PowerShell: Launch Current File",
             "type": "PowerShell",

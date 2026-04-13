@@ -1,4 +1,15 @@
-document.addEventListener('DOMContentLoaded', ()=>{
+document.addEventListener('DOMContentLoaded', async ()=>{
+  if(window.utils?.isLocalDevHost?.()){
+    const devUser = await utils.autoDevLogin?.();
+    if(devUser){
+      const role = (devUser.role || '').toLowerCase();
+      let target = 'employee-dashboard.html';
+      if(role === 'admin' || role === 'dev') target = 'dashboard.html';
+      else if(role === 'manager') target = 'ops-dashboard.html';
+      window.location.href = target;
+      return;
+    }
+  }
   if(window.utils?.clearSession) utils.clearSession();
   else localStorage.removeItem('sessionUser');
   const form = document.getElementById('loginForm');

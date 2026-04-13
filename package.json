@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "local": "powershell -ExecutionPolicy Bypass -File .\\start.ps1",
     "local:start": "powershell -ExecutionPolicy Bypass -File .\\start.ps1 -Mode start",
+    "local:cmd": "local.cmd",
     "smoke:pilot": "node scripts/pilot-smoke.js"
   },
   "dependencies": {
