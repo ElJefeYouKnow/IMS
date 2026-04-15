@@ -5,7 +5,7 @@
 - Expect: You land on the admin dashboard with no auth errors.
 
 2) Create a new project.
-- Do: Go to Project Manager and create a project with a unique code.
+- Do: Go to Work Hub and create a project with a unique code.
 - Expect: The project appears in the projects list and the report card view.
 
 3) Edit the project.

@@ -1410,7 +1410,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     utils.setupLogout?.();
   }
   const user = window.utils?.getSession?.();
-  isAdmin = user?.role === 'admin';
+  isAdmin = user?.role === 'admin' || user?.role === 'dev';
 
   const adminOnly = document.querySelector('.admin-only');
   if(adminOnly && !isAdmin) adminOnly.style.display = 'none';

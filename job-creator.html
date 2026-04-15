@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Project Manager</title>
+  <title>Work Hub</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body data-ds="pro">
@@ -27,7 +27,7 @@
         <a href="inventory-operations.html">Operations</a>
         <a href="field-purchase.html" >Field Purchases</a>
         <a href="inventory-list.html">Inventory</a>
-        <a class="active" href="job-creator.html" data-role="admin">Project Manager</a>
+        <a class="active" href="job-creator.html" data-role="admin">Work Hub</a>
         <a href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
         <a href="analytics.html" data-role="admin">Analytics</a>
         <a href="item-master.html" data-role="admin">Catalog</a>
@@ -39,21 +39,21 @@
 
     <main class="main">
       <header class="topbar">
-        <h1>Project Manager</h1>
+        <h1>Work Hub</h1>
         <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
       <section class="card" style="margin-bottom:12px;position:sticky;top:0;z-index:5;">
         <div class="mode-tabs">
           <button class="mode-btn active" data-tab="projects">Projects</button>
-          <button class="mode-btn" data-tab="report">Project Report</button>
+          <button class="mode-btn" data-tab="report">Reports</button>
         </div>
       </section>
 
       <div id="projects-tab" class="mode-content active">
         <section class="card inventory-card admin-only">
-          <h3>Add Project</h3>
-          <p class="muted-text">Admin-only: create a project once so every page can reference it consistently.</p>
+          <h3>Create Project</h3>
+          <p class="muted-text">Enter project data here first. Inventory and Operations reference this shared project record downstream.</p>
           <form id="jobForm" class="inventory-form">
             <div class="form-row">
               <label>Project Code<input id="jobCode" required placeholder="Unique project number or name"></label>
@@ -126,8 +126,8 @@
         <section class="card">
           <div class="report-header">
             <div class="report-header-copy">
-              <h3>Project Report</h3>
-              <p>See upcoming work first, track material readiness, and sort the board based on schedule or operational urgency.</p>
+              <h3>Reports</h3>
+              <p>See upcoming work first, track material readiness, and understand which projects need attention before Inventory and Operations act.</p>
             </div>
             <div class="report-header-meta">
               <span id="reportShowingCount" class="badge info">-</span>

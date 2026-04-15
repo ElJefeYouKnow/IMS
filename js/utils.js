@@ -482,7 +482,7 @@
         const role = (user.role || '').toLowerCase();
         const tenant = (user.tenantId || user.tenantid || '').toLowerCase();
         const isDev = role === 'dev' || tenant === 'dev';
-        if(role === 'admin'){
+        if(role === 'admin' || role === 'dev'){
           document.body.classList.add('role-admin');
         }else if(role === 'manager'){
           document.body.classList.add('role-manager');
@@ -573,24 +573,37 @@
       const nav = document.querySelector('.sidebar nav');
       if(!nav || nav.dataset.moduleNavBuilt === 'true') return;
       nav.dataset.moduleNavBuilt = 'true';
-      const allLinks = Array.from(nav.querySelectorAll('a')).filter(link=> !link.classList.contains('nav-locked'));
-      const inventoryHrefs = new Set([
+      const currentPage = (window.location.pathname.split('/').pop() || '').toLowerCase();
+      const coreHrefs = new Set([
         'dashboard.html',
         'ops-dashboard.html',
-        'employee-dashboard.html',
+        'employee-dashboard.html'
+      ]);
+      const allLinks = Array.from(nav.querySelectorAll('a')).filter(link=> !link.classList.contains('nav-locked'));
+      const inventoryHrefs = new Set([
         'inventory-operations.html',
         'field-purchase.html',
         'inventory-list.html',
         'fleet.html',
-        'job-creator.html',
         'order-register.html',
         'analytics.html',
         'item-master.html'
       ]);
+      const coreLinks = [];
       const inventoryLinks = [];
       const otherLinks = [];
+      let workHubLink = null;
       allLinks.forEach(link=>{
         const href = link.getAttribute('href');
+        if(href === 'job-creator.html'){
+          link.textContent = 'Work Hub';
+          workHubLink = link;
+          return;
+        }
+        if(coreHrefs.has(href)){
+          coreLinks.push(link);
+          return;
+        }
         if(inventoryHrefs.has(href)) inventoryLinks.push(link);
         else otherLinks.push(link);
       });
@@ -601,6 +614,10 @@
         inventoryLinks.push(link);
       }
       nav.innerHTML = '';
+      coreLinks.forEach(link=> nav.appendChild(link));
+      if(workHubLink){
+        nav.appendChild(workHubLink);
+      }
       const modulesLabel = document.createElement('div');
       modulesLabel.className = 'nav-section-label';
       modulesLabel.textContent = 'Modules';
@@ -615,6 +632,37 @@
       invWrap.dataset.module = 'inventory';
       inventoryLinks.forEach(link=> invWrap.appendChild(link));
       nav.appendChild(invWrap);
+      if(this.isLocalDevHost?.()){
+        const operationsPages = [
+          { href: 'operations-system-overview.html', label: 'Overview' },
+          { href: 'operations-system-work-orders.html', label: 'Work Orders' },
+          { href: 'operations-system-schedule.html', label: 'Schedule' },
+          { href: 'operations-system-dispatch.html', label: 'Dispatch' },
+          { href: 'operations-system-team.html', label: 'Team' },
+          { href: 'operations-system-issues.html', label: 'Issues' },
+          { href: 'operations-system-reports.html', label: 'Reports' }
+        ];
+        const opsToggle = document.createElement('button');
+        opsToggle.type = 'button';
+        opsToggle.className = 'nav-module-toggle';
+        opsToggle.textContent = 'Operations System';
+        nav.appendChild(opsToggle);
+        const opsWrap = document.createElement('div');
+        opsWrap.className = 'nav-module-items';
+        opsWrap.dataset.module = 'operations-system';
+        operationsPages.forEach((page)=>{
+          const link = document.createElement('a');
+          link.href = page.href;
+          link.textContent = page.label;
+          if(currentPage === page.href) link.classList.add('active');
+          opsWrap.appendChild(link);
+        });
+        nav.appendChild(opsWrap);
+        opsToggle.addEventListener('click', ()=>{
+          const open = opsWrap.classList.toggle('open');
+          opsToggle.classList.toggle('open', open);
+        });
+      }
       if(otherLinks.length){
         const otherLabel = document.createElement('div');
         otherLabel.className = 'nav-section-label';
@@ -654,38 +702,6 @@
         }
       }
       const fragment = document.createDocumentFragment();
-      if(this.isLocalDevHost?.()){
-        const currentPage = (window.location.pathname.split('/').pop() || '').toLowerCase();
-        const operationsPages = [
-          { href: 'operations-system-overview.html', label: 'Overview' },
-          { href: 'operations-system-work-orders.html', label: 'Work Orders' },
-          { href: 'operations-system-schedule.html', label: 'Schedule' },
-          { href: 'operations-system-dispatch.html', label: 'Dispatch' },
-          { href: 'operations-system-team.html', label: 'Team' },
-          { href: 'operations-system-issues.html', label: 'Issues' },
-          { href: 'operations-system-reports.html', label: 'Reports' }
-        ];
-        const moduleToggle = document.createElement('button');
-        moduleToggle.type = 'button';
-        moduleToggle.className = 'nav-module-toggle';
-        moduleToggle.textContent = 'Operations System';
-        const moduleItems = document.createElement('div');
-        moduleItems.className = 'nav-module-items';
-        moduleItems.dataset.module = 'operations-system';
-        operationsPages.forEach((page)=>{
-          const link = document.createElement('a');
-          link.href = page.href;
-          link.textContent = page.label;
-          if(currentPage === page.href) link.classList.add('active');
-          moduleItems.appendChild(link);
-        });
-        moduleToggle.addEventListener('click', ()=>{
-          const open = moduleItems.classList.toggle('open');
-          moduleToggle.classList.toggle('open', open);
-        });
-        fragment.appendChild(moduleToggle);
-        fragment.appendChild(moduleItems);
-      }
       [
         { label: 'Management System', module: 'bms' },
         { label: 'Finance System', module: 'fms' }

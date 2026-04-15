@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -7,6 +7,13 @@
   <meta name="theme-color" content="#132a24" />
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="css/style.css" />
+  <script>
+    (function(){
+      const host = (window.location.hostname || '').toLowerCase();
+      if(host === 'localhost' || host === '127.0.0.1') return;
+      window.location.replace('inventory-operations.html');
+    })();
+  </script>
 </head>
 <body data-ds="pro" data-page="operations-system-team">
   <div class="app">
@@ -30,7 +37,7 @@
         <a href="inventory-operations.html">Operations</a>
         <a href="field-purchase.html">Field Purchases</a>
         <a href="inventory-list.html">Inventory</a>
-        <a href="job-creator.html" data-role="admin">Project Manager</a>
+        <a href="job-creator.html" data-role="admin">Work Hub</a>
         <a href="order-register.html" data-role="admin">Procurement &amp; Allocation</a>
         <a href="analytics.html" data-role="admin">Analytics</a>
         <a href="item-master.html" data-role="admin">Catalog</a>
@@ -65,3 +72,4 @@
   </script>
 </body>
 </html>
+
