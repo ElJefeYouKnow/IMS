@@ -337,6 +337,7 @@
       this.updateBrand?.();
       this.ensureFleetNav?.();
       this.ensureModuleNav?.();
+      this.ensureLockedModules?.();
       this.buildMobileNav?.();
       this.setupUserChip?.();
       this.setupLogout?.();
@@ -471,6 +472,7 @@
       this.ensureFleetNav?.();
       this.ensureModuleNav?.();
       this.ensureLocationsNav?.();
+      this.ensureLockedModules?.();
       this.buildMobileNav?.();
       this.registerServiceWorker?.();
       const applyForUser = (user)=>{
@@ -503,7 +505,6 @@
             nav.appendChild(link);
           }
         }
-        this.ensureLockedModules?.();
         this.setupLockedModuleModal?.();
         this.setupUserChip?.();
       };
@@ -709,10 +710,14 @@
         }
       }
       const fragment = document.createDocumentFragment();
-      [
+      const lockedModules = [
         { label: 'Management System', module: 'bms' },
         { label: 'Finance System', module: 'fms' }
-      ].forEach((item)=>{
+      ];
+      if(!this.isLocalDevHost?.()){
+        lockedModules.unshift({ label: 'Operations System', module: 'oms' });
+      }
+      lockedModules.forEach((item)=>{
         const link = document.createElement('a');
         link.href = '#';
         link.textContent = item.label;
