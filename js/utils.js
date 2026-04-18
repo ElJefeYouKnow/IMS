@@ -418,7 +418,7 @@
     },
     isLocalDevHost(){
       const host = (window.location.hostname || '').toLowerCase();
-      return host === 'localhost' || host === '127.0.0.1';
+      return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
     },
     async autoDevLogin(force=false){
       if(!this.isLocalDevHost?.()) return null;
@@ -595,6 +595,9 @@
       let workHubLink = null;
       allLinks.forEach(link=>{
         const href = link.getAttribute('href');
+        if(href === 'inventory-operations.html'){
+          link.textContent = 'Inventory Actions';
+        }
         if(href === 'job-creator.html'){
           link.textContent = 'Work Hub';
           workHubLink = link;
@@ -614,8 +617,12 @@
         inventoryLinks.push(link);
       }
       nav.innerHTML = '';
-      coreLinks.forEach(link=> nav.appendChild(link));
+      coreLinks.forEach(link=>{
+        link.classList.add('nav-core-link');
+        nav.appendChild(link);
+      });
       if(workHubLink){
+        workHubLink.classList.add('nav-core-link');
         nav.appendChild(workHubLink);
       }
       const modulesLabel = document.createElement('div');
@@ -791,7 +798,7 @@
       const opsBtn = document.createElement('a');
       opsBtn.className = 'nav-main-btn';
       opsBtn.appendChild(makeIcon('icon-ops'));
-      opsBtn.appendChild(makeLabel('Ops'));
+      opsBtn.appendChild(makeLabel(this.isLocalDevHost?.() ? 'Ops' : 'Actions'));
       const moreBtn = document.createElement('button');
       moreBtn.className = 'nav-main-btn nav-more';
       moreBtn.type = 'button';
@@ -858,6 +865,26 @@
       if(!('serviceWorker' in navigator)) return;
       this._swRegistered = true;
       window.addEventListener('load', ()=>{
+        if(this.isLocalDevHost?.()){
+          const resetKey = 'ims-dev-sw-reset';
+          const unregister = navigator.serviceWorker.getRegistrations()
+            .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
+            .catch(()=>[]);
+          const clearCaches = ('caches' in window)
+            ? caches.keys()
+              .then(keys => Promise.all(keys.filter(key => key.startsWith('ims-cache')).map(key => caches.delete(key))))
+              .catch(()=>[])
+            : Promise.resolve([]);
+          Promise.all([unregister, clearCaches]).finally(()=>{
+            if(navigator.serviceWorker.controller && !sessionStorage.getItem(resetKey)){
+              sessionStorage.setItem(resetKey, '1');
+              window.location.reload();
+              return;
+            }
+            sessionStorage.removeItem(resetKey);
+          });
+          return;
+        }
         navigator.serviceWorker.register('/service-worker.js').catch(()=>{});
       });
     },

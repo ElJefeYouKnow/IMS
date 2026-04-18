@@ -258,6 +258,11 @@ app.use(express.json({
     req.rawBody = buf?.length ? buf.toString('utf8') : '';
   }
 }));
+app.use((req, res, next) => {
+  if (!/^\/(?:app\/)?operations-system-[^/]+\.html$/i.test(req.path)) return next();
+  if (isLocalhostRequest(req)) return next();
+  return res.redirect(302, '/inventory-operations.html');
+});
 // Disable etags and caching for HTML/CSS/JS so UI changes propagate immediately
 app.disable('etag');
 app.use((req, res, next) => {

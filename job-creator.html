@@ -6,7 +6,7 @@
   <title>Work Hub</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
-<body data-ds="pro">
+<body data-ds="pro" data-page="work-hub">
   <div class="app">
     <aside class="sidebar">
       <div>
@@ -24,7 +24,7 @@
         <a href="dashboard.html" data-role="admin">Dashboard</a>
         <a href="ops-dashboard.html" data-role="manager">Dashboard</a>
         <a href="employee-dashboard.html" data-role="employee">Dashboard</a>
-        <a href="inventory-operations.html">Operations</a>
+        <a href="inventory-operations.html">Inventory Actions</a>
         <a href="field-purchase.html" >Field Purchases</a>
         <a href="inventory-list.html">Inventory</a>
         <a class="active" href="job-creator.html" data-role="admin">Work Hub</a>
@@ -39,11 +39,28 @@
 
     <main class="main">
       <header class="topbar">
-        <h1>Work Hub</h1>
+        <div class="topbar-copy">
+          <p class="topbar-eyebrow">Core Software</p>
+          <h1>Work Hub</h1>
+          <p class="topbar-sub">Create the project record once, define what the job needs, and let Inventory and Operations receive the same source record in parallel.</p>
+        </div>
         <div class="topbar-right"><button id="logoutBtn" class="muted">Logout</button></div>
       </header>
 
-      <section class="card" style="margin-bottom:12px;position:sticky;top:0;z-index:5;">
+      <section class="card stage-card workhub-stage-card">
+        <div class="stage-copy">
+          <p class="stage-kicker">Project Source Of Truth</p>
+          <h2>Projects begin here before Inventory or Operations starts working.</h2>
+          <p>Capture the job, schedule window, site context, notes, and requirements once. Inventory and Operations then read the same project record at the same time instead of passing work between departments first.</p>
+        </div>
+        <div class="stage-chips" aria-label="Work Hub flow">
+          <span class="stage-chip">Create once</span>
+          <span class="stage-chip">Shared record</span>
+          <span class="stage-chip">Parallel modules</span>
+        </div>
+      </section>
+
+      <section class="card workhub-tab-shell">
         <div class="mode-tabs">
           <button class="mode-btn active" data-tab="projects">Projects</button>
           <button class="mode-btn" data-tab="report">Reports</button>
@@ -51,56 +68,236 @@
       </section>
 
       <div id="projects-tab" class="mode-content active">
-        <section class="card inventory-card admin-only">
-          <h3>Create Project</h3>
-          <p class="muted-text">Enter project data here first. Inventory and Operations reference this shared project record downstream.</p>
-          <form id="jobForm" class="inventory-form">
-            <div class="form-row">
-              <label>Project Code<input id="jobCode" required placeholder="Unique project number or name"></label>
-              <label>Display Name<input id="jobName" placeholder="Optional friendly name"></label>
-              <label>Status
-                <select id="jobStatus">
-                  <option value="planned">Planned</option>
-                  <option value="active">Active</option>
-                  <option value="on-hold">On Hold</option>
-                  <option value="complete">Complete</option>
-                </select>
-              </label>
+        <section class="card workhub-overview-card">
+          <div class="workhub-overview-head">
+            <div class="workhub-overview-copy">
+              <p class="stage-kicker">Project Overview</p>
+              <h3>Triaging project setup should be faster than building the project itself.</h3>
+              <p class="muted-text">Use the overview to catch upcoming jobs, incomplete setup, and the next project you need to clean up before both modules start moving from the shared record.</p>
             </div>
-            <div class="form-row">
-              <label>Start Date<input id="jobStartDate" type="date"></label>
-              <label>End Date<input id="jobEndDate" type="date"></label>
-              <label>Location<input id="jobLocation" placeholder="Optional site/location"></label>
+            <div class="workhub-overview-actions">
+              <button id="jobOverviewNewBtn" type="button" class="action-btn">New Project</button>
+              <button id="jobOverviewReportBtn" type="button" class="action-btn">Open Reports</button>
             </div>
-            <div class="form-row">
-              <label>Notes<textarea id="jobNotes" rows="3" placeholder="Optional project notes, scope, or instructions"></textarea></label>
+          </div>
+          <div class="summary-grid workhub-overview-grid">
+            <div class="summary-item">
+              <span>Total Projects</span>
+              <strong id="projectTotalCount">-</strong>
             </div>
-            <div class="form-row" style="display:block;">
-              <div class="order-lines-header">
-                <strong>Needed Materials</strong>
-                <button id="jobMaterialAddBtn" type="button" class="muted">Add Material</button>
+            <div class="summary-item">
+              <span>Active Now</span>
+              <strong id="projectActiveCount">-</strong>
+            </div>
+            <div class="summary-item">
+              <span>Starts In 7 Days</span>
+              <strong id="projectStartsSoonCount">-</strong>
+            </div>
+            <div class="summary-item">
+              <span>Needs Setup</span>
+              <strong id="projectNeedsSetupCount">-</strong>
+            </div>
+          </div>
+          <div class="workhub-filter-row" role="group" aria-label="Project quick filters">
+            <button type="button" class="filter-btn workhub-project-filter active" data-filter="all">All Projects</button>
+            <button type="button" class="filter-btn workhub-project-filter" data-filter="active">Active</button>
+            <button type="button" class="filter-btn workhub-project-filter" data-filter="startsSoon">Starts Soon</button>
+            <button type="button" class="filter-btn workhub-project-filter" data-filter="needsSetup">Needs Setup</button>
+            <button type="button" class="filter-btn workhub-project-filter" data-filter="complete">Complete</button>
+          </div>
+          <div class="workhub-overview-board">
+            <section class="workhub-board-panel">
+              <div class="card-header">
+                <h3>Needs Setup</h3>
+                <span class="badge warn">Fix first</span>
               </div>
-              <div id="job-material-lines" class="line-items"></div>
-            </div>
-            <div class="form-row bulk-box">
-              <label style="flex:1">Quick bulk paste (code,name,qty,notes)
-                <textarea id="jobMaterialBulk" rows="3" placeholder="ABC123,Connector Pipe 6,4,Roof job&#10;XYZ9,Sealant,2,Optional note"></textarea>
-              </label>
-              <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
-                <button id="jobMaterialBulkLoad" type="button" class="muted" style="margin-top:22px;">Load to list</button>
-                <button id="jobMaterialBulkClear" type="button" class="muted">Clear bulk</button>
+              <div id="projectNeedsSetupList" class="workflow-list">
+                <div class="report-empty">Loading projects...</div>
               </div>
+            </section>
+            <section class="workhub-board-panel">
+              <div class="card-header">
+                <h3>Starts Soon</h3>
+                <span class="badge info">Next 7 days</span>
+              </div>
+              <div id="projectStartsSoonList" class="workflow-list">
+                <div class="report-empty">Loading projects...</div>
+              </div>
+            </section>
+            <section class="workhub-board-panel">
+              <div class="card-header">
+                <h3>Recently Updated</h3>
+                <span class="badge static">Latest activity</span>
+              </div>
+              <div id="projectRecentList" class="workflow-list">
+                <div class="report-empty">Loading projects...</div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="card inventory-card admin-only workhub-form-card" id="workHubCreateCard">
+          <div class="workhub-form-head">
+            <div class="workhub-form-copy">
+              <h3>Create Project</h3>
+              <p class="muted-text">Build the project record in stages. When this is clean, Inventory and Operations both start from the same working truth at the same time.</p>
             </div>
-            <div class="form-row">
-              <button type="submit">Save Project</button>
-              <button id="jobClearBtn" type="button" class="muted">Clear</button>
+            <div class="workhub-form-head-actions">
+              <span id="jobDraftStatus" class="sync-chip offline">Draft not saved</span>
+              <button id="jobDiscardDraftBtn" type="button" class="action-btn">Discard Local Draft</button>
             </div>
-          </form>
+          </div>
+          <div class="mode-tabs workhub-stage-tabs">
+            <button type="button" class="mode-btn workhub-stage-btn active" data-stage="details">Project Details</button>
+            <button type="button" class="mode-btn workhub-stage-btn" data-stage="requirements">Requirements</button>
+            <button type="button" class="mode-btn workhub-stage-btn" data-stage="review">Review</button>
+          </div>
+          <div class="workhub-form-grid">
+            <form id="jobForm" class="inventory-form workhub-project-form">
+              <div class="workhub-stage-panel active" data-stage="details">
+                <div class="form-row">
+                  <label>Project Code<input id="jobCode" required placeholder="Unique project number or name"></label>
+                  <label>Display Name<input id="jobName" placeholder="Optional friendly name"></label>
+                  <label>Status
+                    <select id="jobStatus">
+                      <option value="planned">Planned</option>
+                      <option value="active">Active</option>
+                      <option value="on-hold">On Hold</option>
+                      <option value="complete">Complete</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Start Date<input id="jobStartDate" type="date"></label>
+                  <label>End Date<input id="jobEndDate" type="date"></label>
+                  <label>Location<input id="jobLocation" placeholder="Optional site/location"></label>
+                </div>
+                <div class="form-row">
+                  <label>Notes<textarea id="jobNotes" rows="4" placeholder="Scope notes, site context, shared module context, or instructions"></textarea></label>
+                </div>
+              </div>
+
+              <div class="workhub-stage-panel" data-stage="requirements">
+                <div class="form-row" style="display:block;">
+                  <div class="order-lines-header">
+                    <strong>Needed Materials</strong>
+                    <button id="jobMaterialAddBtn" type="button" class="muted">Add Material</button>
+                  </div>
+                  <div id="job-material-lines" class="line-items"></div>
+                </div>
+                <div class="form-row bulk-box">
+                  <label style="flex:1">Quick bulk paste (code,name,qty,notes)
+                    <textarea id="jobMaterialBulk" rows="3" placeholder="ABC123,Connector Pipe 6,4,Roof job&#10;XYZ9,Sealant,2,Optional note"></textarea>
+                  </label>
+                  <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
+                    <button id="jobMaterialBulkLoad" type="button" class="muted" style="margin-top:22px;">Load to list</button>
+                    <button id="jobMaterialBulkClear" type="button" class="muted">Clear bulk</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="workhub-stage-panel" data-stage="review">
+                <div class="workhub-review-card">
+                  <div class="report-header">
+                    <div class="report-header-copy">
+                      <h3>Project Review</h3>
+                      <p>Check setup quality before you save. This becomes the shared project record that Inventory and Operations will both inherit in parallel.</p>
+                    </div>
+                    <div class="report-header-meta">
+                      <span id="jobDraftHealthBadge" class="badge info">Checking draft</span>
+                    </div>
+                  </div>
+                  <div class="summary-grid">
+                    <div class="summary-item">
+                      <span>Material Lines</span>
+                      <strong id="jobReviewLineCount">-</strong>
+                    </div>
+                    <div class="summary-item">
+                      <span>Total Qty Needed</span>
+                      <strong id="jobReviewQtyTotal">-</strong>
+                    </div>
+                    <div class="summary-item">
+                      <span>Catalog Matches</span>
+                      <strong id="jobReviewCatalogCount">-</strong>
+                    </div>
+                    <div class="summary-item">
+                      <span>Warnings</span>
+                      <strong id="jobReviewWarningCount">-</strong>
+                    </div>
+                  </div>
+                  <div class="workhub-review-grid">
+                    <div class="workhub-review-section">
+                      <h4>Draft Summary</h4>
+                      <p id="jobReviewSummary" class="muted-text">Complete the draft to see how the shared project record will flow into both modules.</p>
+                      <div id="jobReviewHighlights" class="filter-chips"></div>
+                    </div>
+                    <div class="workhub-review-section">
+                      <h4>Material Preview</h4>
+                      <div id="jobReviewMaterials" class="workhub-review-list">
+                        <div class="report-empty">Materials are optional at project creation. Add them here when Inventory needs them.</div>
+                      </div>
+                    </div>
+                    <div class="workhub-review-section">
+                      <h4>Warnings</h4>
+                      <ul id="jobReviewWarnings" class="workhub-warning-list">
+                        <li class="report-empty">Warnings will appear here when the draft needs attention.</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-row workhub-form-nav">
+                <button id="jobPrevStageBtn" type="button" class="muted">Back</button>
+                <button id="jobNextStageBtn" type="button" class="muted">Continue</button>
+                <button id="jobSaveBtn" type="submit">Save Project</button>
+                <button id="jobClearBtn" type="button" class="muted">Clear</button>
+              </div>
+            </form>
+
+            <aside class="workhub-health-card">
+              <div class="card-header">
+                <h3>Live Readiness</h3>
+                <span id="jobDraftActionBadge" class="badge static">Draft</span>
+              </div>
+              <p id="jobDraftWorkflowText" class="muted-text">Start with the project identity, then move into materials and review.</p>
+              <div class="summary-grid workhub-health-grid">
+                <div class="summary-item">
+                  <span>Material Lines</span>
+                  <strong id="jobDraftLineCount">-</strong>
+                </div>
+                <div class="summary-item">
+                  <span>Total Qty</span>
+                  <strong id="jobDraftQtyTotal">-</strong>
+                </div>
+                <div class="summary-item">
+                  <span>Catalog Matched</span>
+                  <strong id="jobDraftCatalogCount">-</strong>
+                </div>
+                <div class="summary-item">
+                  <span>Supplier Gaps</span>
+                  <strong id="jobDraftSupplierGapCount">-</strong>
+                </div>
+              </div>
+              <div class="workhub-warning-shell">
+                <div class="workhub-warning-head">
+                  <h4>Warnings</h4>
+                  <span id="jobDraftWarningCount" class="badge static">0</span>
+                </div>
+                <ul id="jobDraftWarnings" class="workhub-warning-list">
+                  <li class="report-empty">Warnings will appear here when the draft needs attention.</li>
+                </ul>
+              </div>
+            </aside>
+          </div>
         </section>
 
         <section class="card">
-          <div class="data-toolbar">
-            <input id="projectSearchBox" type="text" placeholder="Search by project code or name...">
+          <div class="data-toolbar workhub-table-toolbar">
+            <div class="workhub-table-search">
+              <input id="projectSearchBox" type="text" placeholder="Search by project, location, status, or notes...">
+              <span id="projectActiveFilter" class="badge static">All Projects</span>
+            </div>
             <span id="projectCount" class="badge info">-</span>
           </div>
           <table id="projectTable">
@@ -127,7 +324,7 @@
           <div class="report-header">
             <div class="report-header-copy">
               <h3>Reports</h3>
-              <p>See upcoming work first, track material readiness, and understand which projects need attention before Inventory and Operations act.</p>
+              <p>See upcoming work first, track readiness by module, and understand which projects still need definition before Inventory and Operations pick them up from the shared record.</p>
             </div>
             <div class="report-header-meta">
               <span id="reportShowingCount" class="badge info">-</span>
@@ -198,6 +395,10 @@
               </select>
             </div>
             <div class="report-controls-actions">
+              <div class="report-layout-switch" role="group" aria-label="Report layout">
+                <button id="reportLayoutCards" type="button" class="filter-btn report-layout-btn active" data-layout="cards" aria-pressed="true">Cards</button>
+                <button id="reportLayoutTimeline" type="button" class="filter-btn report-layout-btn" data-layout="timeline" aria-pressed="false">Timeline</button>
+              </div>
               <label class="filter-chip"><input id="reportIncludeGeneral" type="checkbox" checked> Include General</label>
               <label class="filter-chip"><input id="reportHasActivity" type="checkbox"> With activity only</label>
               <button id="reportExpandAll" type="button" class="muted">Expand All</button>
