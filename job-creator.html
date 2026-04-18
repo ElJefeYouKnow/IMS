@@ -348,25 +348,27 @@
               <strong id="reportReserved">-</strong>
             </div>
           </div>
-          <div class="dashboard-grid workflow-grid" style="margin-bottom:12px;">
-            <section class="card workflow-card">
-              <div class="card-header">
-                <h3>Fulfillment Board</h3>
-                <span class="badge info">Project readiness</span>
-              </div>
-              <div id="fulfillmentBoard" class="workflow-list">
-                <div class="report-empty">Loading fulfillment board...</div>
-              </div>
-            </section>
-            <section class="card workflow-card">
-              <div class="card-header">
-                <h3>Procurement Suggestions</h3>
-                <span class="badge warn">Shortage first</span>
-              </div>
-              <div id="projectProcurementSuggestions" class="workflow-list">
-                <div class="report-empty">Loading suggestions...</div>
-              </div>
-            </section>
+          <div class="report-alert-strip" aria-label="Report alerts">
+            <div class="report-alert-pill warn">
+              <span>Starting Soon</span>
+              <strong id="reportAlertStartingSoon">-</strong>
+            </div>
+            <div class="report-alert-pill danger">
+              <span>At Risk</span>
+              <strong id="reportAlertAtRisk">-</strong>
+            </div>
+            <div class="report-alert-pill static">
+              <span>Missing Material Plan</span>
+              <strong id="reportAlertMissingPlan">-</strong>
+            </div>
+            <div class="report-alert-pill warn">
+              <span>Shortages</span>
+              <strong id="reportAlertShortages">-</strong>
+            </div>
+            <div class="report-alert-pill info">
+              <span>No Activity</span>
+              <strong id="reportAlertNoActivity">-</strong>
+            </div>
           </div>
           <div class="report-controls">
             <div class="report-controls-main">
@@ -398,6 +400,15 @@
               <div class="report-layout-switch" role="group" aria-label="Report layout">
                 <button id="reportLayoutCards" type="button" class="filter-btn report-layout-btn active" data-layout="cards" aria-pressed="true">Cards</button>
                 <button id="reportLayoutTimeline" type="button" class="filter-btn report-layout-btn" data-layout="timeline" aria-pressed="false">Timeline</button>
+                <button id="reportLayoutSplit" type="button" class="filter-btn report-layout-btn" data-layout="split" aria-pressed="false">Split</button>
+              </div>
+              <div id="reportTimelineScaleWrap" class="report-scale-switch" role="group" aria-label="Timeline scale">
+                <span class="report-scale-label">Scale</span>
+                <select id="reportTimelineScale">
+                  <option value="day">Day</option>
+                  <option value="week" selected>Week</option>
+                  <option value="month">Month</option>
+                </select>
               </div>
               <label class="filter-chip"><input id="reportIncludeGeneral" type="checkbox" checked> Include General</label>
               <label class="filter-chip"><input id="reportHasActivity" type="checkbox"> With activity only</label>
@@ -405,7 +416,42 @@
               <button id="reportExportBtn" type="button" class="muted">Export CSV</button>
             </div>
           </div>
-          <div id="reportCards" class="report-cards"></div>
+          <div class="dashboard-grid workflow-grid report-insight-grid">
+            <section class="card workflow-card">
+              <div class="card-header">
+                <h3>Fulfillment Board</h3>
+                <span class="badge info">Project readiness</span>
+              </div>
+              <div id="fulfillmentBoard" class="workflow-list">
+                <div class="report-empty">Loading fulfillment board...</div>
+              </div>
+            </section>
+            <section class="card workflow-card">
+              <div class="card-header">
+                <h3>Procurement Suggestions</h3>
+                <span class="badge warn">Shortage first</span>
+              </div>
+              <div id="projectProcurementSuggestions" class="workflow-list">
+                <div class="report-empty">Loading suggestions...</div>
+              </div>
+            </section>
+          </div>
+          <div id="reportCards" class="report-cards report-stage"></div>
+          <div id="reportProjectDrawer" class="report-drawer hidden" aria-hidden="true">
+            <div class="report-drawer-backdrop" data-report-drawer-close="true"></div>
+            <aside class="report-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="reportDrawerTitle">
+              <div class="report-drawer-header">
+                <div>
+                  <p class="stage-kicker">Project Detail</p>
+                  <h3 id="reportDrawerTitle">Project Detail</h3>
+                </div>
+                <button id="reportDrawerClose" type="button" class="muted" data-report-drawer-close="true">Close</button>
+              </div>
+              <div id="reportDrawerBody" class="report-drawer-body">
+                <div class="report-empty">Select a project to review its current detail.</div>
+              </div>
+            </aside>
+          </div>
         </section>
       </div>
     </main>

@@ -17,39 +17,92 @@ let draftPersistenceReady = false;
 const REPORT_SORT_DEFAULT = 'closestUpcoming';
 const CLOSED_PROJECT_STATUSES = new Set(['complete','completed','closed','archived','cancelled','canceled']);
 const WORK_HUB_STAGES = ['details','requirements','review'];
+const REPORTS_UI_STORAGE_KEY = 'ims-workhub-reports-ui';
+const REPORTS_UI_QUERY_KEY = 'reportsUi';
+const REPORTS_UI_DEFAULT = 'v2';
 const REPORT_LAYOUT_STORAGE_KEY = 'ims-workhub-report-layout';
+const REPORT_TIMELINE_SCALE_STORAGE_KEY = 'ims-workhub-report-timeline-scale';
+const REPORT_DAY_MS = 24 * 60 * 60 * 1000;
+let reportsUiMode = REPORTS_UI_DEFAULT;
 let reportLayout = 'cards';
+let reportTimelineScale = 'week';
+let reportSelectedProjectKey = '';
+let reportViewModelCache = null;
 
 function normalizeReportLayout(value){
-  return value === 'timeline' ? 'timeline' : 'cards';
+  return ['cards','timeline','split'].includes(value) ? value : 'cards';
+}
+
+function normalizeReportTimelineScale(value){
+  return ['day','week','month'].includes(value) ? value : 'week';
+}
+
+function resolveReportsUiMode(){
+  try{
+    const params = new URLSearchParams(window.location.search || '');
+    const queryMode = (params.get(REPORTS_UI_QUERY_KEY) || '').trim().toLowerCase();
+    if(queryMode === 'legacy') return 'legacy';
+    const storedMode = (window.localStorage?.getItem(REPORTS_UI_STORAGE_KEY) || '').trim().toLowerCase();
+    if(storedMode === 'legacy') return 'legacy';
+  }catch(e){}
+  return REPORTS_UI_DEFAULT;
+}
+
+function useLegacyReportsUi(){
+  return reportsUiMode === 'legacy';
 }
 
 function applyReportLayoutState(){
+  const effectiveLayout = useLegacyReportsUi() ? (reportLayout === 'timeline' ? 'timeline' : 'cards') : reportLayout;
   document.querySelectorAll('.report-layout-btn').forEach(btn=>{
-    const active = normalizeReportLayout(btn.dataset.layout) === reportLayout;
+    const layout = normalizeReportLayout(btn.dataset.layout);
+    const active = layout === effectiveLayout;
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    btn.hidden = useLegacyReportsUi() && layout === 'split';
   });
+  const scaleWrap = document.getElementById('reportTimelineScaleWrap');
+  if(scaleWrap) scaleWrap.hidden = useLegacyReportsUi() || effectiveLayout === 'cards';
+  const scaleSelect = document.getElementById('reportTimelineScale');
+  if(scaleSelect) scaleSelect.value = reportTimelineScale;
+  const expandBtn = document.getElementById('reportExpandAll');
+  if(expandBtn) expandBtn.hidden = effectiveLayout !== 'cards';
   const container = document.getElementById('reportCards');
   if(container){
-    container.classList.toggle('timeline-layout', reportLayout === 'timeline');
-    container.dataset.layout = reportLayout;
+    container.classList.toggle('timeline-layout', effectiveLayout === 'timeline');
+    container.dataset.layout = effectiveLayout;
+    container.dataset.ui = reportsUiMode;
   }
+  document.body.dataset.workhubReportsUi = reportsUiMode;
 }
 
 function loadStoredReportLayout(){
+  reportsUiMode = resolveReportsUiMode();
   try{
     reportLayout = normalizeReportLayout(window.localStorage?.getItem(REPORT_LAYOUT_STORAGE_KEY));
+    reportTimelineScale = normalizeReportTimelineScale(window.localStorage?.getItem(REPORT_TIMELINE_SCALE_STORAGE_KEY));
   }catch(e){
     reportLayout = 'cards';
+    reportTimelineScale = 'week';
   }
+  if(useLegacyReportsUi() && reportLayout === 'split') reportLayout = 'cards';
   applyReportLayoutState();
 }
 
 function setReportLayout(nextLayout){
   reportLayout = normalizeReportLayout(nextLayout);
+  if(useLegacyReportsUi() && reportLayout === 'split') reportLayout = 'cards';
   try{
     window.localStorage?.setItem(REPORT_LAYOUT_STORAGE_KEY, reportLayout);
+  }catch(e){}
+  if(reportLayout === 'split') closeReportProjectDrawer();
+  applyReportLayoutState();
+}
+
+function setReportTimelineScale(nextScale){
+  reportTimelineScale = normalizeReportTimelineScale(nextScale);
+  try{
+    window.localStorage?.setItem(REPORT_TIMELINE_SCALE_STORAGE_KEY, reportTimelineScale);
   }catch(e){}
   applyReportLayoutState();
 }
@@ -1605,7 +1658,7 @@ function buildMaterialsTable(materials){
 function closestReportCard(node){
   let cur = node;
   while(cur && cur !== document.body){
-    if(cur.classList && cur.classList.contains('report-card')) return cur;
+    if(cur.classList && (cur.classList.contains('report-card') || cur.classList.contains('report-v2-card'))) return cur;
     cur = cur.parentElement;
   }
   return null;
@@ -1694,6 +1747,10 @@ function buildReportProjectView(project){
   const key = encodeKey(project.projectId);
   const statusRaw = (meta.status || '').toLowerCase();
   const isComplete = ['complete','completed','closed','archived'].includes(statusRaw);
+  const startTs = parseDateValue(meta.startDate)?.getTime() || 0;
+  const endTs = parseDateValue(meta.endDate)?.getTime() || startTs || 0;
+  const normalizedStartTs = startTs || endTs || 0;
+  const normalizedEndTs = endTs || startTs || 0;
   let actionButton = '';
   if(isAdmin && !isGeneralProject(project.projectId) && !isComplete){
     actionButton = `<button type="button" class="action-btn complete-btn" data-code="${key}">Mark Complete</button>`;
@@ -1714,6 +1771,22 @@ function buildReportProjectView(project){
           ? 'static'
           : 'danger';
   const totalOpenQty = Math.max(0, Number(materialStats.totalRequired || 0) - Number(materialStats.totalReceived || 0) - Number(materialStats.totalAllocated || 0));
+  const startsSoon = projectStartsSoon({ startDate: meta.startDate, status: meta.status });
+  const missingMaterialPlan = Number(materialStats.totalLines || 0) === 0;
+  const hasShortage = Number(materialStats.outstandingLines || 0) > 0;
+  const isReady = Number(materialStats.totalLines || 0) > 0 && !hasShortage;
+  const hasRecentActivity = lastActivityTs > 0 && (Date.now() - lastActivityTs) <= (7 * REPORT_DAY_MS);
+  const hasInventoryActivity = checkedOutQty > 0 || reservedQty > 0 || Number(project.inQty || 0) > 0 || Number(project.outQty || 0) > 0;
+  const noActivity = !hasInventoryActivity && !lastActivityTs;
+  const isAtRisk = timeline.tone === 'danger' || ((startsSoon || statusRaw === 'active') && (hasShortage || missingMaterialPlan));
+  const scheduleState = normalizedStartTs ? 'scheduled' : 'unscheduled';
+  const markers = [];
+  if(hasShortage) markers.push({ id:'shortage', label:'Shortage', tone:'danger' });
+  if(missingMaterialPlan) markers.push({ id:'missing-plan', label:'Missing material plan', tone:'static' });
+  if(hasRecentActivity) markers.push({ id:'recent-activity', label:'Recent activity', tone:'info' });
+  if(isReady) markers.push({ id:'ready', label:'Ready', tone:'low' });
+  if(isAtRisk) markers.push({ id:'at-risk', label:'At risk', tone:'warn' });
+  if(noActivity) markers.push({ id:'no-activity', label:'No activity', tone:'static' });
   return {
     project,
     meta,
@@ -1730,7 +1803,20 @@ function buildReportProjectView(project){
     reservedQty,
     materialStats,
     materialStatusClass,
-    totalOpenQty
+    totalOpenQty,
+    startTs,
+    endTs,
+    normalizedStartTs,
+    normalizedEndTs,
+    startsSoon,
+    missingMaterialPlan,
+    hasShortage,
+    isReady,
+    hasRecentActivity,
+    noActivity,
+    isAtRisk,
+    scheduleState,
+    markers
   };
 }
 
@@ -1744,6 +1830,448 @@ function buildReportProjectDetail(view){
       ${buildDetailTable(view.project.items || [])}
     </div>
   `;
+}
+
+function buildReportAlerts(views){
+  const list = Array.isArray(views) ? views : [];
+  return {
+    startingSoon: list.filter(view=> view.startsSoon).length,
+    atRisk: list.filter(view=> view.isAtRisk).length,
+    missingPlan: list.filter(view=> view.missingMaterialPlan).length,
+    shortages: list.filter(view=> view.hasShortage).length,
+    noActivity: list.filter(view=> view.noActivity).length
+  };
+}
+
+function updateReportAlerts(alerts){
+  const next = alerts || {};
+  const bind = (id, value)=>{
+    const el = document.getElementById(id);
+    if(el) el.textContent = `${value || 0}`;
+  };
+  bind('reportAlertStartingSoon', next.startingSoon);
+  bind('reportAlertAtRisk', next.atRisk);
+  bind('reportAlertMissingPlan', next.missingPlan);
+  bind('reportAlertShortages', next.shortages);
+  bind('reportAlertNoActivity', next.noActivity);
+}
+
+function formatTimelineUnitLabel(ts, scale){
+  const date = new Date(ts);
+  if(scale === 'day'){
+    return date.toLocaleDateString([], { month:'short', day:'numeric' });
+  }
+  if(scale === 'week'){
+    const end = new Date(ts + (6 * REPORT_DAY_MS));
+    return `${date.toLocaleDateString([], { month:'short', day:'numeric' })} - ${end.toLocaleDateString([], { month:'short', day:'numeric' })}`;
+  }
+  return date.toLocaleDateString([], { month:'short', year:'numeric' });
+}
+
+function startOfTimelineUnit(ts, scale){
+  const date = new Date(ts);
+  if(scale === 'month') return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+  if(scale === 'week'){
+    const day = date.getDay();
+    const diff = (day + 6) % 7;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() - diff).getTime();
+  }
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+function addTimelineUnits(ts, scale, count = 1){
+  const date = new Date(ts);
+  if(scale === 'month') return new Date(date.getFullYear(), date.getMonth() + count, 1).getTime();
+  if(scale === 'week') return ts + (count * 7 * REPORT_DAY_MS);
+  return ts + (count * REPORT_DAY_MS);
+}
+
+function getTimelineUnitWidth(scale){
+  if(scale === 'day') return 44;
+  if(scale === 'month') return 168;
+  return 96;
+}
+
+function buildReportsTimelineMetrics(views, scale){
+  const dated = (views || []).filter(view=> view.normalizedStartTs || view.normalizedEndTs);
+  const todayTs = todayStartTs();
+  let minTs = todayTs - (7 * REPORT_DAY_MS);
+  let maxTs = todayTs + (21 * REPORT_DAY_MS);
+  if(dated.length){
+    minTs = Math.min(...dated.map(view=> view.normalizedStartTs || view.normalizedEndTs || todayTs));
+    maxTs = Math.max(...dated.map(view=> view.normalizedEndTs || view.normalizedStartTs || todayTs));
+  }
+  const leadPad = scale === 'month' ? 30 * REPORT_DAY_MS : scale === 'week' ? 14 * REPORT_DAY_MS : 3 * REPORT_DAY_MS;
+  const tailPad = scale === 'month' ? 45 * REPORT_DAY_MS : scale === 'week' ? 21 * REPORT_DAY_MS : 10 * REPORT_DAY_MS;
+  const axisStartTs = startOfTimelineUnit(minTs - leadPad, scale);
+  const axisEndTs = addTimelineUnits(startOfTimelineUnit(maxTs + tailPad, scale), scale, 1);
+  const unitWidth = getTimelineUnitWidth(scale);
+  const units = [];
+  let cursor = axisStartTs;
+  let index = 0;
+  while(cursor < axisEndTs && index < 180){
+    const next = addTimelineUnits(cursor, scale, 1);
+    units.push({
+      key: `${scale}-${cursor}`,
+      startTs: cursor,
+      endTs: next,
+      left: index * unitWidth,
+      width: unitWidth,
+      label: formatTimelineUnitLabel(cursor, scale)
+    });
+    cursor = next;
+    index += 1;
+  }
+  const trackWidth = Math.max(unitWidth, units.length * unitWidth);
+  const totalSpan = Math.max(REPORT_DAY_MS, axisEndTs - axisStartTs);
+  const getOffset = (ts)=>{
+    const ratio = (Number(ts || axisStartTs) - axisStartTs) / totalSpan;
+    return Math.max(0, Math.min(trackWidth, ratio * trackWidth));
+  };
+  return {
+    scale,
+    axisStartTs,
+    axisEndTs,
+    units,
+    unitWidth,
+    trackWidth,
+    todayOffset: getOffset(todayTs),
+    getOffset
+  };
+}
+
+function buildReportViewModel(rows){
+  const views = (rows || []).map(buildReportProjectView);
+  const byKey = new Map(views.map(view=> [view.key, view]));
+  return {
+    rows: rows || [],
+    views,
+    byKey,
+    alerts: buildReportAlerts(views),
+    timeline: buildReportsTimelineMetrics(views, reportTimelineScale)
+  };
+}
+
+function ensureReportSelection(viewModel){
+  const views = viewModel?.views || [];
+  if(!views.length){
+    reportSelectedProjectKey = '';
+    return;
+  }
+  if(!reportSelectedProjectKey || !viewModel.byKey.has(reportSelectedProjectKey)){
+    reportSelectedProjectKey = views[0].key;
+  }
+}
+
+function getSelectedReportView(viewModel){
+  if(!reportSelectedProjectKey) return null;
+  return viewModel?.byKey?.get(reportSelectedProjectKey) || null;
+}
+
+function buildReportMarkerMarkup(markers, variant = 'dot'){
+  const list = Array.isArray(markers) ? markers : [];
+  if(!list.length) return '';
+  if(variant === 'chip'){
+    return list.map(marker=> `<span class="report-state-chip ${marker.tone}" title="${escapeHtml(marker.label)}">${escapeHtml(marker.label)}</span>`).join('');
+  }
+  return list.map(marker=> `<span class="report-state-marker ${marker.tone}" title="${escapeHtml(marker.label)}" aria-label="${escapeHtml(marker.label)}"></span>`).join('');
+}
+
+function buildReportDetailContent(view, { split = false } = {}){
+  if(!view){
+    return '<div class="report-empty">Select a project to review its current detail.</div>';
+  }
+  const materials = view.project.materials || [];
+  const items = view.project.items || [];
+  const detailButtonLabel = split ? 'Open full project card' : 'Expand inline details';
+  return `
+    <div class="report-detail-panel ${split ? 'split-mode' : ''}">
+      <div class="report-detail-panel-head">
+        <div>
+          <div class="report-card-eyebrow">
+            <span class="badge ${view.timeline.tone}">${escapeHtml(view.timeline.label)}</span>
+            <span class="badge info">${escapeHtml(view.statusLabel)}</span>
+            <span class="badge ${view.materialStatusClass}">${escapeHtml(view.materialStats.statusLabel)}</span>
+          </div>
+          <div class="report-card-title">${escapeHtml(view.project.projectId)}</div>
+          ${view.nameLabel ? `<div class="report-card-sub">${escapeHtml(view.nameLabel)}</div>` : ''}
+        </div>
+        <div class="report-detail-panel-actions">
+          <button type="button" class="action-btn report-focus-btn" data-project="${view.key}">${detailButtonLabel}</button>
+          ${isAdmin && !isGeneralProject(view.project.projectId) ? `<button type="button" class="action-btn report-edit-btn" data-code="${view.project.projectId}">Edit Project</button>` : ''}
+          ${view.actionButton}
+        </div>
+      </div>
+      <div class="report-detail-overview">
+        <div class="report-detail-stat"><span>Schedule</span><strong>${escapeHtml(view.datesLabel)}</strong></div>
+        <div class="report-detail-stat"><span>Location</span><strong>${escapeHtml(view.locationLabel)}</strong></div>
+        <div class="report-detail-stat"><span>Open Lines</span><strong>${view.materialStats.outstandingLines}</strong></div>
+        <div class="report-detail-stat"><span>Open Qty</span><strong>${view.totalOpenQty}</strong></div>
+        <div class="report-detail-stat"><span>Reserved</span><strong>${view.reservedQty}</strong></div>
+        <div class="report-detail-stat"><span>Checked Out</span><strong>${view.checkedOutQty}</strong></div>
+        <div class="report-detail-stat"><span>Last Activity</span><strong>${escapeHtml(view.lastActivityLabel)}</strong></div>
+        <div class="report-detail-stat"><span>Signals</span><strong>${buildReportMarkerMarkup(view.markers, 'chip') || 'None'}</strong></div>
+      </div>
+      <div class="report-detail-sections">
+        <section class="report-detail-section">
+          <h4>Overview</h4>
+          <p class="muted-text">${escapeHtml(view.notesLabel || 'No additional project notes recorded.')}</p>
+        </section>
+        <section class="report-detail-section">
+          <h4>Materials Summary</h4>
+          <div class="report-detail-mini-grid">
+            <div class="report-detail-mini"><span>Total Lines</span><strong>${view.materialStats.totalLines}</strong></div>
+            <div class="report-detail-mini"><span>Required Qty</span><strong>${view.materialStats.totalRequired}</strong></div>
+            <div class="report-detail-mini"><span>Received Qty</span><strong>${view.materialStats.totalReceived}</strong></div>
+            <div class="report-detail-mini"><span>Allocated Qty</span><strong>${view.materialStats.totalAllocated}</strong></div>
+          </div>
+          ${buildMaterialsTable(materials)}
+        </section>
+        <section class="report-detail-section">
+          <h4>Activity Summary</h4>
+          <div class="report-detail-mini-grid">
+            <div class="report-detail-mini"><span>Reserved</span><strong>${view.reservedQty}</strong></div>
+            <div class="report-detail-mini"><span>Checked Out</span><strong>${view.checkedOutQty}</strong></div>
+            <div class="report-detail-mini"><span>Recent Activity</span><strong>${view.hasRecentActivity ? 'Yes' : 'No'}</strong></div>
+            <div class="report-detail-mini"><span>No Activity</span><strong>${view.noActivity ? 'Yes' : 'No'}</strong></div>
+          </div>
+          ${buildDetailTable(items)}
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function openReportProjectDrawer(key){
+  if(!key || !reportViewModelCache?.byKey?.has(key)) return;
+  reportSelectedProjectKey = key;
+  const drawer = document.getElementById('reportProjectDrawer');
+  const body = document.getElementById('reportDrawerBody');
+  const view = reportViewModelCache.byKey.get(key);
+  const title = document.getElementById('reportDrawerTitle');
+  if(body) body.innerHTML = buildReportDetailContent(view);
+  if(title) title.textContent = `${view.project.projectId} detail`;
+  if(drawer){
+    drawer.classList.remove('hidden');
+    drawer.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function closeReportProjectDrawer(){
+  const drawer = document.getElementById('reportProjectDrawer');
+  if(drawer){
+    drawer.classList.add('hidden');
+    drawer.setAttribute('aria-hidden', 'true');
+  }
+}
+
+function buildV2ReportCardMarkup(view){
+  return `
+    <div class="report-v2-card-shell">
+      <div class="report-v2-card-top">
+        <button type="button" class="report-v2-card-title-wrap report-project-select" data-project="${view.key}">
+          <div class="report-card-title">${escapeHtml(view.project.projectId)}</div>
+          ${view.nameLabel ? `<div class="report-card-sub">${escapeHtml(view.nameLabel)}</div>` : ''}
+        </button>
+        <div class="report-v2-card-badges">
+          <span class="badge info">${escapeHtml(view.statusLabel)}</span>
+          <span class="badge ${view.materialStatusClass}">${escapeHtml(view.materialStats.statusLabel)}</span>
+        </div>
+      </div>
+      <div class="report-v2-card-signals">
+        <span class="badge ${view.timeline.tone}">${escapeHtml(view.timeline.label)}</span>
+        ${buildReportMarkerMarkup(view.markers, 'chip')}
+      </div>
+      <div class="report-v2-card-grid">
+        <div class="report-v2-cell"><span>Start / End</span><strong>${escapeHtml(view.datesLabel)}</strong></div>
+        <div class="report-v2-cell"><span>Location</span><strong>${escapeHtml(view.locationLabel)}</strong></div>
+        <div class="report-v2-cell"><span>Open Lines</span><strong>${view.materialStats.outstandingLines}</strong></div>
+        <div class="report-v2-cell"><span>Reserved</span><strong>${view.reservedQty}</strong></div>
+        <div class="report-v2-cell"><span>Checked Out</span><strong>${view.checkedOutQty}</strong></div>
+        <div class="report-v2-cell"><span>Last Activity</span><strong>${escapeHtml(view.lastActivityLabel)}</strong></div>
+      </div>
+      <div class="report-v2-card-actions">
+        <button type="button" class="action-btn report-project-select" data-project="${view.key}">Open Detail</button>
+        <button type="button" class="action-btn report-toggle" data-project="${view.key}">Expand</button>
+        ${isAdmin && !isGeneralProject(view.project.projectId) ? `<button type="button" class="action-btn report-edit-btn" data-code="${view.project.projectId}">Edit</button>` : ''}
+        ${view.actionButton}
+      </div>
+      ${buildReportProjectDetail(view)}
+    </div>
+  `;
+}
+
+function buildTimelineBarMarkup(view, metrics, { selected = false } = {}){
+  if(!metrics) return '';
+  const minWidth = metrics.scale === 'day' ? 14 : 18;
+  if(!view.normalizedStartTs && !view.normalizedEndTs){
+    return `<button type="button" class="report-timeline-unscheduled report-project-select ${selected ? 'is-selected' : ''}" data-project="${view.key}" style="left:8px;">No dates</button>`;
+  }
+  const start = view.normalizedStartTs || metrics.axisStartTs;
+  const endExclusive = Math.max(start + REPORT_DAY_MS, (view.normalizedEndTs || start) + REPORT_DAY_MS);
+  const left = metrics.getOffset(start);
+  const right = metrics.getOffset(endExclusive);
+  const width = Math.max(minWidth, right - left);
+  return `
+    <button
+      type="button"
+      class="report-timeline-bar ${view.timeline.tone} ${selected ? 'is-selected' : ''} report-project-select"
+      data-project="${view.key}"
+      style="left:${left}px;width:${width}px;"
+      title="${escapeHtml(view.project.projectId)}"
+    >
+      <span class="report-timeline-bar-label">${escapeHtml(view.project.projectId)}</span>
+      <span class="report-timeline-bar-markers">${buildReportMarkerMarkup(view.markers)}</span>
+    </button>
+  `;
+}
+
+function buildTimelineHeaderMarkup(metrics){
+  const units = metrics?.units || [];
+  return `
+    <div class="report-timeline-header">
+      <div class="report-timeline-sticky report-timeline-label-col">
+        <strong>Projects</strong>
+        <span>${metrics.scale.replace(/\b\w/g, c=> c.toUpperCase())} scale</span>
+      </div>
+      <div class="report-timeline-axis" style="width:${metrics.trackWidth}px;">
+        ${units.map(unit=> `<div class="report-timeline-axis-cell" style="left:${unit.left}px;width:${unit.width}px;"><span>${escapeHtml(unit.label)}</span></div>`).join('')}
+        <span class="report-timeline-today-line" style="left:${metrics.todayOffset}px;"></span>
+      </div>
+    </div>
+  `;
+}
+
+function buildTimelineRowMarkup(view, metrics, { split = false } = {}){
+  const selected = split && reportSelectedProjectKey === view.key;
+  return `
+    <div class="report-timeline-row ${selected ? 'is-selected' : ''}" data-project="${view.key}">
+      <button type="button" class="report-timeline-sticky report-timeline-project-col report-project-select ${selected ? 'is-selected' : ''}" data-project="${view.key}">
+        <div class="report-timeline-project-main">
+          <strong>${escapeHtml(view.project.projectId)}</strong>
+          ${view.nameLabel ? `<span>${escapeHtml(view.nameLabel)}</span>` : ''}
+        </div>
+        <div class="report-timeline-project-meta">
+          <span>${escapeHtml(view.statusLabel)}</span>
+          <span>${escapeHtml(view.locationLabel)}</span>
+        </div>
+        <div class="report-timeline-project-signals">
+          ${buildReportMarkerMarkup(view.markers)}
+        </div>
+      </button>
+      <div class="report-timeline-track" style="width:${metrics.trackWidth}px;">
+        <span class="report-timeline-today-line" style="left:${metrics.todayOffset}px;"></span>
+        ${buildTimelineBarMarkup(view, metrics, { selected })}
+      </div>
+    </div>
+  `;
+}
+
+function renderLegacyReportPresentation(viewModel, container){
+  container.className = 'report-cards report-stage';
+  container.innerHTML = '';
+  viewModel.views.forEach(view=>{
+    const card = document.createElement('div');
+    if(reportLayout === 'timeline'){
+      card.className = 'report-card report-timeline-item';
+      card.innerHTML = buildReportTimelineMarkup(view);
+    }else{
+      card.className = 'report-card';
+      card.innerHTML = buildReportCardMarkup(view);
+    }
+    container.appendChild(card);
+  });
+}
+
+function renderReportCardsV2(viewModel, container){
+  container.className = 'report-stage report-v2-cards';
+  container.innerHTML = viewModel.views.map(view=> `<article class="report-v2-card">${buildV2ReportCardMarkup(view)}</article>`).join('');
+}
+
+function renderReportTimelineV2(viewModel, container, { split = false } = {}){
+  const metrics = viewModel.timeline;
+  const rowsMarkup = viewModel.views.map(view=> buildTimelineRowMarkup(view, metrics, { split })).join('');
+  const timelineMarkup = `
+    <div class="report-timeline-shell ${split ? 'split-mode' : ''}">
+      <div class="report-timeline-scroll">
+        ${buildTimelineHeaderMarkup(metrics)}
+        <div class="report-timeline-body">
+          ${rowsMarkup}
+        </div>
+      </div>
+      ${split ? `<aside class="report-split-panel">${buildReportDetailContent(getSelectedReportView(viewModel), { split:true })}</aside>` : ''}
+    </div>
+  `;
+  container.className = `report-stage ${split ? 'report-stage-split' : 'report-stage-timeline'}`;
+  container.innerHTML = timelineMarkup;
+}
+
+function renderReportV2Presentation(viewModel, container){
+  if(reportLayout === 'split'){
+    renderReportTimelineV2(viewModel, container, { split:true });
+    closeReportProjectDrawer();
+    return;
+  }
+  if(reportLayout === 'timeline'){
+    renderReportTimelineV2(viewModel, container, { split:false });
+    return;
+  }
+  renderReportCardsV2(viewModel, container);
+}
+
+function renderReportPresentation(viewModel){
+  const container = document.getElementById('reportCards');
+  if(!container) return;
+  applyReportLayoutState();
+  if(useLegacyReportsUi()){
+    renderLegacyReportPresentation(viewModel, container);
+  }else{
+    renderReportV2Presentation(viewModel, container);
+  }
+}
+
+function focusReportInlineDetail(key){
+  if(!key) return;
+  const button = document.querySelector(`.report-toggle[data-project="${key}"]`);
+  if(!button) return;
+  const { detail } = getReportDetail(button);
+  if(detail && detail.style.display === 'none') openProjectDetail(button);
+  button.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+async function completeProjectFromReport(code){
+  if(!code) return;
+  if(!confirm(`Mark project "${code}" complete?`)) return;
+  const meta = getProjectMeta(code);
+  const result = await saveProject({
+    code: meta.code || code,
+    name: meta.name || '',
+    status: 'complete',
+    startDate: meta.startDate || '',
+    endDate: meta.endDate || '',
+    location: meta.location || '',
+    notes: meta.notes || ''
+  });
+  if(!result.ok){
+    alert(result.error || 'Failed to update project');
+    return;
+  }
+  await renderProjects();
+  await renderReport();
+}
+
+function handleReportProjectSelection(key){
+  if(!key || !reportViewModelCache?.byKey?.has(key)) return;
+  reportSelectedProjectKey = key;
+  if(useLegacyReportsUi()){
+    focusReportInlineDetail(key);
+    return;
+  }
+  if(reportLayout === 'split'){
+    renderReportPresentation(reportViewModelCache);
+    return;
+  }
+  openReportProjectDrawer(key);
 }
 
 function buildReportCardMarkup(view){
@@ -1988,6 +2516,10 @@ async function renderReport(){
     const message = (jobCache.length === 0 && items.length === 0) ? 'No projects created yet' : 'No matching projects';
     list.innerHTML = `<div class="report-empty">${message}</div>`;
     updateReportSummary([]);
+    updateReportAlerts({});
+    reportViewModelCache = { views: [], byKey: new Map(), alerts: {}, timeline: buildReportsTimelineMetrics([], reportTimelineScale) };
+    reportSelectedProjectKey = '';
+    closeReportProjectDrawer();
     setExpandAllState(false);
     return;
   }
@@ -2001,34 +2533,12 @@ async function renderReport(){
     .map(project=> ({ ...project, materialStats: summarizeProjectMaterials(project.materials || []), lastActivityTs: lastActivityMap.get(project.projectId) || 0 }))
     .sort(compareReportProjects);
   updateReportSummary(rows);
-  rows.forEach(project=>{
-    list.appendChild(createReportProjectNode(project));
-  });
-
-  if(isAdmin){
-    document.querySelectorAll('.complete-btn').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        const code = decodeKey(btn.dataset.code || '');
-        if(!code) return;
-        if(!confirm(`Mark project "${code}" complete?`)) return;
-        const meta = getProjectMeta(code);
-        const result = await saveProject({
-          code: meta.code || code,
-          name: meta.name || '',
-          status: 'complete',
-          startDate: meta.startDate || '',
-          endDate: meta.endDate || '',
-          location: meta.location || '',
-          notes: meta.notes || ''
-        });
-        if(!result.ok){
-          alert(result.error || 'Failed to update project');
-          return;
-        }
-        await renderProjects();
-        await renderReport();
-      });
-    });
+  reportViewModelCache = buildReportViewModel(rows);
+  ensureReportSelection(reportViewModelCache);
+  updateReportAlerts(reportViewModelCache.alerts);
+  renderReportPresentation(reportViewModelCache);
+  if(reportLayout !== 'timeline' && reportLayout !== 'split'){
+    closeReportProjectDrawer();
   }
   setExpandAllState(false);
 }
@@ -2175,16 +2685,74 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       const nextLayout = normalizeReportLayout(btn.dataset.layout);
       if(nextLayout === reportLayout) return;
       setReportLayout(nextLayout);
-      renderReport();
+      if(reportViewModelCache){
+        reportViewModelCache.timeline = buildReportsTimelineMetrics(reportViewModelCache.views, reportTimelineScale);
+        ensureReportSelection(reportViewModelCache);
+        renderReportPresentation(reportViewModelCache);
+      }else{
+        renderReport();
+      }
     });
   });
-  document.getElementById('reportExportBtn')?.addEventListener('click', exportReportCSV);
-  document.getElementById('reportCards')?.addEventListener('click', (event)=>{
-    const toggle = event.target.closest('.report-toggle');
-    if(!toggle) return;
-    event.preventDefault();
-    toggleProjectDetail(toggle);
+  document.getElementById('reportTimelineScale')?.addEventListener('change', (event)=>{
+    const nextScale = normalizeReportTimelineScale(event.target?.value || 'week');
+    if(nextScale === reportTimelineScale) return;
+    setReportTimelineScale(nextScale);
+    if(reportViewModelCache){
+      reportViewModelCache.timeline = buildReportsTimelineMetrics(reportViewModelCache.views, reportTimelineScale);
+      renderReportPresentation(reportViewModelCache);
+    }else{
+      renderReport();
+    }
   });
+  document.getElementById('reportExportBtn')?.addEventListener('click', exportReportCSV);
+  const handleReportClick = async (event)=>{
+    const close = event.target.closest('[data-report-drawer-close]');
+    if(close){
+      event.preventDefault();
+      closeReportProjectDrawer();
+      return;
+    }
+    const completeBtn = event.target.closest('.complete-btn');
+    if(completeBtn){
+      event.preventDefault();
+      await completeProjectFromReport(decodeKey(completeBtn.dataset.code || ''));
+      return;
+    }
+    const editBtn = event.target.closest('.report-edit-btn');
+    if(editBtn){
+      event.preventDefault();
+      closeReportProjectDrawer();
+      await openProjectEditForCode(editBtn.dataset.code || '');
+      return;
+    }
+    const focusBtn = event.target.closest('.report-focus-btn');
+    if(focusBtn){
+      event.preventDefault();
+      closeReportProjectDrawer();
+      if(reportLayout !== 'cards'){
+        setReportLayout('cards');
+        if(reportViewModelCache){
+          renderReportPresentation(reportViewModelCache);
+        }
+      }
+      focusReportInlineDetail(focusBtn.dataset.project || '');
+      return;
+    }
+    const selectBtn = event.target.closest('.report-project-select');
+    if(selectBtn){
+      event.preventDefault();
+      handleReportProjectSelection(selectBtn.dataset.project || '');
+      return;
+    }
+    const toggle = event.target.closest('.report-toggle');
+    if(toggle){
+      event.preventDefault();
+      toggleProjectDetail(toggle);
+    }
+  };
+  document.getElementById('reportCards')?.addEventListener('click', handleReportClick);
+  document.getElementById('reportProjectDrawer')?.addEventListener('click', handleReportClick);
   document.getElementById('reportExpandAll')?.addEventListener('click', ()=>{
     const toggles = document.querySelectorAll('.report-toggle');
     if(!toggles.length) return;
@@ -2194,6 +2762,12 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     }else{
       toggles.forEach(btn=> openProjectDetail(btn));
       setExpandAllState(true);
+    }
+  });
+  document.addEventListener('keydown', (event)=>{
+    if(event.key === 'Escape'){
+      const drawer = document.getElementById('reportProjectDrawer');
+      if(drawer && !drawer.classList.contains('hidden')) closeReportProjectDrawer();
     }
   });
 });
