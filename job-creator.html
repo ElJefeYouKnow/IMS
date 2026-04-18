@@ -158,14 +158,7 @@
                 <div class="form-row">
                   <label>Project Code<input id="jobCode" required placeholder="Unique project number or name"></label>
                   <label>Display Name<input id="jobName" placeholder="Optional friendly name"></label>
-                  <label>Status
-                    <select id="jobStatus">
-                      <option value="planned">Planned</option>
-                      <option value="active">Active</option>
-                      <option value="on-hold">On Hold</option>
-                      <option value="complete">Complete</option>
-                    </select>
-                  </label>
+                  <label>Lifecycle Status<input id="jobLifecyclePreview" value="Planned until the first job action is recorded." readonly></label>
                 </div>
                 <div class="form-row">
                   <label>Start Date<input id="jobStartDate" type="date"></label>
@@ -468,14 +461,7 @@
         <div class="form-row">
           <label>Project Code<input id="jobEditCode" required readonly></label>
           <label>Display Name<input id="jobEditName" placeholder="Optional friendly name"></label>
-          <label>Status
-            <select id="jobEditStatus">
-              <option value="planned">Planned</option>
-              <option value="active">Active</option>
-              <option value="on-hold">On Hold</option>
-              <option value="complete">Complete</option>
-            </select>
-          </label>
+          <label>Lifecycle Status<input id="jobEditLifecyclePreview" value="Automatic from job activity" readonly></label>
         </div>
         <div class="form-row">
           <label>Start Date<input id="jobEditStartDate" type="date"></label>

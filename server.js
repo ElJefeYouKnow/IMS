@@ -169,6 +169,8 @@ const SYSTEM_INVENTORY_LOCATIONS = [
   { id: 'loc:writeoff:default', ref: 'writeoff', name: 'Lost / Write-off', type: 'writeoff', system: true, sortOrder: 90 }
 ];
 const CLOSED_PROJECT_STATUSES = new Set(['complete', 'completed', 'closed', 'archived', 'cancelled', 'canceled']);
+const JOB_MANUAL_STATUS_OVERRIDES = new Set(['on-hold', 'cancelled', 'canceled', 'archived']);
+const JOB_AUTO_COMPLETE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
 let sellerStore = { clients: [], tickets: [], activities: [] };
 
 const app = express();
@@ -5659,10 +5661,14 @@ app.post('/api/jobs', requireRole('admin'), async (req, res) => {
     if (!code) return res.status(400).json({ error: 'code required' });
     const t = tenantId(req);
     const start = startDate || scheduleDate || null;
-    const statusValue = (status || 'planned').toString().trim().toLowerCase();
     const updatedAt = Date.now();
     let materialsReadyNotification = null;
+    let statusValue = 'planned';
     await withTransaction(async (client) => {
+      const existing = await client.query('SELECT status FROM jobs WHERE code=$1 AND tenantId=$2 LIMIT 1', [code, t]);
+      const storedExistingStatus = String(existing.rows?.[0]?.status || '').trim().toLowerCase();
+      const incomingStatus = typeof status === 'string' ? status.trim().toLowerCase() : '';
+      statusValue = incomingStatus || storedExistingStatus || 'planned';
       await client.query(`INSERT INTO jobs(code,name,startDate,endDate,status,location,notes,updatedAt,tenantId)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT(code,tenantId) DO UPDATE SET name=EXCLUDED.name, startDate=EXCLUDED.startDate, endDate=EXCLUDED.endDate, status=EXCLUDED.status, location=EXCLUDED.location, notes=EXCLUDED.notes, updatedAt=EXCLUDED.updatedAt`, [code, name || '', start, endDate || null, statusValue, location || null, notes || null, updatedAt, t]);
@@ -5676,7 +5682,10 @@ app.post('/api/jobs', requireRole('admin'), async (req, res) => {
       await logAudit({ tenantId: t, userId: currentUserId(req), action: 'projects.materials.update', details: { jobId: code, count: materialRows.length } });
     }
     if (materialsReadyNotification) await sendProjectMaterialsReadyEmails(materialsReadyNotification);
-    res.status(201).json({ code, name: name || '', startDate: start || null, endDate: endDate || null, status: statusValue, location: location || null, notes: notes || null, updatedAt, tenantId: t, materials: materialRows });
+    const savedJob = (await readJobs(t)).find((job) => String(job.code || '') === String(code || ''));
+    res.status(201).json(savedJob
+      ? { ...savedJob, materials: materialRows }
+      : { code, name: name || '', startDate: start || null, endDate: endDate || null, status: statusValue, storedStatus: statusValue, statusSource: 'manual', location: location || null, notes: notes || null, updatedAt, tenantId: t, materials: materialRows });
   } catch (e) {
     console.warn('Job save failed', e.message || e);
     res.status(500).json({ error: e.message || 'server error' });
@@ -8134,8 +8143,72 @@ async function readItems(tenantIdVal) {
 async function readCategories(tenantIdVal) {
   return allAsync('SELECT * FROM categories WHERE tenantId=$1 ORDER BY name ASC', [tenantIdVal]);
 }
+async function readJobLifecycleStats(tenantIdVal) {
+  const rows = await allAsync(
+    `SELECT jobId,
+            COUNT(*)::int AS actionCount,
+            MAX(ts) AS lastActionAt,
+            MAX(CASE WHEN type='return' THEN ts END) AS lastReturnAt,
+            MAX(CASE WHEN type<>'return' THEN ts END) AS lastNonReturnAt,
+            COALESCE(SUM(CASE WHEN type='out' THEN qty WHEN type='return' THEN -qty ELSE 0 END),0) AS outstandingCheckoutQty
+       FROM inventory
+      WHERE tenantId=$1
+        AND jobId IS NOT NULL
+        AND jobId <> ''
+      GROUP BY jobId`,
+    [tenantIdVal]
+  );
+  return new Map((rows || []).map((row) => [normalizeJobId(row.jobid || row.jobId || ''), row]));
+}
+function deriveJobLifecycleStatus(job, lifecycleRow, now = Date.now()) {
+  const storedStatus = String(job?.status || '').trim().toLowerCase();
+  if (JOB_MANUAL_STATUS_OVERRIDES.has(storedStatus)) {
+    return {
+      status: storedStatus,
+      storedStatus,
+      statusSource: 'manual',
+      lastActionAt: Number(lifecycleRow?.lastactionat || lifecycleRow?.lastActionAt || 0) || null,
+      lastReturnAt: Number(lifecycleRow?.lastreturnat || lifecycleRow?.lastReturnAt || 0) || null,
+    };
+  }
+  const actionCount = Number(lifecycleRow?.actioncount || lifecycleRow?.actionCount || 0) || 0;
+  const lastActionAt = Number(lifecycleRow?.lastactionat || lifecycleRow?.lastActionAt || 0) || null;
+  const lastReturnAt = Number(lifecycleRow?.lastreturnat || lifecycleRow?.lastReturnAt || 0) || null;
+  const lastNonReturnAt = Number(lifecycleRow?.lastnonreturnat || lifecycleRow?.lastNonReturnAt || 0) || 0;
+  const outstandingCheckoutQty = Number(lifecycleRow?.outstandingcheckoutqty || lifecycleRow?.outstandingCheckoutQty || 0) || 0;
+  if (actionCount <= 0) {
+    return { status: 'planned', storedStatus, statusSource: 'auto', lastActionAt, lastReturnAt };
+  }
+  const returnWasLastMeaningfulAction = !!lastReturnAt && lastReturnAt >= lastNonReturnAt;
+  const canAutoComplete = returnWasLastMeaningfulAction
+    && outstandingCheckoutQty <= 0
+    && (now - lastReturnAt) >= JOB_AUTO_COMPLETE_GRACE_MS;
+  return {
+    status: canAutoComplete ? 'complete' : 'active',
+    storedStatus,
+    statusSource: 'auto',
+    lastActionAt,
+    lastReturnAt,
+  };
+}
 async function readJobs(tenantIdVal) {
-  return allAsync('SELECT * FROM jobs WHERE tenantId=$1 ORDER BY code ASC', [tenantIdVal]);
+  const [jobs, lifecycleByJob] = await Promise.all([
+    allAsync('SELECT * FROM jobs WHERE tenantId=$1 ORDER BY code ASC', [tenantIdVal]),
+    readJobLifecycleStats(tenantIdVal),
+  ]);
+  const now = Date.now();
+  return (jobs || []).map((job) => {
+    const code = normalizeJobId(job.code);
+    const derived = deriveJobLifecycleStatus(job, lifecycleByJob.get(code), now);
+    return {
+      ...job,
+      status: derived.status,
+      storedStatus: derived.storedStatus,
+      statusSource: derived.statusSource,
+      lastActionAt: derived.lastActionAt,
+      lastReturnAt: derived.lastReturnAt,
+    };
+  });
 }
 async function readSuppliers(tenantIdVal) {
   return allAsync('SELECT * FROM suppliers WHERE tenantId=$1 ORDER BY name ASC', [tenantIdVal]);

@@ -114,11 +114,15 @@ function normalizeJobRow(row){
     code: safe.code || '',
     name: safe.name || '',
     status: safe.status || '',
+    storedStatus: safe.storedStatus || safe.storedstatus || '',
+    statusSource: safe.statusSource || safe.statussource || '',
     startDate: safe.startDate || safe.startdate || schedule || '',
     endDate: safe.endDate || safe.enddate || '',
     location: safe.location || '',
     notes: safe.notes || '',
-    updatedAt: safe.updatedAt || safe.updatedat || ''
+    updatedAt: safe.updatedAt || safe.updatedat || '',
+    lastActionAt: safe.lastActionAt || safe.lastactionat || '',
+    lastReturnAt: safe.lastReturnAt || safe.lastreturnat || ''
   };
 }
 
@@ -194,6 +198,41 @@ function formatStatus(val){
   return raw.replace(/-/g,' ').replace(/\b\w/g, c=> c.toUpperCase());
 }
 
+function getJobLifecyclePreviewText({ status, statusSource, storedStatus } = {}){
+  const normalizedStatus = (status || '').toString().trim().toLowerCase();
+  const normalizedStored = (storedStatus || '').toString().trim().toLowerCase();
+  if((statusSource || '').toString().trim().toLowerCase() === 'manual' && normalizedStored && normalizedStored === normalizedStatus){
+    return `${formatStatus(normalizedStatus)} override is stored on this job.`;
+  }
+  if(normalizedStatus === 'active'){
+    return 'Active after the first job action is recorded.';
+  }
+  if(['complete','completed','closed'].includes(normalizedStatus)){
+    return 'Complete 3 days after the last return, when no checkout quantity is still outstanding.';
+  }
+  if(normalizedStored === 'on-hold'){
+    return 'On Hold override is stored on this job.';
+  }
+  if(['cancelled','canceled','archived'].includes(normalizedStored)){
+    return `${formatStatus(normalizedStored)} override is stored on this job.`;
+  }
+  if(normalizedStatus === 'planned'){
+    return 'Planned until the first job action is recorded.';
+  }
+  return 'Lifecycle status is set automatically from job activity.';
+}
+
+function updateJobLifecyclePreview(project = null){
+  const createPreview = document.getElementById('jobLifecyclePreview');
+  if(createPreview){
+    createPreview.value = getJobLifecyclePreviewText(project || { status:'planned' });
+  }
+  const editPreview = document.getElementById('jobEditLifecyclePreview');
+  if(editPreview){
+    editPreview.value = getJobLifecyclePreviewText(project || { status:'planned' });
+  }
+}
+
 function escapeHtml(value){
   return String(value || '')
     .replace(/&/g,'&amp;')
@@ -253,7 +292,6 @@ async function setEditMode(project){
   editingCode = project.code;
   const codeInput = document.getElementById('jobEditCode');
   const nameInput = document.getElementById('jobEditName');
-  const statusInput = document.getElementById('jobEditStatus');
   const startInput = document.getElementById('jobEditStartDate');
   const endInput = document.getElementById('jobEditEndDate');
   const locationInput = document.getElementById('jobEditLocation');
@@ -263,11 +301,11 @@ async function setEditMode(project){
     codeInput.readOnly = true;
   }
   if(nameInput) nameInput.value = project.name || '';
-  if(statusInput) statusInput.value = project.status || 'planned';
   if(startInput) startInput.value = project.startDate || '';
   if(endInput) endInput.value = project.endDate || '';
   if(locationInput) locationInput.value = project.location || '';
   if(notesInput) notesInput.value = project.notes || '';
+  updateJobLifecyclePreview(project);
   const materials = await loadProjectMaterials(project.code);
   resetMaterialLines('job-edit-material-lines', materials);
 
@@ -281,11 +319,10 @@ function clearEditMode(){
   editingCode = null;
   const form = document.getElementById('jobEditForm');
   if(form) form.reset();
-  const statusInput = document.getElementById('jobEditStatus');
-  if(statusInput) statusInput.value = 'planned';
   resetMaterialLines('job-edit-material-lines');
   const editBulk = document.getElementById('jobEditMaterialBulk');
   if(editBulk) editBulk.value = '';
+  updateJobLifecyclePreview();
   const modal = document.getElementById('jobEditModal');
   if(modal) modal.classList.add('hidden');
 }
@@ -496,7 +533,6 @@ function applyStoredDraft(draft){
   };
   assign('jobCode', draft.code);
   assign('jobName', draft.name);
-  assign('jobStatus', draft.status || 'planned');
   assign('jobStartDate', draft.startDate);
   assign('jobEndDate', draft.endDate);
   assign('jobLocation', draft.location);
@@ -519,7 +555,6 @@ function persistDraftToStorage(state){
   const payload = {
     code: state.code,
     name: state.name,
-    status: state.status,
     startDate: state.startDate,
     endDate: state.endDate,
     location: state.location,
@@ -551,7 +586,6 @@ async function openProjectEditForCode(code){
 function getDraftProjectState(){
   const code = document.getElementById('jobCode')?.value.trim() || '';
   const name = document.getElementById('jobName')?.value.trim() || '';
-  const status = document.getElementById('jobStatus')?.value || 'planned';
   const startDate = document.getElementById('jobStartDate')?.value || '';
   const endDate = document.getElementById('jobEndDate')?.value || '';
   const location = document.getElementById('jobLocation')?.value.trim() || '';
@@ -593,9 +627,6 @@ function getDraftProjectState(){
     if(materials.length && supplierGapCount){
       warnings.push({ tone:'info', text:`${supplierGapCount} material line${supplierGapCount === 1 ? '' : 's'} still need a supplier assignment.`, stage:'requirements', focus:'#job-material-lines select[name="supplierId"]', actionLabel:'Assign suppliers' });
     }
-    if((status || '').toLowerCase() === 'active' && (!startDate || !endDate)){
-      warnings.push({ tone:'warn', text:'Active projects should carry a full schedule window.', stage:'details', focus:'#jobStartDate', actionLabel:'Complete schedule' });
-    }
   }
   let readinessTone = 'static';
   let readinessLabel = 'New Draft';
@@ -612,7 +643,7 @@ function getDraftProjectState(){
     }
   }
   const highlights = [
-    status ? `Status: ${formatStatus(status)}` : 'Status: Planned',
+    'Lifecycle: Planned until the first job action is recorded',
     startDate || endDate ? formatProjectDates({ startDate, endDate }) : 'Schedule missing',
     location ? `Location: ${location}` : 'Location missing',
     materials.length ? `${materials.length} material line${materials.length === 1 ? '' : 's'}` : 'No material requirements'
@@ -620,7 +651,6 @@ function getDraftProjectState(){
   return {
     code,
     name,
-    status,
     startDate,
     endDate,
     location,
@@ -1026,10 +1056,9 @@ async function loadProjectMaterials(code){
 function resetAddForm(){
   const form = document.getElementById('jobForm');
   if(form) form.reset();
-  const statusInput = document.getElementById('jobStatus');
-  if(statusInput) statusInput.value = 'planned';
   const codeInput = document.getElementById('jobCode');
   if(codeInput) codeInput.disabled = false;
+  updateJobLifecyclePreview();
   resetMaterialLines('job-material-lines');
   const bulk = document.getElementById('jobMaterialBulk');
   if(bulk) bulk.value = '';
@@ -1174,7 +1203,6 @@ function initProjectForm(){
     ev.preventDefault();
     const code = document.getElementById('jobCode').value.trim();
     const name = document.getElementById('jobName').value.trim();
-    const status = document.getElementById('jobStatus')?.value || 'planned';
     const startDate = document.getElementById('jobStartDate')?.value || '';
     const endDate = document.getElementById('jobEndDate')?.value || '';
     const location = document.getElementById('jobLocation')?.value.trim() || '';
@@ -1186,7 +1214,7 @@ function initProjectForm(){
       alert(catalogResult.error || 'Failed to add project materials to catalog');
       return;
     }
-    const result = await saveProject({code,name,status,startDate,endDate,location,notes,materials});
+    const result = await saveProject({code,name,startDate,endDate,location,notes,materials});
     if(!result.ok){
       alert(result.error || 'Failed to save project (check permissions or server)');
     }else{
@@ -1204,7 +1232,6 @@ function initProjectForm(){
       ev.preventDefault();
       const code = editingCode || document.getElementById('jobEditCode')?.value.trim() || '';
       const name = document.getElementById('jobEditName')?.value.trim() || '';
-      const status = document.getElementById('jobEditStatus')?.value || 'planned';
       const startDate = document.getElementById('jobEditStartDate')?.value || '';
       const endDate = document.getElementById('jobEditEndDate')?.value || '';
       const location = document.getElementById('jobEditLocation')?.value.trim() || '';
@@ -1216,7 +1243,7 @@ function initProjectForm(){
         alert(catalogResult.error || 'Failed to add project materials to catalog');
         return;
       }
-      const result = await saveProject({code,name,status,startDate,endDate,location,notes,materials});
+      const result = await saveProject({code,name,startDate,endDate,location,notes,materials});
       if(!result.ok){
         alert(result.error || 'Failed to save project (check permissions or server)');
       }else{
@@ -1318,7 +1345,7 @@ function initWorkHubControls(){
     });
   });
 
-  ['jobCode','jobName','jobStatus','jobStartDate','jobEndDate','jobLocation','jobNotes','jobMaterialBulk'].forEach(id=>{
+  ['jobCode','jobName','jobStartDate','jobEndDate','jobLocation','jobNotes','jobMaterialBulk'].forEach(id=>{
     const field = document.getElementById(id);
     if(!field) return;
     field.addEventListener('input', ()=> requestDraftRefresh());
@@ -1374,6 +1401,7 @@ function initWorkHubControls(){
     if(workflowText) workflowText.textContent = 'Local draft restored. Review it, then save when the shared record is ready for both modules.';
   }
   draftPersistenceReady = true;
+  updateJobLifecyclePreview();
   setWorkHubFormStage(activeFormStage);
   requestDraftRefresh({ dirty:false });
 }
@@ -1746,15 +1774,10 @@ function buildReportProjectView(project){
   const notesLabel = (meta.notes || '').toString().trim();
   const key = encodeKey(project.projectId);
   const statusRaw = (meta.status || '').toLowerCase();
-  const isComplete = ['complete','completed','closed','archived'].includes(statusRaw);
   const startTs = parseDateValue(meta.startDate)?.getTime() || 0;
   const endTs = parseDateValue(meta.endDate)?.getTime() || startTs || 0;
   const normalizedStartTs = startTs || endTs || 0;
   const normalizedEndTs = endTs || startTs || 0;
-  let actionButton = '';
-  if(isAdmin && !isGeneralProject(project.projectId) && !isComplete){
-    actionButton = `<button type="button" class="action-btn complete-btn" data-code="${key}">Mark Complete</button>`;
-  }
   const lastActivityTs = project.lastActivityTs || 0;
   const lastActivityLabel = lastActivityTs ? formatDateTime(lastActivityTs) : FALLBACK;
   const nameLabel = (meta.name || '').toString().trim();
@@ -1796,7 +1819,6 @@ function buildReportProjectView(project){
     locationLabel,
     notesLabel,
     key,
-    actionButton,
     lastActivityLabel,
     nameLabel,
     checkedOutQty,
@@ -1999,7 +2021,6 @@ function buildReportDetailContent(view, { split = false } = {}){
         <div class="report-detail-panel-actions">
           <button type="button" class="action-btn report-focus-btn" data-project="${view.key}">${detailButtonLabel}</button>
           ${isAdmin && !isGeneralProject(view.project.projectId) ? `<button type="button" class="action-btn report-edit-btn" data-code="${view.project.projectId}">Edit Project</button>` : ''}
-          ${view.actionButton}
         </div>
       </div>
       <div class="report-detail-overview">
@@ -2094,7 +2115,6 @@ function buildV2ReportCardMarkup(view){
         <button type="button" class="action-btn report-project-select" data-project="${view.key}">Open Detail</button>
         <button type="button" class="action-btn report-toggle" data-project="${view.key}">Expand</button>
         ${isAdmin && !isGeneralProject(view.project.projectId) ? `<button type="button" class="action-btn report-edit-btn" data-code="${view.project.projectId}">Edit</button>` : ''}
-        ${view.actionButton}
       </div>
       ${buildReportProjectDetail(view)}
     </div>
@@ -2239,27 +2259,6 @@ function focusReportInlineDetail(key){
   button.scrollIntoView({ behavior:'smooth', block:'center' });
 }
 
-async function completeProjectFromReport(code){
-  if(!code) return;
-  if(!confirm(`Mark project "${code}" complete?`)) return;
-  const meta = getProjectMeta(code);
-  const result = await saveProject({
-    code: meta.code || code,
-    name: meta.name || '',
-    status: 'complete',
-    startDate: meta.startDate || '',
-    endDate: meta.endDate || '',
-    location: meta.location || '',
-    notes: meta.notes || ''
-  });
-  if(!result.ok){
-    alert(result.error || 'Failed to update project');
-    return;
-  }
-  await renderProjects();
-  await renderReport();
-}
-
 function handleReportProjectSelection(key){
   if(!key || !reportViewModelCache?.byKey?.has(key)) return;
   reportSelectedProjectKey = key;
@@ -2288,7 +2287,6 @@ function buildReportCardMarkup(view){
       <div class="report-card-controls">
         <span class="badge info">${escapeHtml(view.statusLabel)}</span>
         <span class="badge ${view.materialStatusClass}">${escapeHtml(view.materialStats.statusLabel)}</span>
-        ${view.actionButton}
       </div>
     </div>
     <div class="report-card-grid compact">
@@ -2339,7 +2337,6 @@ function buildReportTimelineMarkup(view){
         <div class="report-card-controls">
           <span class="badge info">${escapeHtml(view.statusLabel)}</span>
           <span class="badge ${view.materialStatusClass}">${escapeHtml(view.materialStats.statusLabel)}</span>
-          ${view.actionButton}
         </div>
       </div>
       <div class="report-timeline-meta">
@@ -2711,12 +2708,6 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     if(close){
       event.preventDefault();
       closeReportProjectDrawer();
-      return;
-    }
-    const completeBtn = event.target.closest('.complete-btn');
-    if(completeBtn){
-      event.preventDefault();
-      await completeProjectFromReport(decodeKey(completeBtn.dataset.code || ''));
       return;
     }
     const editBtn = event.target.closest('.report-edit-btn');
